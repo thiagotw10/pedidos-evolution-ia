@@ -120,6 +120,10 @@ function formatWhatsAppText(text: string): string {
   if (!text) return '';
   let formatted = text;
 
+  // 0. Remove any technical product IDs like [ID: prod_...] or (ID: prod_...)
+  formatted = formatted.replace(/[•\s]*\[?ID:\s*prod_[a-zA-Z0-9_-]+\]?/gi, '');
+  formatted = formatted.replace(/[•\s]*\(ID:\s*prod_[a-zA-Z0-9_-]+\)/gi, '');
+
   // 1. Convert markdown bold (**word**) to WhatsApp bold (*word*)
   formatted = formatted.replace(/\*\*(.*?)\*\*/g, '*$1*');
 
@@ -132,6 +136,9 @@ function formatWhatsAppText(text: string): string {
 
   // 4. Convert markdown headers (### Header) to bold WhatsApp header (*Header*)
   formatted = formatted.replace(/^#{1,6}\s*(.+)$/gm, '*$1*');
+
+  // 5. Clean empty bullet points or trailing empty lines
+  formatted = formatted.replace(/•\s*\n/g, '\n');
 
   return formatted.trim();
 }
@@ -199,7 +206,12 @@ async function processAiCustomerMessage(
   incomingText: string,
   customerNameParam?: string,
   mediaPart?: { mimeType: string; data: string }
-): Promise<{ replyText: string; orderCreated?: any; mediaToSend?: { url: string; caption: string; productName?: string } | null }> {
+): Promise<{ 
+  replyText: string; 
+  orderCreated?: any; 
+  mediaList?: Array<{ url: string; caption: string; productName?: string }>;
+  mediaToSend?: { url: string; caption: string; productName?: string } | null;
+}> {
   const estDoc = await db.collection('establishments').doc(establishmentId).get();
   const establishment = estDoc.data() || {};
 
@@ -239,7 +251,7 @@ async function processAiCustomerMessage(
   });
 
   const menuText = products.map((p: any) => 
-    `- [ID: ${p.id}] ${p.name} (R$ ${Number(p.price).toFixed(2)}) [Categoria: ${p.category}]${p.imageUrl ? ` [POSSUI_FOTO_URL: ${p.imageUrl}]` : ''}: ${p.description || ''}`
+    `- ${p.name} (R$ ${Number(p.price).toFixed(2)}) [Categoria: ${p.category}]${p.imageUrl ? ` [POSSUI_FOTO_URL: ${p.imageUrl}]` : ''}: ${p.description || ''}`
   ).join('\n');
 
   const systemInstruction = `
@@ -260,17 +272,22 @@ CARDÁPIO ATUAL:
 ${menuText || 'Nenhum item cadastrado no momento.'}
 
 COMO VOCÊ DEVE AGIR:
-1. Responda dúvidas sobre ingredientes, preços e categorias com base estritamente no cardápio acima.
-2. ATENÇÃO MÁXIMA ÀS QUANTIDADES: Respeite rigorosamente a quantidade informada pelo cliente. Se o cliente pedir 2 hambúrgueres no início, mantenha exatamente 2 unidades durante TODA a conversa e no fechamento do pedido! NUNCA reduza para 1.
-3. FLUXO DE PEDIDO:
-   Quando o cliente quiser fazer um pedido, certifique-se de obter:
-   - Itens escolhidos e quantidades exatas
-   - Se é ENTREGA (Delivery) ou RETIRADA no balcão
-   - Se for entrega: Endereço completo (Rua, Número, Bairro, etc.)
-   - Forma de pagamento (PIX, Cartão na entrega ou Dinheiro - se for dinheiro, pergunte se precisa de troco).
+1. APRESENTAÇÃO DO CARDÁPIO COM FOTOS:
+   - Quando o cliente pedir o cardápio, as opções disponíveis ou perguntar o que tem para comer, acione a ferramenta 'enviar_cardapio_com_fotos'.
+   - O sistema enviará automaticamente cada item do cardápio como uma mensagem com a foto do prato, nome, valor e descrição!
+   - NUNCA reescreva IDs técnicos de banco de dados como [ID: ...] ou (ID: ...) nas mensagens.
+2. FLUXO NORMAL AO SELECIONAR OS ITENS:
+   - Quando o cliente escolher ou selecionar o que deseja (ex: "vou querer 2 hambúrgueres artesanais cheddar sem verdura"):
+     NÃO reenvie as fotos do cardápio! Prossiga imediatamente com o fluxo normal de atendimento:
+     1. Confirme os itens escolhidos e anote todas as observações (ex: "Perfeito! Dois Hambúrgueres Artesanais Cheddar anotados, com a observação: sem verdura.").
+     2. Pergunte se prefere Entrega (Delivery) ou Retirada no balcão. Se for entrega, pergunte o endereço completo com rua e número.
+     3. Pergunte a forma de pagamento (PIX, Cartão na entrega ou Dinheiro).
+     4. Ao ter os dados confirmados, acione a ferramenta 'registrar_pedido' para salvar no painel da cozinha.
+3. ATENÇÃO MÁXIMA ÀS QUANTIDADES E OBSERVAÇÕES:
+   - Respeite rigorosamente a quantidade informada pelo cliente (se pedir 2 hambúrgueres, mantenha exatamente 2 unidades).
+   - Registre todas as observações do cliente (ex: sem verdura, sem cebola, ponto da carne).
 4. REGRA OBRIGATÓRIA DE FECHAMENTO (CHAMADA DE FERRAMENTA):
    - Assim que o cliente fornecer itens, endereço e forma de pagamento, você DEVE OBRIGATORIAMENTE chamar a ferramenta 'registrar_pedido'.
-   - NUNCA invente ou responda apenas em texto que o pedido "foi registrado", "foi anotado com sucesso" ou "está sendo preparado" sem acionar a ferramenta 'registrar_pedido'.
    - O pedido SÓ EXISTE NO SISTEMA DO RESTAURANTE SE VOCÊ EXECUTAR A FERRAMENTA 'registrar_pedido'.
 5. FORMATAÇÃO VISUAL PARA WHATSAPP:
    - Use formato nativo do WhatsApp: negrito com APENAS UM asterisco (ex: *Hambúrguer Artesanal*). NUNCA use duplo asterisco **assim**.
@@ -278,10 +295,9 @@ COMO VOCÊ DEVE AGIR:
 6. MENSAGENS DE ÁUDIO E IMAGEM (MULTIMODALIDADE):
    - O cliente pode enviar mensagens de áudio com pedidos, dúvidas ou endereço. Você tem capacidade de ouvir e compreender áudios perfeitamente em português.
    - Extraia com atenção máxima todos os itens, quantidades, endereço e forma de pagamento informados por voz no áudio.
-   - Trate o pedido recebido por áudio com a mesma precisão do texto e acione a ferramenta 'registrar_pedido' assim que os dados estiverem completos!
-7. ENVIO DE FOTO DO PRODUTO:
-   - Se o cliente pedir para ver uma foto, imagem ou perguntar como é a aparência do produto, acione OBRIGATORIAMENTE a ferramenta 'enviar_foto_produto' para o item do cardápio.
-   - Os itens com [POSSUI_FOTO_URL: ...] têm foto disponível para disparo imediato.
+7. SUGESTÃO DE ÁUDIO NO INÍCIO:
+   - Na primeira saudação ou início da conversa, dê as boas-vindas com alegria e mencione:
+     "🎙️ *Dica:* Se preferir, pode me mandar mensagem de áudio que eu escuto perfeitamente e anoto seu pedido!"
 `;
 
   // Define Function Calling Tool for order placement
@@ -316,10 +332,22 @@ COMO VOCÊ DEVE AGIR:
     }
   };
 
+  // Define Function Calling Tool for sending menu with photos
+  const enviarCardapioComFotosTool = {
+    name: 'enviar_cardapio_com_fotos',
+    description: 'Envia os pratos do cardápio individualmente com suas respectivas fotos, preços e descrições para o WhatsApp do cliente quando ele pedir para ver o cardápio.',
+    parameters: {
+      type: 'object',
+      properties: {
+        category: { type: 'string', description: 'Categoria específica se o cliente pediu apenas uma categoria' }
+      }
+    }
+  };
+
   // Define Function Calling Tool for sending product photo
   const enviarFotoProdutoTool = {
     name: 'enviar_foto_produto',
-    description: 'Envia a foto do produto diretamente no WhatsApp do cliente quando ele pedir para ver uma foto, imagem ou perguntar como é o prato/item.',
+    description: 'Envia a foto de um produto específico diretamente no WhatsApp do cliente quando ele pedir para ver foto.',
     parameters: {
       type: 'object',
       properties: {
@@ -373,19 +401,42 @@ COMO VOCÊ DEVE AGIR:
       contents: contents,
       config: {
         systemInstruction: { parts: [{ text: systemInstruction }] },
-        tools: [{ functionDeclarations: [registrarPedidoTool as any, enviarFotoProdutoTool as any] }],
+        tools: [{ functionDeclarations: [registrarPedidoTool as any, enviarCardapioComFotosTool as any, enviarFotoProdutoTool as any] }],
         temperature: 0.1
       }
     });
 
     let replyText = response.text || '';
     let createdOrder: any = null;
-    let mediaToSend: { url: string; caption: string; productName?: string } | null = null;
+    let mediaList: Array<{ url: string; caption: string; productName?: string }> = [];
 
     // Check if the model called any tools
     const functionCalls = response.functionCalls;
     if (functionCalls && functionCalls.length > 0) {
       for (const call of functionCalls) {
+        if (call.name === 'enviar_cardapio_com_fotos') {
+          const args: any = call.args;
+          const catFilter = (args.category || '').toLowerCase().trim();
+          
+          let prodsToSend = products.filter((p: any) => p.available !== false && p.imageUrl);
+          if (catFilter) {
+            const filtered = prodsToSend.filter((p: any) => p.category?.toLowerCase().includes(catFilter));
+            if (filtered.length > 0) prodsToSend = filtered;
+          }
+
+          prodsToSend = prodsToSend.slice(0, 10);
+
+          if (prodsToSend.length > 0) {
+            mediaList = prodsToSend.map((p: any) => ({
+              url: p.imageUrl,
+              caption: `🍽️ *${p.name}* - R$ ${Number(p.price).toFixed(2)}\n${p.description || ''}`,
+              productName: p.name
+            }));
+            console.log(`[Menu Tool Triggered] Enviando cardápio com ${mediaList.length} foto(s) de produtos!`);
+            replyText = `Aqui está o nosso cardápio com as fotos de cada opção! 👆😋\n\nQual item te apetece mais hoje? Pode me mandar por áudio ou texto que já anoto seu pedido! 🎙️`;
+          }
+        }
+
         if (call.name === 'enviar_foto_produto') {
           const args: any = call.args;
           const searchName = (args.productName || '').toLowerCase().trim();
@@ -396,11 +447,11 @@ COMO VOCÊ DEVE AGIR:
           );
 
           if (found && found.imageUrl) {
-            mediaToSend = {
+            mediaList.push({
               url: found.imageUrl,
               caption: `📸 *${found.name}* - R$ ${Number(found.price).toFixed(2)}\n${found.description || ''}`,
               productName: found.name
-            };
+            });
             if (!replyText) {
               replyText = `Aqui está a foto do nosso *${found.name}*! 😋 Ficou com água na boca? Posso adicionar ao seu pedido?`;
             }
@@ -573,9 +624,41 @@ COMO VOCÊ DEVE AGIR:
       }
     }
 
-    // Safety Fallback for Photo requests: If client asked for photo/imagem and Gemini didn't trigger tool
-    if (!mediaToSend) {
-      const lowerIn = (incomingText || '').toLowerCase();
+    // Menu with Photos and Single Photo Triggers
+    const lowerIn = (incomingText || '').toLowerCase();
+    const isAskingMenu = lowerIn.includes('cardapio') || lowerIn.includes('cardápio') || 
+                         lowerIn.includes('menu') || lowerIn.includes('opções') || 
+                         lowerIn.includes('opcoes') || lowerIn.includes('o que tem') || 
+                         lowerIn.includes('o que vocês tem') || lowerIn.includes('o que voces tem') || 
+                         lowerIn.includes('quais sao os lanches') || lowerIn.includes('quais são os lanches') || 
+                         lowerIn.includes('ver o cardapio') || lowerIn.includes('ver cardapio');
+
+    const isSelecting = lowerIn.includes('quero') || lowerIn.includes('vou querer') || 
+                        lowerIn.includes('me vê') || lowerIn.includes('me ve') || 
+                        lowerIn.includes('adiciona') || lowerIn.includes('manda') || 
+                        lowerIn.includes('pedir') || lowerIn.includes('1 ') || 
+                        lowerIn.includes('2 ') || lowerIn.includes('um ') || 
+                        lowerIn.includes('uma ') || lowerIn.includes('dois ') || 
+                        lowerIn.includes('duas ');
+
+    // 1. If customer asked for menu and tool didn't populate mediaList, fallback populate with all products with photo
+    if (isAskingMenu && !isSelecting && mediaList.length === 0) {
+      const prodsWithPhoto = products.filter((p: any) => p.available !== false && p.imageUrl).slice(0, 10);
+      if (prodsWithPhoto.length > 0) {
+        mediaList = prodsWithPhoto.map((p: any) => ({
+          url: p.imageUrl,
+          caption: formatWhatsAppText(`🍽️ *${p.name}* - R$ ${Number(p.price).toFixed(2)}\n${p.description || ''}`),
+          productName: p.name
+        }));
+        console.log(`[Fallback Menu Trigger] Preparando ${mediaList.length} foto(s) do cardápio para envio`);
+        if (!replyText || replyText.includes('[ID:')) {
+          replyText = `Aqui estão as fotos das opções do nosso cardápio! 👆😋\n\nQual item você gostaria de pedir hoje? Pode mandar em áudio ou texto que já anoto seu pedido! 🎙️`;
+        }
+      }
+    }
+
+    // 2. If customer specifically asked for photo of a product (and isn't selecting/ordering yet)
+    if (mediaList.length === 0 && !isSelecting) {
       const askedPhoto = lowerIn.includes('foto') || lowerIn.includes('imagem') || lowerIn.includes('fotos') || lowerIn.includes('imagens') || lowerIn.includes('ver o ') || lowerIn.includes('ver a ');
       if (askedPhoto) {
         const found: any = products.find((prod: any) => prod.imageUrl && (
@@ -583,25 +666,35 @@ COMO VOCÊ DEVE AGIR:
           prod.name.toLowerCase().split(' ').some((w: string) => w.length > 3 && lowerIn.includes(w))
         ));
         if (found) {
-          mediaToSend = {
+          mediaList.push({
             url: found.imageUrl,
-            caption: `📸 *${found.name}* - R$ ${Number(found.price).toFixed(2)}\n${found.description || ''}`,
+            caption: formatWhatsAppText(`📸 *${found.name}* - R$ ${Number(found.price).toFixed(2)}\n${found.description || ''}`),
             productName: found.name
-          };
-          console.log(`[Fallback Photo Capture] Foto do produto "${found.name}" detectada via texto para envio!`);
+          });
+          console.log(`[Single Photo Trigger] Foto do produto "${found.name}" preparada para envio!`);
         }
       }
     }
 
     if (!replyText) {
-      if (mediaToSend) {
-        replyText = `Aqui está a foto do *${mediaToSend.productName || 'produto'}*! Deseja pedir este item?`;
+      if (mediaList.length === 1) {
+        replyText = `Aqui está a foto do nosso *${mediaList[0].productName || 'produto'}*! Deseja pedir este item?`;
+      } else if (mediaList.length > 1) {
+        replyText = `Aqui estão as fotos dos nossos pratos! 👆😋\n\nQual item te apetece mais hoje? Se preferir, pode me mandar mensagem de áudio ou texto! 🎙️`;
       } else {
         replyText = 'Desculpe, não consegui entender perfeitamente. Como posso te ajudar com o cardápio?';
       }
     }
 
-    // Format clean WhatsApp typography (convert markdown bold/bullets)
+    // Ensure audio suggestion is present on customer's initial contact
+    if (history.length <= 1) {
+      const lowerReply = replyText.toLowerCase();
+      if (!lowerReply.includes('áudio') && !lowerReply.includes('audio') && !lowerReply.includes('voz')) {
+        replyText = `${replyText}\n\n🎙️ *Dica:* Se preferir, você também pode me mandar mensagem de áudio que eu escuto com atenção e anoto seu pedido!`;
+      }
+    }
+
+    // Format clean WhatsApp typography (convert markdown bold/bullets and remove ID leaks)
     replyText = formatWhatsAppText(replyText);
 
     // Save assistant reply to chat history
@@ -610,10 +703,15 @@ COMO VOCÊ DEVE AGIR:
       text: replyText,
       timestamp: new Date().toISOString(),
       orderId: createdOrder ? createdOrder.id : null,
-      mediaUrl: mediaToSend ? mediaToSend.url : null
+      mediaUrl: mediaList.length > 0 ? mediaList[0].url : null
     });
 
-    return { replyText, orderCreated: createdOrder, mediaToSend };
+    return { 
+      replyText, 
+      orderCreated: createdOrder, 
+      mediaList,
+      mediaToSend: mediaList.length > 0 ? mediaList[0] : null 
+    };
   } catch (err: any) {
     console.error('[Gemini AI Process Error]:', err);
     return {
@@ -768,8 +866,27 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
     console.log(`[Evolution Webhook] Processando mensagem de ${phone} (${pushName || 'Sem nome'}): ${text ? `"${text.slice(0, 50)}..."` : (mediaPart ? `[Mídia: ${mediaPart.mimeType}]` : '[Vazio]')}`);
     const result = await processAiCustomerMessage(storeId, phone, text, pushName, mediaPart || undefined);
 
-    // 1. Send product image if requested
-    if (result.mediaToSend) {
+    // 1. Send product images if requested (e.g. menu items with individual photos)
+    if (result.mediaList && result.mediaList.length > 0) {
+      console.log(`[Evolution Webhook] Enviando ${result.mediaList.length} foto(s) de item/cardápio para ${phone}...`);
+      for (let i = 0; i < result.mediaList.length; i++) {
+        const item = result.mediaList[i];
+        console.log(`[Evolution Webhook] Enviando foto ${i + 1}/${result.mediaList.length}: ${item.productName || 'Item'} (${item.url})`);
+        await sendWhatsAppMedia(
+          evoUrl,
+          evoKey,
+          evoInst,
+          phone,
+          item.url,
+          item.caption,
+          'image'
+        );
+        // Small delay between photos to guarantee sequential delivery on WhatsApp
+        if (i < result.mediaList.length - 1) {
+          await new Promise(r => setTimeout(r, 650));
+        }
+      }
+    } else if (result.mediaToSend) {
       console.log(`[Evolution Webhook] Enviando foto de produto para ${phone}: ${result.mediaToSend.url}`);
       await sendWhatsAppMedia(
         evoUrl,
@@ -785,6 +902,9 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
     // 2. Send reply text via Evolution API
     let sendRes: any = null;
     if (result.replyText && (!result.mediaToSend || result.replyText !== result.mediaToSend.caption)) {
+      if (result.mediaList && result.mediaList.length > 0) {
+        await new Promise(r => setTimeout(r, 500));
+      }
       sendRes = await sendWhatsAppMessage(evoUrl, evoKey, evoInst, phone, result.replyText);
       console.log(`[Evolution Webhook] Resposta enviada para ${phone}:`, JSON.stringify(sendRes));
     }

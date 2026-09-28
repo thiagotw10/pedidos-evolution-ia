@@ -76,16 +76,39 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
 
       const data = await response.json();
       
-      const aiReplyMsg: ChatMessage = {
-        id: `ai_${Date.now()}`,
-        sender: 'assistant',
-        text: data.replyText || 'Entendi!',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        orderId: data.orderCreated?.id,
-        mediaUrl: data.mediaToSend?.url
-      };
+      const newMsgs: ChatMessage[] = [];
 
-      setMessages(prev => [...prev, aiReplyMsg]);
+      if (data.mediaList && data.mediaList.length > 0) {
+        data.mediaList.forEach((m: any, idx: number) => {
+          newMsgs.push({
+            id: `ai_media_${Date.now()}_${idx}`,
+            sender: 'assistant',
+            text: m.caption,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            mediaUrl: m.url
+          });
+        });
+      } else if (data.mediaToSend) {
+        newMsgs.push({
+          id: `ai_media_${Date.now()}`,
+          sender: 'assistant',
+          text: data.mediaToSend.caption,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          mediaUrl: data.mediaToSend.url
+        });
+      }
+
+      if (data.replyText && (!data.mediaToSend || data.replyText !== data.mediaToSend.caption)) {
+        newMsgs.push({
+          id: `ai_${Date.now()}`,
+          sender: 'assistant',
+          text: data.replyText,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          orderId: data.orderCreated?.id
+        });
+      }
+
+      setMessages(prev => [...prev, ...newMsgs]);
 
       if (data.orderCreated) {
         if (onOrderCreatedNotification) onOrderCreatedNotification();
