@@ -1,4 +1,4 @@
-# 🚀 ZapPedidos IA - Automação WhatsApp & Gestão de Pedidos com Evolution API + Firebase
+# 🚀 iaPedido.com - Automação WhatsApp & Gestão de Pedidos com Evolution API + Firebase
 
 Plataforma completa para estabelecimentos comerciais (restaurantes, lanchonetes, pizzarias, lojas) com atendimento automatizado no **WhatsApp via Evolution API**, inteligência artificial com **Google Gemini** e painel em tempo real integrado ao **Firebase Firestore**.
 

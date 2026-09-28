@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import admin from 'firebase-admin';
 import dotenv from 'dotenv';
+import crypto from 'crypto';
 import { GoogleGenAI } from '@google/genai';
 
 dotenv.config();
@@ -71,11 +72,10 @@ async function seedDefaultDataIfNeeded() {
         deliveryFee: 7.50,
         estimatedDeliveryTime: '35 a 50 minutos',
         operatingHours: 'Terça a Domingo das 18:00 às 23:30',
-        description: 'Os melhores hambúrgueres artesanais na brasa, smash burgers e porções crocantes!',
         pixKey: 'contato@burgercia.com.br',
-        evolutionApiUrl: process.env.EVOLUTION_API_URL || 'http://localhost:8080',
-        evolutionApiKey: process.env.EVOLUTION_API_KEY || 'B6D711FCDE4D4FD5936544120E713976',
-        evolutionInstanceName: process.env.EVOLUTION_INSTANCE_NAME || 'restaurante_zap',
+        evolutionApiUrl: process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081',
+        evolutionApiKey: process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108',
+        evolutionInstanceName: process.env.EVOLUTION_INSTANCE_NAME || 'pedidos_zap',
         evolutionConnected: false,
         aiPromptCustom: 'Você é o atendente virtual do Burger & Cia Gourmet. Seja simpático, acolhedor, rápido e use emojis moderados. Tire dúvidas sobre o cardápio e quando o cliente decidir, monte o pedido perguntando: nome do cliente, se é delivery ou retirada, endereço (se delivery) e forma de pagamento (PIX, Cartão na entrega ou Dinheiro com troco). Sempre confirme os itens antes de registrar.',
         aiWelcomeMessage: 'Olá! Seja muito bem-vindo ao Burger & Cia Gourmet 🍔! O que você gostaria de pedir hoje?',
@@ -147,7 +147,7 @@ async function seedDefaultDataIfNeeded() {
   }
 }
 
-// Evolution API helper: Send WhatsApp Message
+// Evolution API helper: Send WhatsApp Message (Supports Evolution Go and Evolution API v1/v2)
 async function sendWhatsAppMessage(
   evolutionUrl: string,
   apiKey: string,
@@ -156,12 +156,38 @@ async function sendWhatsAppMessage(
   text: string
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   try {
-    const cleanNumber = number.replace(/\D/g, '');
+    const numeric = number.replace(/\D/g, '');
+    const cleanNumber = numeric.startsWith('55') ? numeric : `55${numeric}`;
     const cleanUrl = evolutionUrl.replace(/\/$/, '');
+
+    console.log(`[Evolution API] Enviando mensagem para ${cleanNumber} (instância ${instanceName})...`);
+
+    // 1. Try Evolution Go (/send/text with token as apikey)
+    try {
+      const respGo = await fetch(`${cleanUrl}/send/text`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': instanceName
+        },
+        body: JSON.stringify({
+          number: cleanNumber,
+          text: text,
+          delay: 1200
+        })
+      });
+
+      if (respGo.ok) {
+        const dataGo = await respGo.json();
+        console.log(`[Evolution API Go] Mensagem enviada com sucesso para ${cleanNumber}!`);
+        return { success: true, data: dataGo };
+      }
+    } catch (e: any) {
+      console.warn(`[Evolution API Go] Falha ao tentar /send/text:`, e.message);
+    }
+
+    // 2. Fallback to Evolution API v1/v2 (/message/sendText/{instance})
     const url = `${cleanUrl}/message/sendText/${instanceName}`;
-
-    console.log(`[Evolution API] Enviando mensagem para ${cleanNumber} via ${url}...`);
-
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -181,10 +207,17 @@ async function sendWhatsAppMessage(
       })
     });
 
-    const data = await response.json();
+    const rawText = await response.text();
+    let data: any = {};
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      data = { message: rawText };
+    }
+
     if (!response.ok) {
-      console.error('[Evolution API Response Error]:', data);
-      return { success: false, error: JSON.stringify(data) };
+      console.warn('[Evolution API Response Warning]:', data.message || rawText);
+      return { success: false, error: data.message || rawText };
     }
 
     console.log(`[Evolution API] Mensagem enviada com sucesso para ${cleanNumber}!`);
@@ -416,10 +449,21 @@ async function startServer() {
 
   app.use(express.json());
 
+  // Helper to resolve establishmentId in multi-tenant requests
+  function getStoreId(req: express.Request): string {
+    return (
+      (req.params && req.params.establishmentId) ||
+      (req.query && (req.query.establishmentId as string)) ||
+      (req.headers && (req.headers['x-establishment-id'] as string)) ||
+      (req.body && req.body.establishmentId) ||
+      DEFAULT_ESTABLISHMENT_ID
+    );
+  }
+
   // ----------------------------------------------------
-  // API: Evolution API Webhook Receiver
+  // API: Evolution API Webhook Receiver (Multi-Tenant)
   // ----------------------------------------------------
-  app.post('/api/webhook/evolution', async (req, res) => {
+  app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], async (req, res) => {
     try {
       const payload = req.body;
       console.log('[Webhook Evolution] Evento recebido:', payload.event || payload.type);
@@ -457,31 +501,51 @@ async function startServer() {
 
         console.log(`[WhatsApp Inbound] De: ${senderPhone} | Mensagem: "${textContent}"`);
 
-        // Get establishment configuration
-        const instanceName = payload.instance || process.env.EVOLUTION_INSTANCE_NAME || 'restaurante_zap';
-        const estDoc = await db.collection('establishments').doc(DEFAULT_ESTABLISHMENT_ID).get();
+        // Resolve target establishment
+        let targetStoreId = req.params.establishmentId;
+        const instanceName = payload.instance || payload.data?.instance || '';
+
+        if (!targetStoreId && instanceName) {
+          const querySnap = await db.collection('establishments')
+            .where('evolutionInstanceName', '==', instanceName)
+            .limit(1)
+            .get();
+          if (!querySnap.empty) {
+            targetStoreId = querySnap.docs[0].id;
+          }
+        }
+
+        if (!targetStoreId) {
+          targetStoreId = DEFAULT_ESTABLISHMENT_ID;
+        }
+
+        console.log(`[WhatsApp Multi-Tenant] Roteado para o Estabelecimento: ${targetStoreId}`);
+
+        const estDoc = await db.collection('establishments').doc(targetStoreId).get();
         const est = estDoc.data() || {};
 
-        // Process with Gemini AI
+        // Process with Gemini AI for this specific store
         const { replyText } = await processAiCustomerMessage(
-          DEFAULT_ESTABLISHMENT_ID,
+          targetStoreId,
           senderPhone,
           textContent,
           messageData.pushName
         );
 
         // Send response back via Evolution API
-        const evoUrl = est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://localhost:8080';
-        const evoKey = est.evolutionApiKey || process.env.EVOLUTION_API_KEY || '';
-        const evoInst = est.evolutionInstanceName || instanceName;
+        let evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+        if (evoUrl.includes('localhost:8080') || !evoUrl) {
+          evoUrl = (process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+        }
+        let evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
+        if (!evoKey) evoKey = 'minha_chave_secreta_7108';
+        const evoInst = (est.evolutionInstanceName || instanceName || 'pedidos_zap').trim();
 
-        if (evoUrl && evoKey) {
+        if (replyText) {
           await sendWhatsAppMessage(evoUrl, evoKey, evoInst, senderPhone, replyText);
-        } else {
-          console.warn('[Webhook Evolution] Evolution API não configurada para resposta automática.');
         }
 
-        return res.status(200).json({ status: 'processed', reply: replyText });
+        return res.status(200).json({ status: 'processed', establishmentId: targetStoreId, reply: replyText });
       }
 
       return res.status(200).json({ status: 'event_received' });
@@ -492,13 +556,173 @@ async function startServer() {
   });
 
   // ----------------------------------------------------
-  // API: Establishment Settings
+  // API: Establishment Authentication (Direct & Fallback)
   // ----------------------------------------------------
-  app.get('/api/establishment', async (_req, res) => {
+  function hashPassword(password: string): string {
+    return crypto.createHash('sha256').update(password + '_iapedido_salt').digest('hex');
+  }
+
+  app.post('/api/auth/register', async (req, res) => {
     try {
-      const doc = await db.collection('establishments').doc(DEFAULT_ESTABLISHMENT_ID).get();
+      const { email, password, storeName, storePhone, segment } = req.body;
+      if (!email || !password || !storeName) {
+        return res.status(400).json({ error: 'E-mail, senha e nome do estabelecimento são obrigatórios.' });
+      }
+
+      const cleanEmail = email.toLowerCase().trim();
+      
+      // Check if user already exists
+      const existingUsers = await db.collection('establishment_users').where('email', '==', cleanEmail).limit(1).get();
+      if (!existingUsers.empty) {
+        return res.status(400).json({ error: 'Este e-mail já está cadastrado. Vá na aba Entrar para fazer login.' });
+      }
+
+      // Try to create in Firebase Auth via Admin SDK as well
+      let uid = '';
+      try {
+        const fbUser = await admin.auth().createUser({
+          email: cleanEmail,
+          password: password,
+          displayName: storeName
+        });
+        uid = fbUser.uid;
+      } catch (fbErr: any) {
+        console.warn('[Fallback Auth] Admin createUser aviso:', fbErr.message);
+        uid = 'est_' + crypto.randomBytes(8).toString('hex');
+      }
+
+      const hashedPassword = hashPassword(password);
+
+      // Save credentials in establishment_users
+      await db.collection('establishment_users').doc(uid).set({
+        uid,
+        email: cleanEmail,
+        passwordHash: hashedPassword,
+        storeName,
+        storePhone: storePhone || '',
+        segment: segment || 'Alimentação & Bebidas',
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      // Initialize store profile in establishments
+      await db.collection('establishments').doc(uid).set({
+        id: uid,
+        name: storeName,
+        phone: storePhone || '',
+        segment: segment || 'Alimentação & Bebidas',
+        address: '',
+        deliveryFee: 5.0,
+        estimatedDeliveryTime: '30 a 50 minutos',
+        operatingHours: 'Segunda a Domingo das 18:00 às 23:00',
+        description: `Atendimento inteligente no WhatsApp para ${storeName}`,
+        pixKey: cleanEmail,
+        evolutionConnected: false,
+        aiPromptCustom: `Você é o atendente virtual do ${storeName}. Seja simpático, acolhedor, rápido e use emojis moderados. Tire dúvidas sobre o cardápio e quando o cliente decidir, monte o pedido perguntando: nome do cliente, se é delivery ou retirada, endereço (se delivery) e forma de pagamento (PIX, Cartão na entrega ou Dinheiro com troco). Sempre confirme os itens antes de registrar.`,
+        aiWelcomeMessage: `Olá! Seja muito bem-vindo ao ${storeName} 🍔! O que você gostaria de pedir hoje?`,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        evolutionApiKey: 'minha_chave_secreta_7108',
+        evolutionApiUrl: 'http://34.69.146.15:8081',
+        evolutionInstanceName: `pedidos_${uid.slice(0, 15)}`
+      }, { merge: true });
+
+      // Create initial sample products for new store
+      const sampleProds = [
+        { name: 'X-Burguer Especial', price: 28.9, category: 'Lanches', description: 'Pão artesanal, hambúrguer 160g, queijo prato e molho especial.', available: true },
+        { name: 'Batata Frita Crocante', price: 16.0, category: 'Porções', description: 'Porção individual de batata frita bem sequinha.', available: true },
+        { name: 'Refrigerante Lata 350ml', price: 6.0, category: 'Bebidas', description: 'Coca-Cola, Guaraná ou Fanta gelada.', available: true }
+      ];
+      for (const prod of sampleProds) {
+        await db.collection('establishments').doc(uid).collection('products').add({
+          ...prod,
+          createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+      }
+
+      let customToken = null;
+      try {
+        customToken = await admin.auth().createCustomToken(uid);
+      } catch {}
+
+      res.json({
+        success: true,
+        uid,
+        email: cleanEmail,
+        storeName,
+        customToken
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/auth/login', async (req, res) => {
+    try {
+      const { email, password } = req.body;
+      if (!email || !password) {
+        return res.status(400).json({ error: 'E-mail e senha são obrigatórios.' });
+      }
+
+      const cleanEmail = email.toLowerCase().trim();
+      const hashedPassword = hashPassword(password);
+
+      const userSnap = await db.collection('establishment_users').where('email', '==', cleanEmail).limit(1).get();
+      if (userSnap.empty) {
+        return res.status(401).json({ error: 'E-mail ou senha incorretos.' });
+      }
+
+      const userData = userSnap.docs[0].data();
+      if (userData.passwordHash !== hashedPassword) {
+        return res.status(401).json({ error: 'E-mail ou senha incorretos.' });
+      }
+
+      const uid = userData.uid || userSnap.docs[0].id;
+      let customToken = null;
+      try {
+        customToken = await admin.auth().createCustomToken(uid);
+      } catch {}
+
+      res.json({
+        success: true,
+        uid,
+        email: cleanEmail,
+        storeName: userData.storeName || 'Meu Estabelecimento',
+        customToken
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ----------------------------------------------------
+  // API: Establishment Settings (Multi-Tenant)
+  // ----------------------------------------------------
+  app.get('/api/establishment', async (req, res) => {
+    try {
+      const storeId = getStoreId(req);
+      const doc = await db.collection('establishments').doc(storeId).get();
       if (!doc.exists) {
-        return res.status(404).json({ error: 'Estabelecimento não encontrado' });
+        const cleanInstName = `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`;
+        const newStore = {
+          id: storeId,
+          name: 'Meu Estabelecimento',
+          phone: '',
+          segment: 'Alimentação & Bebidas',
+          address: 'Rua Principal, 100 - Centro',
+          deliveryFee: 7.00,
+          estimatedDeliveryTime: '35 a 50 minutos',
+          operatingHours: 'Todos os dias das 18:00 às 23:30',
+          description: 'Atendimento inteligente no WhatsApp',
+          pixKey: '',
+          evolutionApiUrl: 'http://34.69.146.15:8081',
+          evolutionApiKey: 'minha_chave_secreta_7108',
+          evolutionInstanceName: cleanInstName,
+          evolutionConnected: false,
+          aiPromptCustom: 'Você é o atendente virtual do restaurante. Seja simpático e atencioso.',
+          aiWelcomeMessage: 'Olá! Seja muito bem-vindo! O que gostaria de pedir hoje?',
+          createdAt: admin.firestore.FieldValue.serverTimestamp()
+        };
+        await db.collection('establishments').doc(storeId).set(newStore);
+        return res.json(newStore);
       }
       res.json({ id: doc.id, ...doc.data() });
     } catch (err: any) {
@@ -508,21 +732,23 @@ async function startServer() {
 
   app.post('/api/establishment', async (req, res) => {
     try {
+      const storeId = req.body.id || getStoreId(req);
       const updateData = { ...req.body, updatedAt: new Date().toISOString() };
       delete updateData.id;
-      await db.collection('establishments').doc(DEFAULT_ESTABLISHMENT_ID).set(updateData, { merge: true });
-      res.json({ success: true, message: 'Dados atualizados com sucesso!' });
+      await db.collection('establishments').doc(storeId).set(updateData, { merge: true });
+      res.json({ success: true, message: 'Dados atualizados com sucesso!', establishmentId: storeId });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
   // ----------------------------------------------------
-  // API: Products CRUD
+  // API: Products CRUD (Multi-Tenant)
   // ----------------------------------------------------
-  app.get('/api/products', async (_req, res) => {
+  app.get('/api/products', async (req, res) => {
     try {
-      const snapshot = await db.collection('establishments').doc(DEFAULT_ESTABLISHMENT_ID).collection('products').get();
+      const storeId = getStoreId(req);
+      const snapshot = await db.collection('establishments').doc(storeId).collection('products').get();
       const products = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       res.json(products);
     } catch (err: any) {
@@ -532,6 +758,7 @@ async function startServer() {
 
   app.post('/api/products', async (req, res) => {
     try {
+      const storeId = getStoreId(req);
       const product = req.body;
       const productId = product.id || `prod_${Date.now()}`;
       const productData = {
@@ -541,7 +768,7 @@ async function startServer() {
         available: product.available !== false,
         updatedAt: new Date().toISOString()
       };
-      await db.collection('establishments').doc(DEFAULT_ESTABLISHMENT_ID).collection('products').doc(productId).set(productData, { merge: true });
+      await db.collection('establishments').doc(storeId).collection('products').doc(productId).set(productData, { merge: true });
       res.json({ success: true, product: productData });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -550,8 +777,9 @@ async function startServer() {
 
   app.delete('/api/products/:id', async (req, res) => {
     try {
+      const storeId = getStoreId(req);
       const { id } = req.params;
-      await db.collection('establishments').doc(DEFAULT_ESTABLISHMENT_ID).collection('products').doc(id).delete();
+      await db.collection('establishments').doc(storeId).collection('products').doc(id).delete();
       res.json({ success: true, message: 'Produto removido com sucesso' });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -559,11 +787,12 @@ async function startServer() {
   });
 
   // ----------------------------------------------------
-  // API: Orders & Automatic WhatsApp Status Updates
+  // API: Orders & Automatic WhatsApp Status Updates (Multi-Tenant)
   // ----------------------------------------------------
-  app.get('/api/orders', async (_req, res) => {
+  app.get('/api/orders', async (req, res) => {
     try {
-      const snapshot = await db.collection('establishments').doc(DEFAULT_ESTABLISHMENT_ID).collection('orders').orderBy('createdAt', 'desc').limit(100).get();
+      const storeId = getStoreId(req);
+      const snapshot = await db.collection('establishments').doc(storeId).collection('orders').orderBy('createdAt', 'desc').limit(100).get();
       const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       res.json(orders);
     } catch (err: any) {
@@ -573,10 +802,11 @@ async function startServer() {
 
   app.patch('/api/orders/:id/status', async (req, res) => {
     try {
+      const storeId = getStoreId(req);
       const { id } = req.params;
       const { status, rejectionReason } = req.body;
 
-      const orderRef = db.collection('establishments').doc(DEFAULT_ESTABLISHMENT_ID).collection('orders').doc(id);
+      const orderRef = db.collection('establishments').doc(storeId).collection('orders').doc(id);
       const orderSnap = await orderRef.get();
 
       if (!orderSnap.exists) {
@@ -626,19 +856,21 @@ async function startServer() {
       // If statusMessage exists and customer has phone, send via Evolution API
       let sentNotification = false;
       if (statusMessage && order.customerPhone) {
-        const estDoc = await db.collection('establishments').doc(DEFAULT_ESTABLISHMENT_ID).get();
+        const estDoc = await db.collection('establishments').doc(storeId).get();
         const est = estDoc.data() || {};
-        const evoUrl = est.evolutionApiUrl || process.env.EVOLUTION_API_URL;
-        const evoKey = est.evolutionApiKey || process.env.EVOLUTION_API_KEY;
-        const evoInst = est.evolutionInstanceName || process.env.EVOLUTION_INSTANCE_NAME;
-
-        if (evoUrl && evoKey && evoInst) {
-          const sendResult = await sendWhatsAppMessage(evoUrl, evoKey, evoInst, order.customerPhone, statusMessage);
-          sentNotification = sendResult.success;
+        let evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+        if (evoUrl.includes('localhost:8080') || !evoUrl) {
+          evoUrl = (process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
         }
+        let evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
+        if (!evoKey) evoKey = 'minha_chave_secreta_7108';
+        const evoInst = (est.evolutionInstanceName || process.env.EVOLUTION_INSTANCE_NAME || 'pedidos_zap').trim();
+
+        const sendResult = await sendWhatsAppMessage(evoUrl, evoKey, evoInst, order.customerPhone, statusMessage);
+        sentNotification = sendResult.success;
 
         // Also append system message to conversation history
-        await db.collection('establishments').doc(DEFAULT_ESTABLISHMENT_ID)
+        await db.collection('establishments').doc(storeId)
           .collection('chats').doc(order.customerPhone)
           .collection('messages').add({
             sender: 'system',
@@ -665,12 +897,13 @@ async function startServer() {
   // ----------------------------------------------------
   app.post('/api/simulator/chat', async (req, res) => {
     try {
+      const storeId = req.body.establishmentId || getStoreId(req);
       const { phone, text, name } = req.body;
       const testPhone = phone || '5511988887777';
       const testName = name || 'Cliente Teste';
 
       const result = await processAiCustomerMessage(
-        DEFAULT_ESTABLISHMENT_ID,
+        storeId,
         testPhone,
         text,
         testName
@@ -682,35 +915,71 @@ async function startServer() {
     }
   });
 
-  app.get('/api/simulator/messages/:phone', async (req, res) => {
+  app.post('/api/simulator/reset', async (req, res) => {
     try {
-      const { phone } = req.params;
-      const snapshot = await db.collection('establishments').doc(DEFAULT_ESTABLISHMENT_ID)
+      const storeId = req.body.establishmentId || getStoreId(req);
+      const phone = req.body.phone || '5511988887777';
+      const messagesCol = db.collection('establishments').doc(storeId)
         .collection('chats').doc(phone)
-        .collection('messages').orderBy('timestamp', 'asc').limit(50).get();
+        .collection('messages');
+      
+      const snap = await messagesCol.get();
+      const batch = db.batch();
+      snap.docs.forEach(doc => batch.delete(doc.ref));
+      await batch.commit();
 
-      const messages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      res.json(messages);
+      res.json({ success: true, message: 'Chat resetado com sucesso' });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
   // ----------------------------------------------------
-  // API: Evolution API Status & Connection
+  // API: Evolution API Status & Connection (Multi-Tenant)
   // ----------------------------------------------------
-  app.get('/api/evolution/status', async (_req, res) => {
+  app.get('/api/evolution/status', async (req, res) => {
     try {
-      const estDoc = await db.collection('establishments').doc(DEFAULT_ESTABLISHMENT_ID).get();
+      const storeId = getStoreId(req);
+      const estDoc = await db.collection('establishments').doc(storeId).get();
       const est = estDoc.data() || {};
-      const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || '').replace(/\/$/, '');
-      const evoKey = est.evolutionApiKey || process.env.EVOLUTION_API_KEY || '';
-      const evoInst = est.evolutionInstanceName || process.env.EVOLUTION_INSTANCE_NAME || 'restaurante_zap';
+      let evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+      if (evoUrl.includes('localhost:8080') || !evoUrl) {
+        evoUrl = (process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+      }
+      let evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
+      if (!evoKey) {
+        evoKey = 'minha_chave_secreta_7108';
+      }
+      const cleanStoreSuffix = storeId.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 15);
+      const evoInst = (est.evolutionInstanceName || `pedidos_${cleanStoreSuffix}`).trim();
 
-      if (!evoUrl || !evoKey) {
-        return res.json({ connected: false, message: 'URL ou API Key da Evolution API não informadas.' });
+      // 1. Try Evolution Go (/instance/all)
+      try {
+        const respAll = await fetch(`${evoUrl}/instance/all`, {
+          headers: { apikey: evoKey }
+        });
+        if (respAll.ok) {
+          const allData = await respAll.json().catch(() => ({}));
+          if (allData && Array.isArray(allData.data)) {
+            const found = allData.data.find((inst: any) => inst.name === evoInst);
+            if (found) {
+              const isConnected = !!found.connected;
+              await db.collection('establishments').doc(storeId).update({
+                evolutionConnected: isConnected
+              });
+              return res.json({
+                connected: isConnected,
+                state: isConnected ? 'open' : (found.disconnect_reason === 'Reconnecting' ? 'connecting' : 'close'),
+                raw: found
+              });
+            }
+          }
+        }
+      } catch (err: any) {
+        console.warn('[Evolution Status Check Go] Error:', err.message);
       }
 
+      // 2. Fallback: Evolution v1/v2 (/instance/connectionState/:instance)
       try {
         const resp = await fetch(`${evoUrl}/instance/connectionState/${evoInst}`, {
           headers: { apikey: evoKey }
@@ -718,8 +987,7 @@ async function startServer() {
         const data = await resp.json();
         const isConnected = data.instance?.state === 'open' || data.state === 'open';
 
-        // Update establishment
-        await db.collection('establishments').doc(DEFAULT_ESTABLISHMENT_ID).update({
+        await db.collection('establishments').doc(storeId).update({
           evolutionConnected: isConnected
         });
 
@@ -740,23 +1008,150 @@ async function startServer() {
     }
   });
 
-  app.post('/api/evolution/connect', async (_req, res) => {
+  app.post('/api/evolution/connect', async (req, res) => {
     try {
-      const estDoc = await db.collection('establishments').doc(DEFAULT_ESTABLISHMENT_ID).get();
+      const storeId = getStoreId(req);
+      const estDoc = await db.collection('establishments').doc(storeId).get();
       const est = estDoc.data() || {};
-      const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || '').replace(/\/$/, '');
-      const evoKey = est.evolutionApiKey || process.env.EVOLUTION_API_KEY || '';
-      const evoInst = est.evolutionInstanceName || process.env.EVOLUTION_INSTANCE_NAME || 'restaurante_zap';
+      let evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+      if (evoUrl.includes('localhost:8080') || !evoUrl) {
+        evoUrl = (process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+      }
+      let evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
+      if (!evoKey) {
+        evoKey = 'minha_chave_secreta_7108';
+      }
+      const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 20)}`;
+      const evoInst = (est.evolutionInstanceName || defaultInstName).trim();
+      const appUrl = (process.env.APP_URL || 'http://localhost:3005').replace(/\/$/, '');
+      const autoWebhookUrl = `${appUrl}/api/webhook/evolution/${storeId}`;
 
-      if (!evoUrl || !evoKey) {
-        return res.status(400).json({ error: 'Configure a URL e a API Key da Evolution API primeiro.' });
+      // 1. Try Evolution Go Flow:
+      try {
+        const allRes = await fetch(`${evoUrl}/instance/all`, {
+          headers: { apikey: evoKey }
+        });
+        const allData = await allRes.json().catch(() => ({}));
+        let instanceExists = false;
+        if (allData && Array.isArray(allData.data)) {
+          instanceExists = allData.data.some((inst: any) => inst.name === evoInst);
+        }
+
+        if (!instanceExists) {
+          console.log(`[Evolution Go] Criando instância multi-tenant: ${evoInst} para loja ${storeId}`);
+          await fetch(`${evoUrl}/instance/create`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: evoKey },
+            body: JSON.stringify({
+              name: evoInst,
+              token: evoInst,
+              advancedSettings: {
+                rejectCall: true,
+                msgRejectCall: '',
+                ignoreGroups: true,
+                alwaysOnline: false,
+                readMessages: false,
+                ignoreStatus: true
+              }
+            })
+          });
+        }
+
+        // Connect with per-establishment webhook
+        console.log(`[Evolution Go] Conectando instância ${evoInst} com webhook: ${autoWebhookUrl}`);
+        await fetch(`${evoUrl}/instance/connect`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', apikey: evoInst },
+          body: JSON.stringify({
+            webhookUrl: autoWebhookUrl,
+            subscribe: ['MESSAGE', 'CONNECTION', 'QRCODE']
+          })
+        });
+
+        // Save instance name and webhook url back to establishment doc for reference
+        await db.collection('establishments').doc(storeId).set({
+          evolutionInstanceName: evoInst,
+          evolutionWebhookUrl: autoWebhookUrl,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        // Wait a tiny moment and fetch QR
+        // Poll for QR Code (Evolution Go can take 1-3 seconds to generate QR)
+        let qrData: any = {};
+        for (let attempt = 1; attempt <= 5; attempt++) {
+          await new Promise(r => setTimeout(r, 1200));
+          const qrRes = await fetch(`${evoUrl}/instance/qr`, {
+            headers: { apikey: evoInst }
+          });
+          qrData = await qrRes.json().catch(() => ({}));
+          const found = qrData?.data?.Qrcode || qrData?.data?.qrcode || qrData?.data?.Code || qrData?.data?.code || qrData?.qrcode || qrData?.qr;
+          if (found) {
+            break;
+          }
+        }
+
+        const finalQr = qrData?.data?.Qrcode || qrData?.data?.qrcode || qrData?.data?.Code || qrData?.data?.code || qrData?.qrcode || qrData?.qr;
+        if (finalQr) {
+          return res.json({
+            base64: finalQr,
+            qr: finalQr,
+            code: finalQr,
+            instanceName: evoInst,
+            webhookUrl: autoWebhookUrl
+          });
+        }
+
+        return res.json({
+          base64: null,
+          qr: null,
+          code: null,
+          instanceName: evoInst,
+          webhookUrl: autoWebhookUrl,
+          connected: false,
+          message: qrData?.error || 'Aguardando o WhatsApp inicializar o QR Code. Se o banco Postgres da VPS atingiu limite de conexões, reinicie o container na VPS.'
+        });
+      } catch (e: any) {
+        console.warn('[Evolution Go Connect] Tentando fallback v1/v2:', e.message);
       }
 
+      // 2. Fallback to Evolution API v1/v2
       const resp = await fetch(`${evoUrl}/instance/connect/${evoInst}`, {
         headers: { apikey: evoKey }
       });
-      const data = await resp.json();
-      res.json(data);
+      const text = await resp.text();
+      try {
+        const data = JSON.parse(text);
+        return res.json(data);
+      } catch {
+        return res.status(resp.status || 500).json({ error: text });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // API: Send WhatsApp Test Message (Proxied to prevent CORS and support Go & v1/v2)
+  app.post('/api/evolution/test-send', async (req, res) => {
+    try {
+      const storeId = getStoreId(req);
+      const { number, text } = req.body;
+      if (!number || !text) {
+        return res.status(400).json({ error: 'Número e mensagem são obrigatórios.' });
+      }
+
+      const estDoc = await db.collection('establishments').doc(storeId).get();
+      const est = estDoc.data() || {};
+      const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+      const evoKey = est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108';
+      const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 20)}`;
+      const evoInst = est.evolutionInstanceName || defaultInstName;
+
+      const result = await sendWhatsAppMessage(evoUrl, evoKey, evoInst, number, text);
+      if (result.success) {
+        res.json({ success: true, message: 'Mensagem enviada com sucesso!' });
+      } else {
+        res.status(500).json({ error: result.error || 'Falha ao enviar mensagem.' });
+      }
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -771,6 +1166,17 @@ async function startServer() {
       appType: 'spa',
     });
     app.use(vite.middlewares);
+    app.use('*', async (req, res, next) => {
+      const url = req.originalUrl;
+      try {
+        let template = fs.readFileSync(path.resolve(__dirname, 'index.html'), 'utf-8');
+        template = await vite.transformIndexHtml(url, template);
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+      } catch (e: any) {
+        vite.ssrFixStacktrace(e);
+        next(e);
+      }
+    });
   } else {
     app.use(express.static(path.join(__dirname, 'dist')));
     app.get('*', (_req, res) => {
@@ -780,7 +1186,7 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`\n========================================================`);
-    console.log(`🚀 ZapPedidos IA - Servidor Ativo na porta ${PORT}`);
+    console.log(`🚀 iaPedido.com - Servidor Ativo na porta ${PORT}`);
     console.log(`🌐 Painel Web: http://localhost:${PORT}`);
     console.log(`⚡ Webhook Evolution: http://localhost:${PORT}/api/webhook/evolution`);
     console.log(`🤖 Motor IA: Google Gemini 2.5 Flash Ativo`);

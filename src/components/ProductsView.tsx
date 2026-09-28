@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   Plus, 
   Search, 
@@ -10,12 +10,18 @@ import {
   ToggleLeft, 
   ToggleRight, 
   Sparkles,
-  Utensils
+  Utensils,
+  Upload,
+  Camera,
+  Loader2
 } from 'lucide-react';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { storage } from '../lib/firebase';
 import { Product } from '../types';
 
 interface ProductsViewProps {
   products: Product[];
+  establishmentId?: string;
   onSaveProduct: (product: Partial<Product>) => Promise<void>;
   onDeleteProduct: (productId: string) => Promise<void>;
   loading: boolean;
@@ -23,6 +29,7 @@ interface ProductsViewProps {
 
 export const ProductsView: React.FC<ProductsViewProps> = ({
   products,
+  establishmentId,
   onSaveProduct,
   onDeleteProduct,
   loading
@@ -32,6 +39,8 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(null);
   const [saving, setSaving] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Extract unique categories
   const categories = Array.from(new Set(products.map(p => p.category).filter(Boolean)));
@@ -65,6 +74,39 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
       ...product,
       available: !product.available
     });
+  };
+
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !editingProduct) return;
+
+    if (file.size > 6 * 1024 * 1024) {
+      alert('A imagem deve ter no máximo 6MB.');
+      return;
+    }
+
+    try {
+      setUploadingImage(true);
+      const cleanFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const store = establishmentId || 'default';
+      const fileId = editingProduct.id || Date.now().toString();
+      const storageRef = ref(storage, `establishments/${store}/products/${fileId}_${cleanFileName}`);
+      
+      const snapshot = await uploadBytes(storageRef, file);
+      const downloadUrl = await getDownloadURL(snapshot.ref);
+
+      setEditingProduct(prev => prev ? { ...prev, imageUrl: downloadUrl } : null);
+    } catch (err: any) {
+      console.error('Erro ao fazer upload da imagem para o Firebase Storage:', err);
+      alert('Não foi possível enviar a foto. Tente novamente ou use uma URL externa.');
+    } finally {
+      setUploadingImage(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setEditingProduct(prev => prev ? { ...prev, imageUrl: '' } : null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -318,15 +360,96 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">URL da Imagem / Foto</label>
+              {/* Foto do Produto (Firebase Storage) */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-slate-300">
+                    Foto do Produto <span className="text-[10px] text-emerald-400 font-normal">(A IA envia no WhatsApp quando pedirem)</span>
+                  </label>
+                  {editingProduct.imageUrl && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveImage}
+                      className="text-[11px] text-rose-400 hover:text-rose-300 flex items-center gap-1 cursor-pointer transition"
+                    >
+                      <Trash2 className="w-3 h-3" /> Remover foto
+                    </button>
+                  )}
+                </div>
+
                 <input
-                  type="url"
-                  value={editingProduct.imageUrl || ''}
-                  onChange={e => setEditingProduct({ ...editingProduct, imageUrl: e.target.value })}
-                  placeholder="https://exemplo.com/foto-hamburguer.jpg"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/60"
+                  type="file"
+                  ref={fileInputRef}
+                  accept="image/png,image/jpeg,image/jpg,image/webp"
+                  onChange={handleImageFileChange}
+                  className="hidden"
                 />
+
+                {editingProduct.imageUrl ? (
+                  <div className="relative group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 p-2 flex items-center gap-3">
+                    <img
+                      src={editingProduct.imageUrl}
+                      alt="Pré-visualização"
+                      className="w-20 h-20 rounded-lg object-cover border border-slate-800 shrink-0"
+                    />
+                    <div className="flex-1 min-w-0 space-y-1.5">
+                      <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-semibold">
+                        <Check className="w-3.5 h-3.5" /> Foto Vinculada
+                      </div>
+                      <p className="text-[11px] text-slate-400 truncate">
+                        {editingProduct.imageUrl}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploadingImage}
+                        className="text-xs text-slate-200 hover:text-white bg-slate-800 hover:bg-slate-700 px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 cursor-pointer"
+                      >
+                        {uploadingImage ? (
+                          <>
+                            <Loader2 className="w-3 h-3 animate-spin text-emerald-400" />
+                            <span>Enviando...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="w-3 h-3 text-slate-400" />
+                            <span>Substituir Foto</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    onClick={() => !uploadingImage && fileInputRef.current?.click()}
+                    className={`border-2 border-dashed rounded-xl p-4 text-center transition cursor-pointer flex flex-col items-center justify-center gap-2 ${
+                      uploadingImage 
+                        ? 'border-emerald-500/50 bg-emerald-500/5' 
+                        : 'border-slate-800 hover:border-emerald-500/50 bg-slate-950 hover:bg-slate-950/80'
+                    }`}
+                  >
+                    {uploadingImage ? (
+                      <div className="py-2 flex flex-col items-center gap-2 text-emerald-400">
+                        <Loader2 className="w-6 h-6 animate-spin" />
+                        <span className="text-xs font-semibold">Fazendo upload para o Firebase Storage...</span>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="w-10 h-10 rounded-full bg-slate-800/80 flex items-center justify-center text-slate-400 group-hover:text-emerald-400 transition">
+                          <Camera className="w-5 h-5 text-emerald-400" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold text-slate-200">
+                            Clique para selecionar uma foto do produto
+                          </p>
+                          <p className="text-[10px] text-slate-500 mt-0.5">
+                            JPG, PNG ou WebP até 6MB • Salvo automaticamente no Firebase Storage
+                          </p>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div>

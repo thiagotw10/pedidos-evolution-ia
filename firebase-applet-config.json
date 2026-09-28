@@ -1,10 +1,9 @@
 {
-  "projectId": "gen-lang-client-0908697046",
-  "appId": "1:215439827110:web:b84f2194284be0baa15467",
-  "apiKey": "AIzaSyBRsiKlh3j1Kjv_xnRftM4tem4zrLITIYQ",
-  "authDomain": "gen-lang-client-0908697046.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-6208c728-e43b-4a4b-a9af-29a498dc14b2",
-  "storageBucket": "gen-lang-client-0908697046.firebasestorage.app",
-  "messagingSenderId": "215439827110",
-  "measurementId": ""
+  "projectId": "iapedido",
+  "appId": "1:999146339203:web:5a47def1f608ed5fa114b6",
+  "apiKey": "AIzaSyDQWqleuvucAgglh_Y8WMKP-9eESNTkhdM",
+  "authDomain": "iapedido.firebaseapp.com",
+  "storageBucket": "iapedido.firebasestorage.app",
+  "messagingSenderId": "999146339203",
+  "measurementId": "G-TWN3TLF5M5"
 }

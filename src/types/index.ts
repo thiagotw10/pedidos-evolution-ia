@@ -84,4 +84,5 @@ export interface ChatMessage {
   text: string;
   timestamp: string;
   orderId?: string;
+  mediaUrl?: string;
 }

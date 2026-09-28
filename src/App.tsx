@@ -6,7 +6,8 @@ import {
   query, 
   orderBy 
 } from 'firebase/firestore';
-import { db } from './lib/firebase';
+import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
+import { db, auth } from './lib/firebase';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { OrdersView } from './components/OrdersView';
@@ -14,11 +15,23 @@ import { ProductsView } from './components/ProductsView';
 import { SimulatorView } from './components/SimulatorView';
 import { WhatsAppView } from './components/WhatsAppView';
 import { SettingsView } from './components/SettingsView';
+import { AuthView } from './components/AuthView';
 import { Order, Product, Establishment, OrderStatus } from './types';
-
-const STORE_ID = 'default_store';
+import { Loader2 } from 'lucide-react';
 
 export default function App() {
+  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
+  const [sessionUser, setSessionUser] = useState<{ uid: string; email?: string } | null>(() => {
+    try {
+      const saved = localStorage.getItem('iapedido_session');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [authLoading, setAuthLoading] = useState(true);
+  const [demoMode, setDemoMode] = useState(false);
+
   const [currentTab, setCurrentTab] = useState<string>('orders');
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -28,6 +41,19 @@ export default function App() {
   const [soundEnabled, setSoundEnabled] = useState(true);
 
   const prevOrdersCountRef = useRef<number>(0);
+
+  // Monitor Authentication State
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      if (user) setDemoMode(false);
+      setAuthLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const isAuthenticated = !!currentUser || !!sessionUser || demoMode;
+  const storeId = currentUser?.uid || sessionUser?.uid || (demoMode ? 'default_store' : 'default_store');
 
   // Play browser chime using Web Audio API (no external file needed)
   const playNewOrderChime = () => {
@@ -66,8 +92,11 @@ export default function App() {
 
   // 1. Listen for Orders in Real-Time (Firestore)
   useEffect(() => {
+    if (!isAuthenticated) return;
+    setLoadingOrders(true);
+    fetchOrdersFallback();
     try {
-      const ordersRef = collection(db, 'establishments', STORE_ID, 'orders');
+      const ordersRef = collection(db, 'establishments', storeId, 'orders');
       const q = query(ordersRef, orderBy('createdAt', 'desc'));
 
       const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -76,7 +105,6 @@ export default function App() {
           ...d.data()
         } as Order));
 
-        // Check if a new pending order arrived
         const pendingCount = fetchedOrders.filter(o => o.status === 'PENDENTE').length;
         if (pendingCount > prevOrdersCountRef.current && prevOrdersCountRef.current !== 0) {
           playNewOrderChime();
@@ -86,23 +114,22 @@ export default function App() {
         setOrders(fetchedOrders);
         setLoadingOrders(false);
       }, (err) => {
-        console.error('Firestore Orders onSnapshot error:', err);
-        // Fallback to fetch from server API
+        console.warn('Firestore Orders onSnapshot error (using fallback):', err.message);
         fetchOrdersFallback();
       });
 
       return () => unsubscribe();
     } catch (err) {
-      console.error('Orders listener setup error:', err);
+      console.warn('Orders listener setup error:', err);
       fetchOrdersFallback();
     }
-  }, [soundEnabled]);
+  }, [isAuthenticated, storeId, soundEnabled]);
 
   const fetchOrdersFallback = async () => {
     try {
-      const res = await fetch('/api/orders');
+      const res = await fetch(`/api/orders?establishmentId=${storeId}`);
       const data = await res.json();
-      setOrders(data);
+      if (Array.isArray(data)) setOrders(data);
     } catch (e) {
       console.error('Failed to fetch orders:', e);
     } finally {
@@ -112,8 +139,11 @@ export default function App() {
 
   // 2. Listen for Products in Real-Time (Firestore)
   useEffect(() => {
+    if (!isAuthenticated) return;
+    setLoadingProducts(true);
+    fetchProductsFallback();
     try {
-      const productsRef = collection(db, 'establishments', STORE_ID, 'products');
+      const productsRef = collection(db, 'establishments', storeId, 'products');
       const unsubscribe = onSnapshot(productsRef, (snapshot) => {
         const fetchedProducts: Product[] = snapshot.docs.map(d => ({
           id: d.id,
@@ -122,22 +152,22 @@ export default function App() {
         setProducts(fetchedProducts);
         setLoadingProducts(false);
       }, (err) => {
-        console.error('Firestore Products onSnapshot error:', err);
+        console.warn('Firestore Products onSnapshot error (using fallback):', err.message);
         fetchProductsFallback();
       });
 
       return () => unsubscribe();
     } catch (err) {
-      console.error('Products listener setup error:', err);
+      console.warn('Products listener setup error:', err);
       fetchProductsFallback();
     }
-  }, []);
+  }, [isAuthenticated, storeId]);
 
   const fetchProductsFallback = async () => {
     try {
-      const res = await fetch('/api/products');
+      const res = await fetch(`/api/products?establishmentId=${storeId}`);
       const data = await res.json();
-      setProducts(data);
+      if (Array.isArray(data)) setProducts(data);
     } catch (e) {
       console.error('Failed to fetch products:', e);
     } finally {
@@ -147,26 +177,53 @@ export default function App() {
 
   // 3. Listen for Establishment Data (Firestore)
   useEffect(() => {
+    if (!isAuthenticated) return;
+    fetchEstablishmentFallback();
     try {
-      const estDocRef = doc(db, 'establishments', STORE_ID);
+      const estDocRef = doc(db, 'establishments', storeId);
       const unsubscribe = onSnapshot(estDocRef, (snap) => {
         if (snap.exists()) {
           setEstablishment({ id: snap.id, ...snap.data() } as Establishment);
         } else {
           fetchEstablishmentFallback();
         }
+      }, (err) => {
+        console.warn('Establishment onSnapshot error (using fallback):', err.message);
+        fetchEstablishmentFallback();
       });
       return () => unsubscribe();
     } catch (err) {
       fetchEstablishmentFallback();
     }
-  }, []);
+  }, [isAuthenticated, storeId]);
+
+  // 4. Synchronize Evolution WhatsApp Status on load and periodically
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    
+    const syncEvolutionStatus = async () => {
+      try {
+        const res = await fetch(`/api/evolution/status?establishmentId=${storeId}`);
+        const data = await res.json();
+        const isOnline = !!data.connected;
+        setEstablishment(prev => prev ? { ...prev, evolutionConnected: isOnline } : null);
+      } catch (err) {
+        console.warn('Could not sync Evolution status:', err);
+      }
+    };
+
+    syncEvolutionStatus();
+    const timer = setInterval(syncEvolutionStatus, 20000);
+    return () => clearInterval(timer);
+  }, [isAuthenticated, storeId]);
 
   const fetchEstablishmentFallback = async () => {
     try {
-      const res = await fetch('/api/establishment');
+      const res = await fetch(`/api/establishment?establishmentId=${storeId}`);
       const data = await res.json();
-      setEstablishment(data);
+      if (data && data.name) {
+        setEstablishment({ id: storeId, ...data });
+      }
     } catch (e) {
       console.error('Failed to fetch establishment:', e);
     }
@@ -174,10 +231,10 @@ export default function App() {
 
   // Actions
   const handleUpdateOrderStatus = async (orderId: string, status: OrderStatus, reason?: string) => {
-    const res = await fetch(`/api/orders/${orderId}/status`, {
+    const res = await fetch(`/api/orders/${orderId}/status?establishmentId=${storeId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status, rejectionReason: reason })
+      body: JSON.stringify({ status, rejectionReason: reason, establishmentId: storeId })
     });
     if (!res.ok) {
       const errorData = await res.json();
@@ -188,8 +245,11 @@ export default function App() {
   const handleSaveProduct = async (productData: Partial<Product>) => {
     const res = await fetch('/api/products', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(productData)
+      headers: { 
+        'Content-Type': 'application/json',
+        'x-establishment-id': storeId
+      },
+      body: JSON.stringify({ ...productData, establishmentId: storeId })
     });
     if (!res.ok) {
       throw new Error('Falha ao salvar produto');
@@ -197,8 +257,9 @@ export default function App() {
   };
 
   const handleDeleteProduct = async (productId: string) => {
-    const res = await fetch(`/api/products/${productId}`, {
-      method: 'DELETE'
+    const res = await fetch(`/api/products/${productId}?establishmentId=${storeId}`, {
+      method: 'DELETE',
+      headers: { 'x-establishment-id': storeId }
     });
     if (!res.ok) {
       throw new Error('Falha ao remover produto');
@@ -208,14 +269,59 @@ export default function App() {
   const handleSaveEstablishment = async (data: Partial<Establishment>) => {
     const res = await fetch('/api/establishment', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      headers: { 
+        'Content-Type': 'application/json',
+        'x-establishment-id': storeId
+      },
+      body: JSON.stringify({ ...data, establishmentId: storeId })
     });
     if (!res.ok) {
       throw new Error('Falha ao atualizar dados do estabelecimento');
     }
-    setEstablishment(prev => prev ? { ...prev, ...data } : null);
+    setEstablishment(prev => prev ? { ...prev, ...data } : { id: storeId, name: 'Meu Estabelecimento', ...data } as Establishment);
   };
+
+  const handleSignOut = async () => {
+    try {
+      if (currentUser) {
+        await signOut(auth);
+      }
+      localStorage.removeItem('iapedido_session');
+      setSessionUser(null);
+      setDemoMode(false);
+    } catch (err: any) {
+      console.error('Error signing out:', err);
+    }
+  };
+
+  // Show loading screen while checking auth
+  if (authLoading) {
+    return (
+      <div className="h-screen w-screen bg-slate-950 flex flex-col items-center justify-center text-white space-y-4">
+        <Loader2 className="w-10 h-10 text-emerald-400 animate-spin" />
+        <p className="text-sm text-slate-400 font-medium">Carregando iaPedido.com...</p>
+      </div>
+    );
+  }
+
+  // If user is not authenticated, render Login/Register Auth View
+  if (!isAuthenticated) {
+    return (
+      <AuthView 
+        onAuthSuccess={(uid, email) => {
+          if (uid === 'default_store') {
+            setDemoMode(true);
+          } else {
+            const userObj = { uid, email };
+            try {
+              localStorage.setItem('iapedido_session', JSON.stringify(userObj));
+            } catch {}
+            setSessionUser(userObj);
+          }
+        }} 
+      />
+    );
+  }
 
   const pendingOrdersCount = orders.filter(o => o.status === 'PENDENTE').length;
 
@@ -237,6 +343,8 @@ export default function App() {
           setSoundEnabled={setSoundEnabled}
           onOpenWhatsApp={() => setCurrentTab('whatsapp')}
           onOpenSettings={() => setCurrentTab('settings')}
+          userEmail={currentUser?.email || sessionUser?.email || (demoMode ? 'demo@burgercia.com.br' : null)}
+          onSignOut={handleSignOut}
         />
 
         <main className="flex-1 pb-16">
@@ -251,6 +359,7 @@ export default function App() {
           {currentTab === 'products' && (
             <ProductsView
               products={products}
+              establishmentId={storeId}
               onSaveProduct={handleSaveProduct}
               onDeleteProduct={handleDeleteProduct}
               loading={loadingProducts}
@@ -259,6 +368,7 @@ export default function App() {
 
           {currentTab === 'simulator' && (
             <SimulatorView
+              establishmentId={storeId}
               onOrderCreatedNotification={() => {
                 playNewOrderChime();
               }}

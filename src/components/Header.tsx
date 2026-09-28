@@ -1,5 +1,5 @@
 import React from 'react';
-import { Volume2, VolumeX, Smartphone, Store, Clock } from 'lucide-react';
+import { Volume2, VolumeX, Smartphone, Store, Clock, LogOut, User } from 'lucide-react';
 import { Establishment } from '../types';
 
 interface HeaderProps {
@@ -8,6 +8,8 @@ interface HeaderProps {
   setSoundEnabled: (val: boolean) => void;
   onOpenWhatsApp: () => void;
   onOpenSettings: () => void;
+  userEmail?: string | null;
+  onSignOut?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -15,7 +17,9 @@ export const Header: React.FC<HeaderProps> = ({
   soundEnabled,
   setSoundEnabled,
   onOpenWhatsApp,
-  onOpenSettings
+  onOpenSettings,
+  userEmail,
+  onSignOut
 }) => {
   return (
     <header className="h-20 bg-slate-900/60 border-b border-slate-800/80 px-8 flex items-center justify-between backdrop-blur-md sticky top-0 z-30">
@@ -66,6 +70,25 @@ export const Header: React.FC<HeaderProps> = ({
           <span>WhatsApp Evolution</span>
           <span className={`w-2 h-2 rounded-full ${establishment?.evolutionConnected ? 'bg-emerald-400' : 'bg-amber-400 animate-ping'}`} />
         </button>
+
+        {/* User Session & Logout */}
+        {userEmail && (
+          <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
+            <div className="hidden md:flex items-center gap-1.5 text-xs text-slate-400 bg-slate-950/60 px-3 py-1.5 rounded-xl border border-slate-800">
+              <User className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="max-w-[150px] truncate">{userEmail}</span>
+            </div>
+            {onSignOut && (
+              <button
+                onClick={onSignOut}
+                title="Desconectar da conta"
+                className="p-2 rounded-xl bg-slate-800/80 hover:bg-rose-500/20 hover:text-rose-400 text-slate-400 border border-slate-700/60 transition cursor-pointer"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </header>
   );

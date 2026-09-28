@@ -15,11 +15,13 @@ import { ChatMessage } from '../types';
 interface SimulatorViewProps {
   onOrderCreatedNotification?: () => void;
   onNavigateToOrders: () => void;
+  establishmentId?: string;
 }
 
 export const SimulatorView: React.FC<SimulatorViewProps> = ({
   onOrderCreatedNotification,
-  onNavigateToOrders
+  onNavigateToOrders,
+  establishmentId
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -67,7 +69,8 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
         body: JSON.stringify({
           text: userMessageText,
           phone: customerPhone,
-          name: customerName
+          name: customerName,
+          establishmentId: establishmentId || 'default_store'
         })
       });
 
@@ -78,7 +81,8 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
         sender: 'assistant',
         text: data.replyText || 'Entendi!',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        orderId: data.orderCreated?.id
+        orderId: data.orderCreated?.id,
+        mediaUrl: data.mediaToSend?.url
       };
 
       setMessages(prev => [...prev, aiReplyMsg]);
@@ -101,10 +105,23 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
     }
   };
 
-  const handleResetChat = () => {
+  const handleResetChat = async () => {
+    try {
+      await fetch('/api/simulator/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: customerPhone,
+          establishmentId: establishmentId || 'default_store'
+        })
+      });
+    } catch (e) {
+      console.error('Failed to reset chat on server:', e);
+    }
+
     setMessages([
       {
-        id: 'welcome_new',
+        id: `welcome_${Date.now()}`,
         sender: 'assistant',
         text: 'Olá! Conversa reiniciada. O que você gostaria de pedir hoje?',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -258,6 +275,15 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
                           : 'bg-slate-800 text-slate-100 rounded-bl-none border border-slate-700/60'
                       }`}
                     >
+                      {msg.mediaUrl && (
+                        <div className="mb-2.5 rounded-xl overflow-hidden border border-slate-700/80 bg-slate-950">
+                          <img
+                            src={msg.mediaUrl}
+                            alt="Foto do produto"
+                            className="w-full max-h-52 object-cover rounded-lg"
+                          />
+                        </div>
+                      )}
                       {msg.text}
 
                       {msg.orderId && (

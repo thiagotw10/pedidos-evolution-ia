@@ -70,10 +70,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
           <div>
             <div className="flex items-center gap-1.5">
-              <h1 className="font-extrabold text-lg text-white tracking-tight">ZapPedidos</h1>
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">IA</span>
+              <h1 className="font-extrabold text-lg text-white tracking-tight">ia<span className="text-emerald-400">Pedido</span></h1>
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">.COM</span>
             </div>
-            <p className="text-xs text-slate-400 font-medium">Evolution & Gemini</p>
+            <p className="text-xs text-slate-400 font-medium">WhatsApp & IA</p>
           </div>
         </div>
       </div>

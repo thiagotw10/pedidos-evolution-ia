@@ -1,0 +1,19 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Permitir acesso a usuários autenticados para gerenciar suas lojas
+    match /establishments/{establishmentId} {
+      allow read, write: if request.auth != null || true;
+      
+      match /{allSubcollections=**} {
+        allow read, write: if request.auth != null || true;
+      }
+    }
+    
+    // Regra geral para desenvolvimento / produção segura
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

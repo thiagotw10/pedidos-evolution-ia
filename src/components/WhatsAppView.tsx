@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Smartphone, 
   QrCode, 
@@ -10,7 +10,8 @@ import {
   Send,
   Radio,
   HelpCircle,
-  ShieldCheck
+  ShieldCheck,
+  RotateCcw
 } from 'lucide-react';
 import { Establishment } from '../types';
 
@@ -23,76 +24,167 @@ export const WhatsAppView: React.FC<WhatsAppViewProps> = ({
   establishment,
   onSaveEstablishment
 }) => {
-  const [apiUrl, setApiUrl] = useState(establishment?.evolutionApiUrl || 'http://localhost:8080');
-  const [apiKey, setApiKey] = useState(establishment?.evolutionApiKey || '');
-  const [instanceName, setInstanceName] = useState(establishment?.evolutionInstanceName || 'restaurante_zap');
+  const storeId = establishment?.id || 'default_store';
+  const defaultInstName = establishment?.id && establishment.id !== 'default_store' 
+    ? `pedidos_${establishment.id.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}` 
+    : 'pedidos_zap';
+
+  const [apiUrl, setApiUrl] = useState(
+    establishment?.evolutionApiUrl && establishment.evolutionApiUrl !== 'http://localhost:8080'
+      ? establishment.evolutionApiUrl
+      : 'http://34.69.146.15:8081'
+  );
+  const [apiKey, setApiKey] = useState(establishment?.evolutionApiKey || 'minha_chave_secreta_7108');
+  const [instanceName, setInstanceName] = useState(establishment?.evolutionInstanceName || defaultInstName);
   
   const [checking, setChecking] = useState(false);
   const [connecting, setConnecting] = useState(false);
-  const [connectionState, setConnectionState] = useState<'open' | 'connecting' | 'close' | 'unknown'>('unknown');
+  const [connectionState, setConnectionState] = useState<'open' | 'connecting' | 'close' | 'unknown'>(
+    establishment?.evolutionConnected ? 'open' : 'unknown'
+  );
   const [qrCodeData, setQrCodeData] = useState<string | null>(null);
   const [copiedWebhook, setCopiedWebhook] = useState(false);
   
   // Test Message Form
   const [testPhone, setTestPhone] = useState('');
-  const [testText, setTestText] = useState('Olá! Esta é uma mensagem de teste enviada pela plataforma ZapPedidos IA via Evolution API! 🚀');
+  const [testText, setTestText] = useState('Olá! Esta é uma mensagem de teste enviada pela plataforma iaPedido.com via Evolution API! 🚀');
   const [sendingTest, setSendingTest] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
-  const webhookUrl = `${window.location.protocol}//${window.location.hostname}:3001/api/webhook/evolution`;
+  const webhookUrl = `${window.location.origin}/api/webhook/evolution/${storeId}`;
+  const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (establishment) {
-      if (establishment.evolutionApiUrl) setApiUrl(establishment.evolutionApiUrl);
-      if (establishment.evolutionApiKey) setApiKey(establishment.evolutionApiKey);
-      if (establishment.evolutionInstanceName) setInstanceName(establishment.evolutionInstanceName);
+      if (establishment.evolutionApiUrl && establishment.evolutionApiUrl !== 'http://localhost:8080') {
+        setApiUrl(establishment.evolutionApiUrl);
+      } else {
+        setApiUrl('http://34.69.146.15:8081');
+      }
+      if (establishment.evolutionApiKey) {
+        setApiKey(establishment.evolutionApiKey);
+      } else {
+        setApiKey('minha_chave_secreta_7108');
+      }
+      if (establishment.evolutionInstanceName) {
+        setInstanceName(establishment.evolutionInstanceName);
+      } else {
+        setInstanceName(defaultInstName);
+      }
+      if (establishment.evolutionConnected) {
+        setConnectionState('open');
+      }
     }
-  }, [establishment]);
+  }, [establishment, defaultInstName]);
 
   const checkStatus = async () => {
     try {
       setChecking(true);
-      const res = await fetch('/api/evolution/status');
+      const res = await fetch(`/api/evolution/status?establishmentId=${storeId}`);
       const data = await res.json();
-      if (data.connected) {
+      if (data.connected || data.state === 'open') {
         setConnectionState('open');
         setQrCodeData(null);
+        if (!establishment?.evolutionConnected) {
+          onSaveEstablishment({ evolutionConnected: true }).catch(() => {});
+        }
+        return true;
       } else {
-        setConnectionState('close');
+        setConnectionState(data.state === 'connecting' ? 'connecting' : 'close');
+        if (establishment?.evolutionConnected) {
+          onSaveEstablishment({ evolutionConnected: false }).catch(() => {});
+        }
+        return false;
       }
     } catch (err) {
       setConnectionState('close');
+      return false;
     } finally {
       setChecking(false);
     }
   };
 
+  // Check status on component mount
+  useEffect(() => {
+    checkStatus();
+  }, [storeId]);
+
+  // Auto-poll status when QR is showing or state is connecting
+  useEffect(() => {
+    if (qrCodeData || connectionState === 'connecting') {
+      pollTimerRef.current = setInterval(async () => {
+        const isConnected = await checkStatus();
+        if (isConnected && pollTimerRef.current) {
+          clearInterval(pollTimerRef.current);
+        }
+      }, 3000);
+    } else {
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+      }
+    }
+
+    return () => {
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+      }
+    };
+  }, [qrCodeData, connectionState, storeId]);
+
   const handleConnectInstance = async () => {
     try {
       setConnecting(true);
+      const cleanUrl = (apiUrl || 'http://34.69.146.15:8081').trim();
+      const cleanKey = (apiKey || 'minha_chave_secreta_7108').trim();
+      const cleanInst = (instanceName || defaultInstName).trim();
+
       // First save current values
       await onSaveEstablishment({
-        evolutionApiUrl: apiUrl,
-        evolutionApiKey: apiKey,
-        evolutionInstanceName: instanceName
+        evolutionApiUrl: cleanUrl,
+        evolutionApiKey: cleanKey,
+        evolutionInstanceName: cleanInst
       });
 
-      const res = await fetch('/api/evolution/connect', { method: 'POST' });
+      const res = await fetch('/api/evolution/connect', { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ establishmentId: storeId })
+      });
       const data = await res.json();
-      
-      if (data.base64) {
-        setQrCodeData(data.base64);
+      let qr = data.base64 || data.qr || data.code;
+      if (qr && typeof qr === 'string' && qr.includes('|')) {
+        qr = qr.split('|')[0];
+      }
+
+      if (qr) {
+        setQrCodeData(qr);
         setConnectionState('connecting');
-      } else if (data.code) {
-        setQrCodeData(data.code);
-        setConnectionState('connecting');
-      } else if (data.instance?.state === 'open' || data.state === 'open') {
+      } else if (data.connected || data.status === 'connected' || data.state === 'open') {
         setConnectionState('open');
         setQrCodeData(null);
+      } else if (data.message || data.error) {
+        alert(data.message || data.error);
       }
     } catch (err: any) {
       alert('Erro ao conectar instância: ' + err.message);
     } finally {
+      setConnecting(false);
+    }
+  };
+
+  const handleResetConnection = async () => {
+    try {
+      setConnecting(true);
+      await fetch('/api/evolution/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ establishmentId: storeId })
+      });
+      setQrCodeData(null);
+      setConnectionState('close');
+      await handleConnectInstance();
+    } catch (e: any) {
+      alert('Erro ao resetar: ' + e.message);
       setConnecting(false);
     }
   };
@@ -111,23 +203,23 @@ export const WhatsAppView: React.FC<WhatsAppViewProps> = ({
       setSendingTest(true);
       setTestResult(null);
 
-      const res = await fetch(`${apiUrl.replace(/\/$/, '')}/message/sendText/${instanceName}`, {
+      const res = await fetch('/api/evolution/test-send', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'apikey': apiKey
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          number: testPhone.replace(/\D/g, ''),
-          textMessage: { text: testText }
+          number: testPhone,
+          text: testText,
+          establishmentId: storeId
         })
       });
 
       const data = await res.json();
-      if (res.ok) {
+      if (res.ok && data.success) {
         setTestResult({ success: true, message: 'Mensagem enviada com sucesso para o WhatsApp!' });
       } else {
-        setTestResult({ success: false, message: data.message || 'Falha ao enviar mensagem.' });
+        setTestResult({ success: false, message: data.error || data.message || 'Falha ao enviar mensagem.' });
       }
     } catch (err: any) {
       setTestResult({ success: false, message: err.message });
@@ -202,14 +294,23 @@ export const WhatsAppView: React.FC<WhatsAppViewProps> = ({
                 />
               </div>
 
-              <div className="pt-2 flex items-center gap-3">
+              <div className="pt-2 flex flex-col sm:flex-row items-center gap-3">
                 <button
                   onClick={handleConnectInstance}
                   disabled={connecting}
-                  className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-lg shadow-emerald-500/20"
+                  className="flex-1 w-full py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-lg shadow-emerald-500/20"
                 >
                   <QrCode className="w-4 h-4" />
-                  <span>{connecting ? 'Gerando QR Code...' : 'Conectar / Gerar QR Code'}</span>
+                  <span>{connecting ? 'Gerando QR...' : 'Gerar QR Code'}</span>
+                </button>
+                <button
+                  onClick={handleResetConnection}
+                  disabled={connecting}
+                  title="Remove a sessão atual no Evolution e recria a instância do zero"
+                  className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-rose-500/20 hover:border-rose-500/40 hover:text-rose-300 text-slate-400 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer border border-slate-700"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Resetar Sessão</span>
                 </button>
               </div>
             </div>
@@ -289,15 +390,28 @@ export const WhatsAppView: React.FC<WhatsAppViewProps> = ({
             <h3 className="font-bold text-sm text-white">QR Code para Conexão</h3>
             
             {qrCodeData ? (
-              <div className="p-4 bg-white rounded-2xl shadow-xl">
+              <div className="p-4 bg-white rounded-2xl shadow-xl flex flex-col items-center">
                 <img
                   src={qrCodeData.startsWith('data:image') ? qrCodeData : `data:image/png;base64,${qrCodeData}`}
                   alt="WhatsApp QR Code"
                   className="w-56 h-56 object-contain"
                 />
-                <p className="text-[11px] text-slate-800 font-bold mt-2">
-                  Abra o WhatsApp &gt; Aparelhos Conectados &gt; Conectar Aparelho
-                </p>
+                <div className="mt-3 text-slate-800 space-y-1">
+                  <p className="text-[11px] font-bold">
+                    Abra o WhatsApp &gt; Aparelhos Conectados &gt; Conectar Aparelho
+                  </p>
+                  <p className="text-[10px] text-slate-500">
+                    ⏱️ Escaneie rápido (o QR expira em ~20 segundos). A tela conectará automaticamente!
+                  </p>
+                </div>
+                <button
+                  onClick={handleConnectInstance}
+                  disabled={connecting}
+                  className="mt-3 text-[11px] text-emerald-700 hover:text-emerald-900 font-bold flex items-center gap-1 cursor-pointer underline"
+                >
+                  <RefreshCw className={`w-3 h-3 ${connecting ? 'animate-spin' : ''}`} />
+                  Renovar QR Code
+                </button>
               </div>
             ) : connectionState === 'open' ? (
               <div className="py-12 flex flex-col items-center text-emerald-400 space-y-2">
@@ -311,10 +425,23 @@ export const WhatsAppView: React.FC<WhatsAppViewProps> = ({
               <div className="py-12 flex flex-col items-center text-slate-500 space-y-2">
                 <QrCode className="w-16 h-16 stroke-[1.5]" />
                 <p className="text-xs text-slate-400 max-w-xs">
-                  Clique em "Conectar / Gerar QR Code" ao lado para escanear com seu celular.
+                  Clique em "Gerar QR Code" ao lado para escanear com seu celular.
                 </p>
               </div>
             )}
+          </div>
+
+          {/* Quick Troubleshooting Tip Box */}
+          <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 text-xs space-y-2">
+            <div className="flex items-center gap-2 text-amber-400 font-bold">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>Erro: "Não foi possível conectar o dispositivo"?</span>
+            </div>
+            <ul className="text-slate-400 space-y-1 text-[11px] list-disc list-inside">
+              <li><strong>Limite de aparelhos:</strong> No celular, vá em <em>Aparelhos Conectados</em> e desconecte qualquer sessão antiga (limite máx: 4).</li>
+              <li><strong>Sessão presa:</strong> Clique em <strong>Resetar Sessão</strong> para forçar a exclusão e reiniciar o Baileys do zero.</li>
+              <li><strong>Tempo limite:</strong> Escaneie assim que o QR aparecer, pois o WhatsApp invalida o token após 20 segundos.</li>
+            </ul>
           </div>
 
           {/* Webhook Instructions */}
