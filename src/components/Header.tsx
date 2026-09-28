@@ -20,6 +20,7 @@ export const Header: React.FC<HeaderProps> = ({
   setSoundEnabled,
   onOpenWhatsApp,
   onOpenSettings,
+  onOpenSubscription,
   userEmail,
   onSignOut
 }) => {
