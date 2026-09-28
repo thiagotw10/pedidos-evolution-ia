@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, Download, X, CheckCircle2, Smartphone, Volume2, Sparkles } from 'lucide-react';
+import { Download, X, CheckCircle2, Smartphone, Volume2 } from 'lucide-react';
 import { 
   isNotificationGranted, 
   subscribeToPushNotifications, 
@@ -70,34 +70,53 @@ export const PwaInstallBanner: React.FC<PwaInstallBannerProps> = ({
   };
 
   return (
-    <div className="relative mx-3 sm:mx-6 mt-3 sm:mt-4 mb-2 p-3 sm:p-4 rounded-2xl bg-gradient-to-r from-emerald-950/90 via-slate-900 to-slate-900 border border-emerald-500/40 shadow-xl backdrop-blur-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 animate-in fade-in slide-in-from-top-4 duration-300">
-      {/* Left Info */}
-      <div className="flex items-center gap-3 min-w-0">
-        <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 flex-shrink-0 shadow-lg shadow-emerald-950/50">
-          <Smartphone className="w-5 h-5 animate-pulse" />
-        </div>
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h4 className="text-xs sm:text-sm font-black text-white flex items-center gap-1.5">
-              Baixe o App iaPedido no seu Celular
-            </h4>
-            <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-extrabold uppercase tracking-wide border border-emerald-500/30">
-              PWA
-            </span>
+    <div className="relative mx-3 sm:mx-6 md:mx-8 mt-3 sm:mt-4 p-3.5 sm:p-4 rounded-2xl bg-gradient-to-br from-emerald-950/80 via-slate-900 to-slate-900 border border-emerald-500/30 shadow-xl backdrop-blur-md animate-in fade-in slide-in-from-top-3 duration-300">
+      
+      {/* Top row: Icon + Title + Close Button */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0 shadow-md shadow-emerald-950/40">
+            <Smartphone className="w-4 h-4 animate-pulse" />
           </div>
-          <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5 truncate sm:whitespace-normal">
-            Receba alertas sonoros na tela de bloqueio quando a IA fechar pedidos no WhatsApp.
-          </p>
+          <div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <h4 className="text-xs sm:text-sm font-black text-white">
+                Instale o App iaPedido no Celular
+              </h4>
+              <span className="px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 text-[9px] font-black uppercase tracking-wider border border-emerald-500/30">
+                PWA
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 leading-snug mt-0.5">
+              Receba pedidos com som na tela de bloqueio mesmo com o app fechado.
+            </p>
+          </div>
         </div>
+
+        <button
+          onClick={handleDismiss}
+          title="Fechar aviso temporariamente"
+          className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer shrink-0 -mt-1 -mr-1"
+        >
+          <X className="w-4 h-4" />
+        </button>
       </div>
 
-      {/* Action Buttons */}
-      <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-shrink-0">
+      {/* Action Buttons Row */}
+      <div className="mt-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+        <button
+          onClick={onOpenModal}
+          className="w-full sm:w-auto flex-1 sm:flex-initial py-2.5 px-4 rounded-xl text-xs font-black bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 transition cursor-pointer flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 active:scale-[0.99]"
+        >
+          <Download className="w-4 h-4" />
+          <span>Baixar / Adicionar à Tela de Início</span>
+        </button>
+
         {!isGranted && (
           <button
             onClick={handleEnableNotifications}
             disabled={isSubscribing}
-            className="flex-1 sm:flex-initial px-3 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 transition cursor-pointer flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50 whitespace-nowrap"
+            className="w-full sm:w-auto py-2.5 px-3.5 rounded-xl text-xs font-bold bg-slate-800/90 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 transition cursor-pointer flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50"
             title="Ativar som e alerta de novo pedido"
           >
             {isSubscribing ? (
@@ -105,32 +124,16 @@ export const PwaInstallBanner: React.FC<PwaInstallBannerProps> = ({
             ) : (
               <Volume2 className="w-3.5 h-3.5" />
             )}
-            <span>Ativar Som</span>
+            <span>Ativar Som de Pedido</span>
           </button>
         )}
-
-        <button
-          onClick={onOpenModal}
-          className="flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 transition cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-emerald-500/20 whitespace-nowrap"
-        >
-          <Download className="w-3.5 h-3.5" />
-          <span>Baixar App (PWA)</span>
-        </button>
-
-        <button
-          onClick={handleDismiss}
-          title="Fechar aviso"
-          className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/60 transition cursor-pointer flex-shrink-0"
-        >
-          <X className="w-4 h-4" />
-        </button>
       </div>
 
       {/* Success Toast */}
       {showSuccessToast && (
-        <div className="absolute -bottom-12 right-0 bg-emerald-500 text-slate-950 text-xs font-black px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-2 animate-in fade-in duration-200">
-          <CheckCircle2 className="w-4 h-4" />
-          <span>Alertas ativados com sucesso!</span>
+        <div className="absolute -bottom-10 right-2 bg-emerald-500 text-slate-950 text-xs font-black px-3 py-1.5 rounded-xl shadow-2xl flex items-center gap-1.5 animate-in fade-in duration-200">
+          <CheckCircle2 className="w-3.5 h-3.5" />
+          <span>Alertas sonoros ativados!</span>
         </div>
       )}
     </div>

@@ -33,16 +33,16 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header className="h-16 sm:h-20 bg-slate-900/80 border-b border-slate-800/80 px-3 sm:px-8 flex items-center justify-between backdrop-blur-md sticky top-0 z-30">
       {/* Store Info */}
-      <div className="flex items-center gap-2.5 sm:gap-4 min-w-0">
+      <div className="flex items-center gap-2.5 sm:gap-4 min-w-0 flex-1 sm:flex-initial mr-2">
         <button 
           onClick={onOpenSettings}
           className="flex items-center gap-2 sm:gap-3 group text-left transition hover:opacity-90 cursor-pointer min-w-0"
         >
-          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-slate-800 border border-slate-700/80 flex items-center justify-center text-emerald-400 group-hover:border-emerald-500/50 transition flex-shrink-0">
+          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-slate-800 border border-slate-700/80 flex items-center justify-center text-emerald-400 group-hover:border-emerald-500/50 transition flex-shrink-0">
             <Store className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
           <div className="min-w-0">
-            <h2 className="text-xs sm:text-base font-bold text-white flex items-center gap-1.5 truncate max-w-[130px] sm:max-w-[280px]">
+            <h2 className="text-sm sm:text-base font-black text-white flex items-center gap-1.5 truncate">
               <span className="truncate">{establishment?.name || 'Estabelecimento'}</span>
               <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0"></span>
             </h2>
@@ -77,7 +77,7 @@ export const Header: React.FC<HeaderProps> = ({
                     ? `7 Dias Grátis (${subStatus.daysRemaining}d)`
                     : 'Assinar R$ 50/mês')}
             </span>
-            <span className="sm:hidden text-[11px]">
+            <span className="sm:hidden text-[11px] font-bold">
               {subStatus.isActivePaid
                 ? `${subStatus.daysRemaining}d`
                 : (subStatus.isTrial
@@ -87,40 +87,40 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
-        {/* PWA Download / Install App Button */}
+        {/* PWA Download / Install App Button (Desktop only in header, mobile has dedicated banner and drawer) */}
         {onOpenInstallModal && (
           <button
             onClick={onOpenInstallModal}
             title="Instalar Aplicativo iaPedido no Celular (PWA)"
-            className="px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl text-xs font-black bg-gradient-to-r from-emerald-500/20 to-teal-500/20 hover:from-emerald-500/30 hover:to-teal-500/30 text-emerald-300 border border-emerald-500/40 flex items-center gap-1.5 transition cursor-pointer shadow-sm"
+            className="hidden sm:flex px-3 py-1.5 rounded-xl text-xs font-black bg-gradient-to-r from-emerald-500/20 to-teal-500/20 hover:from-emerald-500/30 hover:to-teal-500/30 text-emerald-300 border border-emerald-500/40 items-center gap-1.5 transition cursor-pointer shadow-sm"
           >
             <Download className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="hidden sm:inline">Baixar App</span>
+            <span>Baixar App</span>
           </button>
         )}
 
-        {/* Sound Alert Toggle */}
+        {/* Sound Alert Toggle (Desktop in header, mobile in drawer) */}
         <button
           onClick={() => setSoundEnabled(!soundEnabled)}
           title={soundEnabled ? 'Alerta sonoro de novo pedido ativado' : 'Alerta sonoro desativado'}
-          className={`p-2 sm:px-3.5 sm:py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition cursor-pointer border ${
+          className={`hidden sm:flex p-2 sm:px-3.5 sm:py-2 rounded-xl text-xs font-semibold items-center gap-2 transition cursor-pointer border ${
             soundEnabled
               ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20'
               : 'bg-slate-800/80 text-slate-400 border-slate-700/60 hover:text-slate-200'
           }`}
         >
           {soundEnabled ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4 text-slate-400" />}
-          <span className="hidden sm:inline">{soundEnabled ? 'Som Ativo' : 'Sem Som'}</span>
+          <span>{soundEnabled ? 'Som Ativo' : 'Sem Som'}</span>
         </button>
 
-        {/* WhatsApp Status */}
+        {/* WhatsApp Status (Desktop in header, mobile in bottom nav) */}
         <button
           onClick={onOpenWhatsApp}
           title={establishment?.evolutionConnected ? 'WhatsApp Conectado' : 'WhatsApp Desconectado'}
-          className="p-2 sm:px-3.5 sm:py-2 rounded-xl text-xs font-semibold flex items-center gap-2 bg-slate-800/90 border border-slate-700/80 hover:border-slate-600 transition cursor-pointer text-slate-200 shadow-sm"
+          className="hidden sm:flex p-2 sm:px-3.5 sm:py-2 rounded-xl text-xs font-semibold items-center gap-2 bg-slate-800/90 border border-slate-700/80 hover:border-slate-600 transition cursor-pointer text-slate-200 shadow-sm"
         >
           <Smartphone className="w-4 h-4 text-emerald-400" />
-          <span className="hidden sm:inline">WhatsApp</span>
+          <span>WhatsApp</span>
           <span className={`w-2 h-2 rounded-full ${establishment?.evolutionConnected ? 'bg-emerald-400' : 'bg-amber-400 animate-ping'}`} />
         </button>
 
