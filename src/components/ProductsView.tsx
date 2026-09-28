@@ -17,7 +17,8 @@ import {
 } from 'lucide-react';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../lib/firebase';
-import { Product } from '../types';
+import { Product, Establishment } from '../types';
+import { getSegmentConfig } from '../utils/segments';
 
 interface ProductsViewProps {
   products: Product[];
@@ -25,6 +26,7 @@ interface ProductsViewProps {
   onSaveProduct: (product: Partial<Product>) => Promise<void>;
   onDeleteProduct: (productId: string) => Promise<void>;
   loading: boolean;
+  establishment?: Establishment | null;
 }
 
 export const ProductsView: React.FC<ProductsViewProps> = ({
@@ -32,8 +34,10 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
   establishmentId,
   onSaveProduct,
   onDeleteProduct,
-  loading
+  loading,
+  establishment
 }) => {
+  const segConfig = getSegmentConfig(establishment?.segment);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -129,13 +133,13 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div>
           <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2 sm:gap-3 flex-wrap">
-            Cardápio & Produtos para a IA
+            {segConfig.catalogTitle} para a IA
             <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-purple-400" /> Sincronizado com a IA
             </span>
           </h2>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Cadastre os itens, preços, fotos e descrições. O atendente inteligente usa essas informações em tempo real no WhatsApp!
+            {segConfig.catalogSubtitle}
           </p>
         </div>
 
@@ -144,7 +148,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
           className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition cursor-pointer shadow-lg shadow-emerald-500/20"
         >
           <Plus className="w-4 h-4 stroke-[3]" />
-          <span>Cadastrar Produto</span>
+          <span>{segConfig.itemAddLabel}</span>
         </button>
       </div>
 
@@ -196,14 +200,14 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
       {loading ? (
         <div className="text-center py-20 text-slate-400">
           <Utensils className="w-8 h-8 mx-auto mb-2 animate-bounce text-emerald-400" />
-          <p>Carregando cardápio...</p>
+          <p>Carregando {segConfig.catalogTitle.toLowerCase()}...</p>
         </div>
       ) : filteredProducts.length === 0 ? (
         <div className="bg-slate-900/40 rounded-2xl border border-slate-800/60 p-12 text-center text-slate-400">
           <Utensils className="w-12 h-12 mx-auto mb-3 text-slate-600" />
-          <h3 className="text-lg font-bold text-slate-200">Nenhum produto cadastrado</h3>
+          <h3 className="text-lg font-bold text-slate-200">Nenhum item cadastrado</h3>
           <p className="text-sm mt-1 max-w-md mx-auto text-slate-400">
-            Clique em "Cadastrar Produto" para adicionar itens ao cardápio da sua loja.
+            Clique em "{segConfig.itemAddLabel}" para adicionar ao catálogo da sua loja.
           </p>
         </div>
       ) : (
@@ -310,7 +314,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
           <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-4 sm:p-6 space-y-4 shadow-2xl max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
               <h3 className="font-extrabold text-base text-white">
-                {editingProduct.id ? 'Editar Produto' : 'Novo Produto para o Cardápio'}
+                {editingProduct.id ? `Editar ${segConfig.itemNoun}` : `Novo(a) ${segConfig.itemNoun} para o Catálogo`}
               </h3>
               <button
                 onClick={() => setIsModalOpen(false)}
@@ -322,13 +326,15 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Nome do Produto *</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Nome do(a) {segConfig.itemNoun} *
+                </label>
                 <input
                   type="text"
                   required
                   value={editingProduct.name || ''}
                   onChange={e => setEditingProduct({ ...editingProduct, name: e.target.value })}
-                  placeholder="Ex: X-Burger Artesanal com Bacon"
+                  placeholder={`Ex: ${segConfig.sampleItemName}`}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm sm:text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/60"
                 />
               </div>
@@ -342,7 +348,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                     required
                     value={editingProduct.price || ''}
                     onChange={e => setEditingProduct({ ...editingProduct, price: parseFloat(e.target.value) || 0 })}
-                    placeholder="29.90"
+                    placeholder={segConfig.samplePrice.toFixed(2)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm sm:text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/60 font-mono"
                   />
                 </div>
@@ -354,7 +360,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                     required
                     value={editingProduct.category || ''}
                     onChange={e => setEditingProduct({ ...editingProduct, category: e.target.value })}
-                    placeholder="Ex: Hambúrgueres, Bebidas"
+                    placeholder={`Ex: ${segConfig.sampleCategory}`}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm sm:text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/60"
                   />
                 </div>
@@ -453,12 +459,18 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Descrição e Ingredientes (Para a IA)</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  {segConfig.id === 'VEHICLES' 
+                    ? 'Ficha Técnica, Opcionais e Condições (Para a IA)' 
+                    : segConfig.id === 'REAL_ESTATE' 
+                    ? 'Detalhes do Imóvel, Metragem e Regras (Para a IA)' 
+                    : 'Descrição e Detalhes do Produto (Para a IA)'}
+                </label>
                 <textarea
                   rows={3}
                   value={editingProduct.description || ''}
                   onChange={e => setEditingProduct({ ...editingProduct, description: e.target.value })}
-                  placeholder="Descreva bem os ingredientes para a IA tirar dúvidas e recomendar ao cliente (ex: 2 carnes 90g, queijo cheddar, maionese temperada)..."
+                  placeholder={`Ex: ${segConfig.sampleDescription}`}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/60"
                 />
               </div>

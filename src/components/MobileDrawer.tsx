@@ -16,10 +16,15 @@ import {
   Bot,
   Store,
   Clock,
-  Download
+  Download,
+  Car,
+  Home,
+  Shirt,
+  Package
 } from 'lucide-react';
 import { Establishment } from '../types';
 import { getSubscriptionStatus } from '../utils/subscription';
+import { getSegmentConfig } from '../utils/segments';
 
 interface MobileDrawerProps {
   isOpen: boolean;
@@ -51,11 +56,23 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
   if (!isOpen) return null;
 
   const subStatus = getSubscriptionStatus(establishment);
+  const segConfig = getSegmentConfig(establishment?.segment);
+
+  const getCatalogIcon = () => {
+    switch (segConfig.id) {
+      case 'VEHICLES': return Car;
+      case 'REAL_ESTATE': return Home;
+      case 'FASHION': return Shirt;
+      case 'ELECTRONICS': return Smartphone;
+      case 'GENERAL': return Package;
+      default: return UtensilsCrossed;
+    }
+  };
 
   const menuItems = [
-    { id: 'orders', label: 'Gestor de Pedidos', icon: ShoppingBag },
+    { id: 'orders', label: segConfig.ordersTitle, icon: ShoppingBag },
     { id: 'finance', label: 'Painel Financeiro', icon: TrendingUp },
-    { id: 'products', label: 'Cardápio & Produtos', icon: UtensilsCrossed },
+    { id: 'products', label: segConfig.catalogTitle, icon: getCatalogIcon() },
     { id: 'campaigns', label: 'Disparos & Campanhas', icon: Megaphone, badge: 'Novo' },
     { id: 'simulator', label: 'Simulador da IA', icon: MessageSquareCode, badge: 'Testar' },
     { id: 'whatsapp', label: 'Conexão WhatsApp', icon: Smartphone },

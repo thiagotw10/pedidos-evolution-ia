@@ -16,8 +16,9 @@ import {
   Filter,
   Navigation
 } from 'lucide-react';
-import { Order, OrderStatus, Courier } from '../types';
+import { Order, OrderStatus, Courier, Establishment } from '../types';
 import { DispatchModal } from './DispatchModal';
+import { getSegmentConfig } from '../utils/segments';
 
 interface OrdersViewProps {
   orders: Order[];
@@ -30,6 +31,7 @@ interface OrdersViewProps {
   loading: boolean;
   couriers?: Courier[];
   establishmentName?: string;
+  establishment?: Establishment | null;
 }
 
 export const OrdersView: React.FC<OrdersViewProps> = ({
@@ -37,8 +39,12 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   onUpdateStatus,
   loading,
   couriers = [],
-  establishmentName = 'iaPedido'
+  establishmentName = 'iaPedido',
+  establishment
 }) => {
+  const segConfig = getSegmentConfig(establishment?.segment);
+  const isFood = segConfig.id === 'FOOD';
+
   const [activeFilter, setActiveFilter] = useState<string>('PENDENTE');
   const [rejectModalOrder, setRejectModalOrder] = useState<Order | null>(null);
   const [dispatchModalOrder, setDispatchModalOrder] = useState<Order | null>(null);
@@ -47,12 +53,12 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
   const filterTabs = [
     { id: 'PENDENTE', label: 'Novos / Pendentes', color: 'emerald' },
-    { id: 'EM_PREPARO', label: 'Em Preparo', color: 'amber' },
-    { id: 'A_CAMINHO', label: 'Saiu p/ Entrega', color: 'blue' },
-    { id: 'PRONTO', label: 'Pronto p/ Retirada', color: 'purple' },
+    { id: 'EM_PREPARO', label: isFood ? 'Em Preparo' : 'Em Atendimento', color: 'amber' },
+    { id: 'A_CAMINHO', label: isFood ? 'Saiu p/ Entrega' : 'Saiu p/ Envio', color: 'blue' },
+    { id: 'PRONTO', label: isFood ? 'Pronto p/ Retirada' : 'Pronto p/ Visita/Retirada', color: 'purple' },
     { id: 'CONCLUIDO', label: 'Concluídos', color: 'slate' },
     { id: 'CANCELADO', label: 'Cancelados', color: 'rose' },
-    { id: 'ALL', label: 'Todos os Pedidos', color: 'slate' },
+    { id: 'ALL', label: `Todos (${segConfig.ordersTitle})`, color: 'slate' },
   ];
 
   const filteredOrders = orders.filter(order => {
@@ -66,13 +72,13 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse">Aguardando Confirmação</span>;
       case 'CONFIRMADO':
       case 'EM_PREPARO':
-        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-300 border border-blue-500/40">Em Preparo na Cozinha</span>;
+        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-300 border border-blue-500/40">{isFood ? 'Em Preparo na Cozinha' : 'Em Separação / Atendimento'}</span>;
       case 'A_CAMINHO':
-        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">🛵 Saiu para Entrega</span>;
+        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">{isFood ? '🛵 Saiu para Entrega' : '📦 Saiu para Envio/Entrega'}</span>;
       case 'PRONTO':
-        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">🛍️ Pronto p/ Retirada</span>;
+        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">{isFood ? '🛍️ Pronto p/ Retirada' : '📍 Pronto p/ Retirada ou Visita'}</span>;
       case 'CONCLUIDO':
-        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">Entregue & Concluído</span>;
+        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">Concluído & Finalizado</span>;
       case 'CANCELADO':
         return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500/20 text-rose-400 border border-rose-500/40">Cancelado</span>;
       default:

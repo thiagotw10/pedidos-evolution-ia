@@ -328,11 +328,31 @@ async function sendWhatsAppMessage(
   text: string
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   try {
-    const numeric = number.replace(/\D/g, '');
-    const cleanNumber = numeric.startsWith('55') ? numeric : `55${numeric}`;
+    const isGroup = number.includes('@g.us');
+    let cleanNumber = number;
+    if (!isGroup) {
+      const numeric = number.replace(/\D/g, '');
+      cleanNumber = numeric.startsWith('55') ? numeric : `55${numeric}`;
+    }
     const cleanUrl = evolutionUrl.replace(/\/$/, '');
 
     console.log(`[Evolution API] Enviando mensagem para ${cleanNumber} (instância ${instanceName})...`);
+
+    // Anti-Ban: Calculate natural human typing delay (proportional to text length + random jitter)
+    // Between 2.2s and 6.5s so Meta heuristics detect realistic human keyboard action
+    const charDelay = Math.min(5500, Math.max(2200, Math.floor((text || '').length * 18)));
+    const randomJitter = Math.floor(Math.random() * 1200);
+    const typingDelay = charDelay + randomJitter;
+
+    // Send presence 'composing' (digitando...) via Evolution Go /message/presence
+    try {
+      fetch(`${cleanUrl}/message/presence`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: instanceName },
+        body: JSON.stringify({ number: cleanNumber, state: 'composing', delay: Math.min(typingDelay, 4000) }),
+        signal: AbortSignal.timeout(3000)
+      }).catch(() => {});
+    } catch {}
 
     // 1. Try Evolution Go (/send/text with token as apikey)
     try {
@@ -345,8 +365,9 @@ async function sendWhatsAppMessage(
         body: JSON.stringify({
           number: cleanNumber,
           text: text,
-          delay: 1200
-        })
+          delay: typingDelay
+        }),
+        signal: AbortSignal.timeout(12000)
       });
 
       if (respGo.ok) {
@@ -369,7 +390,7 @@ async function sendWhatsAppMessage(
       body: JSON.stringify({
         number: cleanNumber,
         options: {
-          delay: 1200,
+          delay: typingDelay,
           presence: 'composing',
           linkPreview: false
         },
@@ -430,36 +451,61 @@ async function processAiCustomerMessage(
     `- [ID: ${p.id}] ${p.name} (R$ ${Number(p.price).toFixed(2)}) [Categoria: ${p.category}]: ${p.description || ''}`
   ).join('\n');
 
+  const rawSegment = (establishment.segment || '').toUpperCase();
+  const isVehicles = rawSegment.includes('VEIC') || rawSegment.includes('CARRO') || rawSegment.includes('MOTO') || rawSegment.includes('AUTO');
+  const isRealEstate = rawSegment.includes('IMOB') || rawSegment.includes('IMOVE') || rawSegment.includes('CORRETOR');
+  const isFashion = rawSegment.includes('MODA') || rawSegment.includes('ROUPA') || rawSegment.includes('CALCAD');
+  const isElectronics = rawSegment.includes('ELETRO') || rawSegment.includes('CELULAR') || rawSegment.includes('IPHONE');
+  const isGeneral = rawSegment.includes('GERAL') || rawSegment.includes('VAREJO');
+  const isFood = !isVehicles && !isRealEstate && !isFashion && !isElectronics && !isGeneral;
+
+  const catalogHeader = isVehicles ? 'ESTOQUE DE VEÍCULOS DISPONÍVEIS' 
+    : isRealEstate ? 'CATÁLOGO DE IMÓVEIS DISPONÍVEIS' 
+    : isFashion ? 'COLEÇÃO & CATÁLOGO DE PEÇAS' 
+    : isElectronics ? 'ESTOQUE DE APARELHOS & PRODUTOS' 
+    : isFood ? 'CARDÁPIO ATUAL' 
+    : 'CATÁLOGO DE PRODUTOS & SERVIÇOS';
+
+  const roleDesc = isVehicles 
+    ? `Você é o consultor de vendas digital da loja de veículos / concessionária "${establishment.name || 'Loja de Veículos'}"`
+    : isRealEstate 
+    ? `Você é o consultor imobiliário digital da imobiliária "${establishment.name || 'Imobiliária'}"`
+    : isFashion
+    ? `Você é a consultora de estilo e atendimento virtual da loja de moda "${establishment.name || 'Boutique'}"`
+    : isElectronics
+    ? `Você é o especialista técnico e atendente da loja "${establishment.name || 'Loja de Eletrônicos'}"`
+    : `Você é o atendente de Inteligência Artificial do estabelecimento "${establishment.name || 'Estabelecimento'}"`;
+
   const systemInstruction = `
-Você é o atendente de Inteligência Artificial do estabelecimento "${establishment.name || 'Restaurante'}".
+${roleDesc}.
 Seu objetivo é atender os clientes pelo WhatsApp de forma educada, ágil, simpática e objetiva.
 
 DADOS DO ESTABELECIMENTO:
 - Nome: ${establishment.name}
 - Horário de Funcionamento: ${establishment.operatingHours || 'Aberto agora'}
 - Endereço da Loja: ${establishment.address || 'Não informado'}
-- Taxa de Entrega: R$ ${Number(establishment.deliveryFee || 0).toFixed(2)}
-- Tempo Estimado: ${establishment.estimatedDeliveryTime || '40 minutos'}
+- Taxa de Entrega / Despacho: R$ ${Number(establishment.deliveryFee || 0).toFixed(2)}
+- Tempo Estimado / Agendamento: ${establishment.estimatedDeliveryTime || '40 minutos'}
 - Chave PIX: ${establishment.pixKey || 'Chave cadastrada no caixa'}
-- Formas de Pagamento Aceitas: PIX, Cartão (Crédito/Débito na entrega), Dinheiro.
+- Formas de Pagamento Aceitas: PIX, Cartão (Crédito/Débito), Dinheiro/Financiamento.
 ${establishment.aiPromptCustom ? `\nINSTRUÇÕES PERSONALIZADAS DO ESTABELECIMENTO:\n${establishment.aiPromptCustom}` : ''}
 
-CARDÁPIO ATUAL:
+${catalogHeader}:
 ${menuText || 'Nenhum item cadastrado no momento.'}
 
 COMO VOCÊ DEVE AGIR:
-1. Responda dúvidas sobre ingredientes, preços e categorias com base estritamente no cardápio acima.
-2. Seja proativo em sugerir adicionais ou bebidas que combinem com o pedido.
-3. FLUXO DE PEDIDO:
-   Quando o cliente quiser fazer um pedido, certifique-se de ter:
+1. Responda dúvidas sobre especificações, preços e categorias com base estritamente no catálogo acima.
+2. Seja proativo em sugerir opções ou adicionais que combinem com a busca do cliente.
+3. FLUXO DE PEDIDO / PROPOSTA:
+   Quando o cliente quiser fechar um pedido ou proposta, certifique-se de ter:
    - Nome do cliente
-   - Itens escolhidos e quantidades (e observações se houver)
-   - Se é ENTREGA (Delivery) ou RETIRADA no balcão
-   - Se for entrega: Endereço completo (Rua, Número, Bairro, Complemento/Referência)
-   - Forma de pagamento (PIX, Cartão na entrega ou Dinheiro - se for dinheiro, pergunte se precisa de troco para quanto).
+   - Itens escolhidos e quantidades (e observações ou condições)
+   - Se é ENTREGA/ENVIO ou RETIRADA/VISITA na loja
+   - Se for entrega: Endereço completo
+   - Forma de pagamento (PIX, Cartão, Dinheiro ou Financiamento).
 4. QUANDO TODOS OS DADOS ESTIVEREM COMPLETOS:
-   Você DEVE acionar a ferramenta/função 'registrar_pedido' para registrar o pedido no sistema do restaurante.
-   Após chamar a ferramenta com sucesso, informe ao cliente de maneira acolhedora que o pedido foi enviado para o restaurante e que ele receberá a confirmação assim que a equipe aceitar!
+   Você DEVE acionar a ferramenta/função 'registrar_pedido' para registrar no sistema da loja.
+   Após chamar a ferramenta com sucesso, informe ao cliente de maneira acolhedora que o pedido foi enviado e que ele receberá a confirmação da equipe!
   `;
 
   // Define Function Calling Tool for order placement
@@ -774,6 +820,23 @@ async function startServer() {
           return res.status(200).json({ status: 'out_of_hours_silent' });
         }
 
+        // Anti-Ban Layer 1: Automatic Opt-out Interceptor
+        // If recipient replies 0, parar, sair, cancelar, etc., auto-block from future marketing broadcasts and confirm politely
+        const cleanInboundText = (textContent || '').trim().toLowerCase();
+        const optOutKeywords = ['0', 'parar', 'sair', 'cancelar', 'stop', 'descadastrar', 'remover', 'nao quero mais', 'não quero mais'];
+        if (optOutKeywords.includes(cleanInboundText)) {
+          console.log(`[Anti-Ban Opt-out] Cliente ${senderPhone} solicitou descadastramento da loja ${targetStoreId}`);
+          await db.collection('establishments').doc(targetStoreId).collection('blocked_contacts').doc(senderPhone).set({
+            phone: senderPhone,
+            blockedAt: new Date().toISOString(),
+            reason: `Opt-out automático pelo WhatsApp (mensagem: "${cleanInboundText}")`
+          }, { merge: true });
+
+          const optOutReply = `Entendido! Você foi removido da nossa lista de novidades e promoções com sucesso. ✅\n\nCaso queira voltar a receber nossas ofertas no futuro, basta nos avisar por aqui. Se precisar de algo ou quiser fazer um pedido agora, fico à disposição! 😊`;
+          await sendWhatsAppMessage(evoUrl, evoKey, evoInst, senderPhone, optOutReply);
+          return res.status(200).json({ status: 'opt_out_processed', phone: senderPhone });
+        }
+
         // Process with Gemini AI for this specific store
         const { replyText } = await processAiCustomerMessage(
           targetStoreId,
@@ -783,6 +846,8 @@ async function startServer() {
         );
 
         if (replyText) {
+          // Natural thinking jitter (1.2s - 2.2s) before replying to simulate human reading/thinking
+          await new Promise(r => setTimeout(r, 1200 + Math.floor(Math.random() * 1000)));
           await sendWhatsAppMessage(evoUrl, evoKey, evoInst, senderPhone, replyText);
         }
 
@@ -1097,37 +1162,35 @@ async function startServer() {
         }
       }
 
+      const estDoc = await db.collection('establishments').doc(storeId).get();
+      const est = estDoc.data() || {};
+      const rawSeg = (est.segment || '').toUpperCase();
+      const isFoodEst = !rawSeg.includes('VEIC') && !rawSeg.includes('CARRO') && !rawSeg.includes('IMOB') && !rawSeg.includes('IMOVE') && !rawSeg.includes('MODA') && !rawSeg.includes('ELETRO');
+
       // Prepare WhatsApp message based on status change
       let statusMessage = '';
       const orderNum = order.orderNumber || id.slice(-4);
 
       if (status === 'CONFIRMADO' || status === 'EM_PREPARO') {
-        statusMessage = `✅ *PEDIDO #${orderNum} CONFIRMADO!*\n\n` +
-          `Olá, *${order.customerName}*! Seu pedido foi aprovado pelo restaurante e já está em preparo na cozinha! 🍳\n\n` +
-          `⏱️ *Tempo estimado:* 30 a 45 minutos.\n` +
-          `Avisaremos assim que sair para você! Obrigado pela preferência!`;
+        statusMessage = isFoodEst
+          ? `✅ *PEDIDO #${orderNum} CONFIRMADO!*\n\nOlá, *${order.customerName}*! Seu pedido foi aprovado pelo restaurante e já está em preparo na cozinha! 🍳\n\n⏱️ *Tempo estimado:* ${est.estimatedDeliveryTime || '30 a 45 minutos'}.\nAvisaremos assim que sair para você! Obrigado pela preferência!`
+          : `✅ *SOLICITAÇÃO #${orderNum} CONFIRMADA!*\n\nOlá, *${order.customerName}*! Sua solicitação foi confirmada pela equipe da *${est.name || 'loja'}* e já está em processamento! ✅\n\n⏱️ *Previsão/Atendimento:* ${est.estimatedDeliveryTime || 'Em breve'}.\nQualquer dúvida estamos à disposição!`;
       } else if (status === 'A_CAMINHO') {
         const courierGreeting = courierName ? ` com o entregador *${courierName}*` : '';
-        statusMessage = `🛵 *SEU PEDIDO #${orderNum} SAIU PARA ENTREGA!*\n\n` +
-          `Olá, *${order.customerName}*! O entregador acabou de sair${courierGreeting} a caminho de: \n` +
-          `📍 *${order.customerAddress}*\n\n` +
-          `Fique atento ao interfone ou campainha! Bom apetite! 😋`;
+        statusMessage = isFoodEst
+          ? `🛵 *SEU PEDIDO #${orderNum} SAIU PARA ENTREGA!*\n\nOlá, *${order.customerName}*! O entregador acabou de sair${courierGreeting} a caminho de: \n📍 *${order.customerAddress}*\n\nFique atento ao interfone ou campainha! Bom apetite! 😋`
+          : `📦 *SOLICITAÇÃO #${orderNum} SAIU PARA ENVIO/ENTREGA!*\n\nOlá, *${order.customerName}*! Seu envio acabou de sair${courierGreeting} a caminho de: \n📍 *${order.customerAddress}*\n\nFique atento(a), já está chegando! 🚀`;
       } else if (status === 'PRONTO') {
-        statusMessage = `🛍️ *PEDIDO #${orderNum} PRONTO PARA RETIRADA!*\n\n` +
-          `Olá, *${order.customerName}*! Seu pedido já está embalado e prontinho esperando por você no balcão da loja!\n` +
-          `Te aguardamos!`;
+        statusMessage = isFoodEst
+          ? `🛍️ *PEDIDO #${orderNum} PRONTO PARA RETIRADA!*\n\nOlá, *${order.customerName}*! Seu pedido já está embalado e prontinho esperando por você no balcão da loja!\nTe aguardamos!`
+          : `📍 *SOLICITAÇÃO #${orderNum} PRONTA!*\n\nOlá, *${order.customerName}*! Já está tudo pronto para sua retirada ou visita na loja!\nTe aguardamos! ✨`;
       } else if (status === 'CONCLUIDO') {
-        statusMessage = `🎉 *PEDIDO #${orderNum} FINALIZADO!*\n\n` +
-          `Esperamos que tenha tido uma ótima experiência gastronômica! Se puder, nos conte o que achou. Até a próxima! ⭐`;
+        statusMessage = `🎉 *SOLICITAÇÃO #${orderNum} FINALIZADA!*\n\nMuito obrigado pela confiança, *${order.customerName}*! Se puder, nos conte o que achou. Até a próxima! ⭐⭐⭐⭐⭐`;
       } else if (status === 'CANCELADO') {
-        statusMessage = `❌ *ATUALIZAÇÃO DO PEDIDO #${orderNum}*\n\n` +
-          `Olá, *${order.customerName}*! Infelizmente seu pedido não pôde ser aceito no momento.\n` +
+        statusMessage = `❌ *ATUALIZAÇÃO DA SOLICITAÇÃO #${orderNum}*\n\nOlá, *${order.customerName}*! Infelizmente sua solicitação não pôde ser aceita no momento.\n` +
           (rejectionReason ? `⚠️ *Motivo:* ${rejectionReason}\n\n` : '\n') +
-          `Se desejar alterar algum item ou pedir em outro momento, ficamos à sua disposição!`;
+          `Se desejar alterar algo ou conversar com a nossa equipe, ficamos à sua disposição!`;
       }
-
-      const estDoc = await db.collection('establishments').doc(storeId).get();
-      const est = estDoc.data() || {};
       let evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
       if (evoUrl.includes('localhost:8080') || !evoUrl) {
         evoUrl = (process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
@@ -1355,9 +1418,30 @@ _Bom trabalho e dirija com segurança! 🚀_`;
         if (respAll.ok) {
           const allData = await respAll.json().catch(() => ({}));
           if (allData && Array.isArray(allData.data)) {
-            const found = allData.data.find((inst: any) => inst.name === evoInst);
+            const found = allData.data.find((inst: any) => 
+              inst.name === evoInst ||
+              (inst.webhook && inst.webhook.includes(storeId)) ||
+              inst.name.startsWith(`pedidos_${storeId.slice(0, 15)}`)
+            );
             if (found) {
-              const isConnected = !!found.connected;
+              let isConnected = !!found.connected;
+              if (!isConnected && found.jid) {
+                try {
+                  const reconnectRes = await fetch(`${evoUrl}/instance/connect`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', apikey: found.token || evoInst },
+                    body: JSON.stringify({
+                      immediate: true,
+                      webhookUrl: `${(process.env.APP_URL || 'http://localhost:3005').replace(/\/$/, '')}/api/webhook/evolution/${storeId}`
+                    })
+                  });
+                  const rData = await reconnectRes.json().catch(() => ({}));
+                  if (rData?.data?.jid) {
+                    isConnected = true;
+                  }
+                } catch {}
+              }
+
               await db.collection('establishments').doc(storeId).update({
                 evolutionConnected: isConnected
               });
@@ -1399,6 +1483,120 @@ _Bom trabalho e dirija com segurança! 🚀_`;
       }
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Fetch WhatsApp groups for the connected instance
+  app.get('/api/evolution/groups', async (req, res) => {
+    try {
+      const storeId = getStoreId(req);
+      const estDoc = await db.collection('establishments').doc(storeId).get();
+      const est = estDoc.data() || {};
+      let evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+      if (evoUrl.includes('localhost:8080') || !evoUrl) {
+        evoUrl = (process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+      }
+      let evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
+      if (!evoKey) evoKey = 'minha_chave_secreta_7108';
+      const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 20)}`;
+      let evoInst = (est.evolutionInstanceName || defaultInstName).trim();
+
+      // Auto-resolve active instance name from /instance/all
+      try {
+        const allRes = await fetch(`${evoUrl}/instance/all`, { headers: { apikey: evoKey } });
+        if (allRes.ok) {
+          const allData = await allRes.json();
+          if (Array.isArray(allData?.data)) {
+            const match = allData.data.find((inst: any) => 
+              inst.name === evoInst ||
+              (inst.webhook && inst.webhook.includes(storeId)) ||
+              (inst.token && inst.token === evoInst) ||
+              inst.name.startsWith(`pedidos_${storeId.slice(0, 15)}`)
+            );
+            if (match && match.name) {
+              evoInst = match.name;
+            }
+          }
+        }
+      } catch (e: any) {
+        console.warn('[Evolution Groups Local] Erro ao checar /instance/all:', e.message);
+      }
+
+      console.log(`[Evolution Groups Local] Buscando grupos para instância ${evoInst}...`);
+      let groups: Array<{ id: string; subject: string; size?: number; pictureUrl?: string }> = [];
+
+      // Attempt 1 (Evolution Go): GET /group/list with apikey: evoInst
+      try {
+        const gRes = await fetch(`${evoUrl}/group/list`, {
+          headers: { apikey: evoInst }
+        });
+        if (gRes.ok) {
+          const json = await gRes.json();
+          const rawList = Array.isArray(json?.data) ? json.data : (Array.isArray(json) ? json : []);
+          if (rawList.length > 0) {
+            groups = rawList.map((g: any) => ({
+              id: g.JID || g.jid || g.id || '',
+              subject: g.Name || g.subject || g.name || 'Grupo sem título',
+              size: Array.isArray(g.Participants) ? g.Participants.length : (g.ParticipantCount || g.size || 0),
+              pictureUrl: g.pictureUrl || g.avatar || ''
+            })).filter((g: any) => g.id && g.id.includes('@g.us'));
+          }
+        }
+      } catch (e: any) {
+        console.warn('[Evolution Groups Local] Tentativa 1 (/group/list) falhou:', e.message);
+      }
+
+      // Attempt 2 (Evolution Go): GET /group/myall with apikey: evoInst
+      if (groups.length === 0) {
+        try {
+          const gRes = await fetch(`${evoUrl}/group/myall`, {
+            headers: { apikey: evoInst }
+          });
+          if (gRes.ok) {
+            const json = await gRes.json();
+            const rawList = Array.isArray(json?.data) ? json.data : (Array.isArray(json) ? json : []);
+            if (rawList.length > 0) {
+              groups = rawList.map((g: any) => ({
+                id: g.JID || g.jid || g.id || '',
+                subject: g.Name || g.subject || g.name || 'Grupo sem título',
+                size: Array.isArray(g.Participants) ? g.Participants.length : (g.ParticipantCount || g.size || 0),
+                pictureUrl: g.pictureUrl || g.avatar || ''
+              })).filter((g: any) => g.id && g.id.includes('@g.us'));
+            }
+          }
+        } catch (e: any) {
+          console.warn('[Evolution Groups Local] Tentativa 2 (/group/myall) falhou:', e.message);
+        }
+      }
+
+      // Attempt 3 (Evolution Node): GET /group/fetchAllGroups/{instance} with evoKey
+      if (groups.length === 0) {
+        try {
+          const gRes = await fetch(`${evoUrl}/group/fetchAllGroups/${evoInst}?getParticipants=false`, {
+            headers: { apikey: evoKey }
+          });
+          if (gRes.ok) {
+            const raw = await gRes.json();
+            const list = Array.isArray(raw) ? raw : (raw.groups || raw.data || []);
+            if (Array.isArray(list) && list.length > 0) {
+              groups = list.map((g: any) => ({
+                id: g.id || g.jid || g.JID || '',
+                subject: g.subject || g.Name || g.name || 'Grupo sem título',
+                size: g.size || (Array.isArray(g.participants) ? g.participants.length : 0),
+                pictureUrl: g.pictureUrl || g.avatar || ''
+              })).filter((g: any) => g.id && g.id.includes('@g.us'));
+            }
+          }
+        } catch (e: any) {
+          console.warn('[Evolution Groups Local] Tentativa 3 falhou:', e.message);
+        }
+      }
+
+      // Sort alphabetically by subject
+      groups.sort((a, b) => a.subject.localeCompare(b.subject, 'pt-BR', { sensitivity: 'base' }));
+      return res.json({ success: true, groups, total: groups.length });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
     }
   });
 
@@ -1547,6 +1745,102 @@ _Bom trabalho e dirija com segurança! 🚀_`;
         res.status(500).json({ error: result.error || 'Falha ao enviar mensagem.' });
       }
     } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // API: Request Pairing Code (Connect via phone number without QR code)
+  app.post('/api/evolution/pair', async (req, res) => {
+    try {
+      const storeId = getStoreId(req);
+      const { phone } = req.body;
+      if (!phone) return res.status(400).json({ error: 'Telefone é obrigatório para pairing code.' });
+
+      const rawDigits = phone.replace(/\D/g, '');
+      const cleanPhone = rawDigits.startsWith('55') ? rawDigits : `55${rawDigits}`;
+
+      const estDoc = await db.collection('establishments').doc(storeId).get();
+      const est = estDoc.data() || {};
+      const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+      const evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
+      const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 20)}`;
+      let evoInst = (est.evolutionInstanceName || defaultInstName).trim();
+      const appUrl = (process.env.APP_URL || 'http://localhost:3005').replace(/\/$/, '');
+      const autoWebhookUrl = `${appUrl}/api/webhook/evolution/${storeId}`;
+
+      try {
+        const allRes = await fetch(`${evoUrl}/instance/all`, { headers: { apikey: evoKey } });
+        const allData = await allRes.json().catch(() => ({}));
+        let instanceExists = false;
+
+        if (allData && Array.isArray(allData.data)) {
+          const match = allData.data.find((inst: any) => 
+            inst.name === evoInst ||
+            (inst.webhook && inst.webhook.includes(storeId)) ||
+            inst.name.startsWith(`pedidos_${storeId.slice(0, 15)}`)
+          );
+          if (match && match.name) {
+            evoInst = match.name;
+            instanceExists = true;
+          }
+        }
+
+        if (!instanceExists) {
+          await fetch(`${evoUrl}/instance/create`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: evoKey },
+            body: JSON.stringify({
+              name: evoInst,
+              token: evoInst,
+              advancedSettings: {
+                rejectCall: true,
+                msgRejectCall: '',
+                ignoreGroups: true,
+                alwaysOnline: false,
+                readMessages: false,
+                ignoreStatus: true
+              }
+            })
+          });
+        }
+
+        await fetch(`${evoUrl}/instance/connect`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', apikey: evoInst },
+          body: JSON.stringify({
+            webhookUrl: autoWebhookUrl,
+            subscribe: ['MESSAGE', 'CONNECTION', 'MESSAGES_UPSERT']
+          })
+        }).catch(() => {});
+      } catch (e: any) {
+        console.warn('[Evolution API Pair Local] Erro ao preparar instância:', e.message);
+      }
+
+      console.log(`[Evolution API Local] Solicitando Pairing Code para ${cleanPhone} na instância ${evoInst}...`);
+      const pairRes = await fetch(`${evoUrl}/instance/pair`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: evoInst },
+        body: JSON.stringify({ phone: cleanPhone })
+      });
+
+      const pairData = await pairRes.json().catch(() => ({}));
+      console.log(`[Evolution API Local] Resposta Pairing Code:`, JSON.stringify(pairData));
+
+      const code = pairData?.data?.PairingCode || 
+                   pairData?.data?.pairingCode || 
+                   pairData?.PairingCode || 
+                   pairData?.pairingCode || 
+                   pairData?.code || 
+                   pairData?.data?.code || null;
+
+      if (!code) {
+        const errorMsg = pairData?.message || pairData?.error || 'Não foi possível gerar o código. Verifique se o número está correto e tente novamente.';
+        return res.status(400).json({ error: errorMsg, raw: pairData });
+      }
+
+      res.json({ success: true, pairingCode: code, raw: pairData });
+    } catch (err: any) {
+      console.error('[Evolution API Local] Erro no Pairing Code:', err);
       res.status(500).json({ error: err.message });
     }
   });

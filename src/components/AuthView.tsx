@@ -21,6 +21,7 @@ import {
   HelpCircle,
   ArrowLeft
 } from 'lucide-react';
+import { SEGMENT_OPTIONS, getSegmentConfig } from '../utils/segments';
 
 interface AuthViewProps {
   onAuthSuccess: (storeId: string, email?: string) => void;
@@ -40,7 +41,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
   // Registration specific fields
   const [storeName, setStoreName] = useState('');
   const [storePhone, setStorePhone] = useState('');
-  const [segment, setSegment] = useState('Hambúrgueres & Lanches');
+  const [segment, setSegment] = useState('FOOD');
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -51,23 +52,25 @@ export const AuthView: React.FC<AuthViewProps> = ({
       const estRef = doc(db, 'establishments', uid);
       const snap = await getDoc(estRef);
       
+      const segConf = getSegmentConfig(storeSegment);
       const cleanInstName = `pedidos_${name.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 15)}_${uid.slice(0, 5)}`;
       const storeData = {
         id: uid,
-        name: name || 'Meu Estabelecimento Gourmet',
+        name: name || 'Meu Negócio',
+        segment: segConf.id,
         phone: phone || '',
         address: 'Rua Principal, 100 - Centro',
-        deliveryFee: 7.00,
-        estimatedDeliveryTime: '35 a 50 minutos',
-        operatingHours: 'Todos os dias das 18:00 às 23:30',
-        description: `O melhor em ${storeSegment} preparado com ingredientes frescos!`,
+        deliveryFee: segConf.id === 'VEHICLES' || segConf.id === 'REAL_ESTATE' ? 0 : 7.00,
+        estimatedDeliveryTime: segConf.id === 'VEHICLES' ? 'Visitas agendadas' : '35 a 50 minutos',
+        operatingHours: 'Segunda a Sábado das 08:00 às 18:00',
+        description: segConf.categoryDesc,
         pixKey: storeEmail || email || '',
         evolutionApiUrl: 'http://34.69.146.15:8081',
         evolutionApiKey: 'minha_chave_secreta_7108',
         evolutionInstanceName: cleanInstName,
         evolutionConnected: false,
-        aiPromptCustom: `Você é o atendente virtual de ${name}. Seja amigável, rápido e atencioso. Apresente os itens do cardápio e quando o cliente decidir, colete: nome, endereço ou retirada, e forma de pagamento.`,
-        aiWelcomeMessage: `Olá! Seja muito bem-vindo a ${name} 🍽️! O que você gostaria de pedir hoje?`,
+        aiPromptCustom: segConf.defaultPrompt.replace(/\{loja\}/g, name || 'Nossa Empresa'),
+        aiWelcomeMessage: segConf.defaultWelcome.replace(/\{loja\}/g, name || 'Nossa Empresa'),
         createdAt: new Date().toISOString(),
         trialEndsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
         plan: 'trial',
@@ -346,13 +349,11 @@ export const AuthView: React.FC<AuthViewProps> = ({
                       onChange={(e) => setSegment(e.target.value)}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors"
                     >
-                      <option>Hambúrgueres & Lanches</option>
-                      <option>Pizzaria</option>
-                      <option>Comida Japonesa / Sushi</option>
-                      <option>Marmitex / Restaurante</option>
-                      <option>Açaiteria & Sorveteria</option>
-                      <option>Doceria & Bolos</option>
-                      <option>Outros Comércios</option>
+                      {SEGMENT_OPTIONS.map((seg) => (
+                        <option key={seg.id} value={seg.id}>
+                          {seg.emoji} {seg.label}
+                        </option>
+                      ))}
                     </select>
                   </div>
 
@@ -473,21 +474,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
             </svg>
             <span>Conta Google</span>
           </button>
-
-          {/* Quick Demo Access */}
-          <div className="mt-6 pt-5 border-t border-slate-800/60 text-center">
-            <button
-              type="button"
-              onClick={() => onAuthSuccess('default_store')}
-              className="text-xs text-slate-400 hover:text-emerald-400 inline-flex items-center gap-1.5 transition-colors"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Acessar Loja Demonstração (Burger & Cia)</span>
-            </button>
-          </div>
-
         </div>
-
       </div>
     </div>
   );

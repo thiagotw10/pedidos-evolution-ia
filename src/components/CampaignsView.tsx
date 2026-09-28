@@ -19,11 +19,18 @@ import {
   RefreshCw,
   Eye,
   Sliders,
-  BellRing
+  BellRing,
+  MessageCircle,
+  Users2,
+  ShieldCheck,
+  Search,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { storage } from '../lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { CampaignTemplate, Establishment } from '../types';
+import { CampaignTemplate, Establishment, WhatsAppGroup } from '../types';
+import { getSegmentConfig } from '../utils/segments';
 
 interface CampaignsViewProps {
   establishmentId: string;
@@ -49,6 +56,9 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
   const [campaigns, setCampaigns] = useState<CampaignTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [audienceCount, setAudienceCount] = useState<number>(0);
+  const [groups, setGroups] = useState<WhatsAppGroup[]>([]);
+  const [loadingGroups, setLoadingGroups] = useState(false);
+  const [groupSearch, setGroupSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCampaign, setEditingCampaign] = useState<Partial<CampaignTemplate> | null>(null);
   const [saving, setSaving] = useState(false);
@@ -56,12 +66,14 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
   const [sendingNowId, setSendingNowId] = useState<string | null>(null);
   const [sendResultNotice, setSendResultNotice] = useState<string | null>(null);
   const [confirmSendCampaign, setConfirmSendCampaign] = useState<CampaignTemplate | null>(null);
+  const [showAntiBanGuide, setShowAntiBanGuide] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch campaigns, audience and periodic cron check
+  // Fetch campaigns, audience, groups and periodic cron check
   useEffect(() => {
     fetchCampaigns();
     fetchAudience();
+    fetchGroups();
 
     // Check scheduled campaigns every 20 seconds
     const checkSchedule = async () => {
@@ -74,6 +86,25 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
     const interval = setInterval(checkSchedule, 20000);
     return () => clearInterval(interval);
   }, [establishmentId]);
+
+  const fetchGroups = async () => {
+    try {
+      setLoadingGroups(true);
+      const res = await fetch(`/api/evolution/groups?establishmentId=${establishmentId}`, {
+        headers: {
+          'x-establishment-id': establishmentId
+        }
+      });
+      const data = await res.json();
+      if (Array.isArray(data.groups)) {
+        setGroups(data.groups);
+      }
+    } catch (err) {
+      console.warn('Erro ao carregar grupos do WhatsApp:', err);
+    } finally {
+      setLoadingGroups(false);
+    }
+  };
 
   const fetchCampaigns = async () => {
     try {
@@ -103,21 +134,77 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
   };
 
   const handleOpenNewModal = () => {
+    const segConfig = getSegmentConfig(establishment?.segment);
+    let defaultTitle = 'Abertura da Cozinha - 18h';
+    let defaultTime = '18:00';
+    let defaultMsg = 'Boa noite, *{cliente}*! 🍔🔥\n\nNossa cozinha acabou de abrir com novidades deliciosas saindo do fogo agora!\n\nHoje temos promoção imperdível em nossos lanches artesanais. Peça agora pelo WhatsApp antes que acabe!\n\nBasta responder esta mensagem para ver nosso cardápio ou fazer seu pedido. 🛵';
+
+    if (segConfig.id === 'VEHICLES') {
+      defaultTitle = 'Novidades no Estoque de Veículos';
+      defaultTime = '10:00';
+      defaultMsg = 'Olá, *{cliente}*! 🚗🔥\n\nAcabaram de chegar novos veículos no nosso estoque aqui na *{loja}* com condições especiais de financiamento e entrada facilitada!\n\nAceitamos seu carro ou moto na troca com avaliação justa.\n\nBasta responder esta mensagem para receber as fotos, anos e valores dos modelos disponíveis!';
+    } else if (segConfig.id === 'REAL_ESTATE') {
+      defaultTitle = 'Destaques Imobiliários da Semana';
+      defaultTime = '10:00';
+      defaultMsg = 'Olá, *{cliente}*! 🏡✨\n\nSeparamos oportunidades exclusivas de imóveis para venda e locação nesta semana na *{loja}*!\n\nBasta responder esta mensagem informando o bairro ou perfil que você procura para receber as fotos e agendar uma visita!';
+    } else if (segConfig.id === 'FASHION') {
+      defaultTitle = 'Novidades da Coleção';
+      defaultTime = '14:00';
+      defaultMsg = 'Olá, *{cliente}*! ✨👗\n\nChegaram peças incríveis na nossa nova coleção aqui na *{loja}*!\n\nPeças com caimento perfeito nos tamanhos P, M e G. Responda aqui para ver as fotos e garantir a sua antes que esgote!';
+    } else if (segConfig.id === 'ELECTRONICS') {
+      defaultTitle = 'Ofertas de Smartphones & Aparelhos';
+      defaultTime = '11:00';
+      defaultMsg = 'Fala, *{cliente}*! 📱💥\n\nChegaram novos aparelhos com garantia e preço especial aqui na *{loja}*!\n\nBateria 100%, parcelamento em até 12x ou desconto no Pix. Responda aqui para receber a lista atualizada com fotos dos modelos!';
+    } else if (segConfig.id === 'GENERAL') {
+      defaultTitle = 'Novidades & Ofertas Especiais';
+      defaultTime = '09:00';
+      defaultMsg = 'Olá, *{cliente}*! 👋🎉\n\nTemos novidades e ofertas imperdíveis preparadas para você aqui na *{loja}*!\n\nResponda esta mensagem para tirar dúvidas ou fazer seu pedido diretamente pelo WhatsApp!';
+    }
+
     setEditingCampaign({
-      title: 'Abertura da Cozinha - 18h',
-      scheduledTime: '18:00',
+      title: defaultTitle,
+      scheduledTime: defaultTime,
       daysOfWeek: [1, 2, 3, 4, 5, 6, 0], // Todos os dias por padrão
       active: true,
       targetAudience: 'ALL_CUSTOMERS',
-      message: 'Boa noite, *{cliente}*! 🍔🔥\n\nNossa cozinha acabou de abrir com novidades deliciosas saindo do fogo agora!\n\nHoje temos promoção imperdível em nossos lanches artesanais. Peça agora pelo WhatsApp antes que acabe!\n\nBasta responder esta mensagem para ver nosso cardápio ou fazer seu pedido. 🛵',
+      targetGroupIds: [],
+      message: defaultMsg,
       imageUrl: ''
     });
+    if (groups.length === 0) {
+      fetchGroups();
+    }
     setIsModalOpen(true);
   };
 
   const handleOpenEditModal = (camp: CampaignTemplate) => {
-    setEditingCampaign({ ...camp });
+    setEditingCampaign({ 
+      ...camp,
+      targetAudience: camp.targetAudience || 'ALL_CUSTOMERS',
+      targetGroupIds: camp.targetGroupIds || []
+    });
+    if (groups.length === 0) {
+      fetchGroups();
+    }
     setIsModalOpen(true);
+  };
+
+  const handleToggleGroup = (groupId: string) => {
+    if (!editingCampaign) return;
+    const current = editingCampaign.targetGroupIds || [];
+    const exists = current.includes(groupId);
+    const updated = exists ? current.filter(id => id !== groupId) : [...current, groupId];
+    setEditingCampaign({ ...editingCampaign, targetGroupIds: updated });
+  };
+
+  const handleSelectAllGroups = () => {
+    if (!editingCampaign) return;
+    setEditingCampaign({ ...editingCampaign, targetGroupIds: groups.map(g => g.id) });
+  };
+
+  const handleDeselectAllGroups = () => {
+    if (!editingCampaign) return;
+    setEditingCampaign({ ...editingCampaign, targetGroupIds: [] });
   };
 
   const handleToggleDay = (dayId: number) => {
@@ -246,7 +333,12 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
     try {
       setSendingNowId(camp.id);
       setConfirmSendCampaign(null);
-      setSendResultNotice('Iniciando disparos em segundo plano para sua base de clientes...');
+      const isGroups = camp.targetAudience === 'WHATSAPP_GROUPS';
+      setSendResultNotice(
+        isGroups
+          ? `Iniciando disparos para ${(camp.targetGroupIds || []).length} grupo(s) do WhatsApp...`
+          : 'Iniciando disparos em segundo plano para sua base de clientes...'
+      );
 
       const res = await fetch(`/api/campaigns/${camp.id}/send-now?establishmentId=${establishmentId}`, {
         method: 'POST'
@@ -257,7 +349,11 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
         throw new Error(data.error || 'Erro ao realizar disparo');
       }
 
-      setSendResultNotice(`✅ Disparo concluído com sucesso! Enviado para ${data.sentCount || 0} cliente(s) da sua loja.`);
+      setSendResultNotice(
+        isGroups
+          ? `✅ Disparo em grupos concluído! Mensagem enviada para ${data.sentCount || 0} grupo(s) do WhatsApp.`
+          : `✅ Disparo concluído com sucesso! Enviado para ${data.sentCount || 0} cliente(s) da sua loja.`
+      );
       await fetchCampaigns();
     } catch (err: any) {
       console.error('Erro no disparo:', err);
@@ -337,6 +433,116 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
           </button>
         </div>
       )}
+
+      {/* Anti-Ban Protection & Chip Health Center */}
+      <div className="bg-slate-900/90 border border-emerald-500/30 rounded-3xl p-5 sm:p-6 shadow-xl relative overflow-hidden backdrop-blur-md space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="font-bold text-sm sm:text-base text-white">Central de Proteção Anti-Ban & Saúde do Chip</h3>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  3 Escudos Ativos 🛡️
+                </span>
+              </div>
+              <p className="text-xs text-slate-400">
+                Seu número está protegido por algoritmos que simulam o comportamento humano e evitam denúncias.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowAntiBanGuide(!showAntiBanGuide)}
+            className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold border border-slate-700 transition flex items-center justify-center gap-1.5 cursor-pointer self-start sm:self-auto"
+          >
+            <span>{showAntiBanGuide ? 'Ocultar Guia' : 'Ver Guia de Aquecimento & Regras'}</span>
+            {showAntiBanGuide ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+
+        {/* 3 Active Shield Pills */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+          <div className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800/80 flex items-center gap-3">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <div className="min-w-0">
+              <div className="text-xs font-bold text-slate-200">Fila Jitter (25s a 45s)</div>
+              <div className="text-[11px] text-slate-400 truncate">Pausas humanas entre envios</div>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800/80 flex items-center gap-3">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <div className="min-w-0">
+              <div className="text-xs font-bold text-slate-200">Opt-out Automático ("0")</div>
+              <div className="text-[11px] text-slate-400 truncate">Descadastro sem denúncia à Meta</div>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800/80 flex items-center gap-3">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <div className="min-w-0">
+              <div className="text-xs font-bold text-slate-200">Spintax & Hash Única</div>
+              <div className="text-[11px] text-slate-400 truncate">Variação digital por mensagem</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Collapsible Warm-up & Best Practices Guide */}
+        {showAntiBanGuide && (
+          <div className="pt-4 border-t border-slate-800 space-y-4 animate-in fade-in">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Warm-up Table */}
+              <div className="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 space-y-2.5">
+                <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider block">
+                  📈 Tabela de Aquecimento Seguro do Chip
+                </span>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Para números novos ou recém-ativados, aumente o volume aos poucos:
+                </p>
+                <div className="divide-y divide-slate-800/60 text-xs">
+                  <div className="py-2 flex justify-between items-center">
+                    <span className="text-slate-300">🐣 <strong>Chip Novo (Dias 1 a 7):</strong></span>
+                    <span className="font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded">Até 15 envios/dia</span>
+                  </div>
+                  <div className="py-2 flex justify-between items-center">
+                    <span className="text-slate-300">🔥 <strong>Em Aquecimento (Dias 8 a 15):</strong></span>
+                    <span className="font-bold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded">20 a 50 envios/dia</span>
+                  </div>
+                  <div className="py-2 flex justify-between items-center">
+                    <span className="text-slate-300">💎 <strong>Chip Maduro (+30 dias de uso):</strong></span>
+                    <span className="font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">100 a 200 envios/dia</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 3 Golden Rules */}
+              <div className="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 space-y-2.5">
+                <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider block">
+                  ⭐ As 3 Regras de Ouro Anti-Bloqueio
+                </span>
+                <div className="space-y-2 text-[11px] text-slate-300 leading-relaxed">
+                  <div className="flex items-start gap-2">
+                    <span className="text-rose-400 font-bold">1.</span>
+                    <span><strong>Nunca use listas compradas de terceiros:</strong> Envie apenas para quem já é seu cliente. Listas frias geram denúncias instantâneas.</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-amber-400 font-bold">2.</span>
+                    <span><strong>Horário Comercial Seguro (09:00 às 20:30):</strong> Disparos enviados tarde da noite incomodam os clientes e disparam denúncias de spam.</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-blue-400 font-bold">3.</span>
+                    <span><strong>Separe o chip se for fazer volume extremo:</strong> Para campanhas de centenas de mensagens diárias, use um chip exclusivo de vendas para blindar o número principal.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Metrics Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -468,9 +674,17 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                         <Clock className="w-3.5 h-3.5" />
                         {camp.scheduledTime}
                       </span>
-                      <span>
-                        Público: <strong>Quem já pediu ({audienceCount})</strong>
-                      </span>
+                      {camp.targetAudience === 'WHATSAPP_GROUPS' ? (
+                        <span className="flex items-center gap-1 text-purple-300 font-semibold bg-purple-500/10 px-2 py-0.5 rounded-lg border border-purple-500/20">
+                          <Users2 className="w-3.5 h-3.5" />
+                          {(camp.targetGroupIds || []).length} grupo(s) do WhatsApp
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-blue-300 font-semibold bg-blue-500/10 px-2 py-0.5 rounded-lg border border-blue-500/20">
+                          <Users className="w-3.5 h-3.5" />
+                          Base de Clientes ({audienceCount})
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -598,18 +812,38 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
               </div>
             </div>
 
-            <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-2 text-xs text-slate-300">
-              <div className="flex justify-between">
-                <span className="text-slate-400">Público Estimado:</span>
-                <strong className="text-emerald-400">{audienceCount} clientes que já pediram</strong>
+            <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-2.5 text-xs text-slate-300">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">Destino do Disparo:</span>
+                <strong className={confirmSendCampaign.targetAudience === 'WHATSAPP_GROUPS' ? 'text-purple-400 font-bold' : 'text-emerald-400 font-bold'}>
+                  {confirmSendCampaign.targetAudience === 'WHATSAPP_GROUPS'
+                    ? `${(confirmSendCampaign.targetGroupIds || []).length} grupo(s) do WhatsApp`
+                    : `${audienceCount} clientes que já pediram`}
+                </strong>
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-between items-center">
                 <span className="text-slate-400">Imagem/Arte:</span>
                 <strong className="text-slate-200">{confirmSendCampaign.imageUrl ? 'Sim (com foto)' : 'Apenas texto'}</strong>
               </div>
-              <p className="text-[11px] text-slate-400 pt-2 border-t border-slate-800/80 leading-relaxed">
-                💡 O envio é feito com intervalo de segurança entre cada cliente para garantir a entrega sem bloqueios pelo WhatsApp.
-              </p>
+              {confirmSendCampaign.targetAudience === 'WHATSAPP_GROUPS' ? (
+                <div className="pt-2 border-t border-slate-800/80 space-y-1 text-emerald-400 text-[11px] flex items-start gap-2 bg-emerald-500/10 p-2.5 rounded-xl border border-emerald-500/20">
+                  <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
+                  <span className="text-emerald-300 leading-relaxed">
+                    <strong>100% Seguro:</strong> A IA <u>NÃO</u> responde mensagens dentro de nenhum grupo. Ela apenas envia sua publicação/promoção. Quem for pedir chamará você no privado!
+                  </span>
+                </div>
+              ) : (
+                <div className="pt-2 border-t border-slate-800/80 space-y-1.5 text-[11px] bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20 text-emerald-300">
+                  <span className="font-bold flex items-center gap-1.5 text-emerald-200">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" /> Proteção Anti-Ban Ativada:
+                  </span>
+                  <div className="space-y-0.5 text-slate-300 leading-relaxed pl-5">
+                    <p>• Intervalo seguro de <strong>25s a 45s</strong> entre cada contato para proteger seu chip contra bloqueios.</p>
+                    <p>• Cada mensagem recebe variações de texto e hash única (Spintax).</p>
+                    <p>• Rodapé automático <em>"Responda 0 para sair"</em> (descadastra o cliente na hora se ele não quiser receber).</p>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-3 pt-2">
@@ -681,6 +915,193 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                     placeholder="Ex: Abertura da Cozinha - 18h com Promoção de Hambúrguer"
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white text-xs focus:outline-none focus:border-emerald-500"
                   />
+                </div>
+
+                {/* Target Audience Selector */}
+                <div className="bg-slate-950/80 border border-slate-800/80 rounded-2xl p-4 space-y-3">
+                  <label className="block text-xs font-bold text-slate-200">
+                    Destino do Disparo (Para onde enviar?):
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setEditingCampaign({ ...editingCampaign, targetAudience: 'ALL_CUSTOMERS' })}
+                      className={`p-3 rounded-xl border text-left transition flex items-start gap-3 cursor-pointer ${
+                        editingCampaign.targetAudience !== 'WHATSAPP_GROUPS'
+                          ? 'bg-blue-500/10 border-blue-500/50 text-white shadow-sm'
+                          : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                        editingCampaign.targetAudience !== 'WHATSAPP_GROUPS'
+                          ? 'bg-blue-500 text-slate-950 font-bold'
+                          : 'bg-slate-800 text-slate-400'
+                      }`}>
+                        <Users className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold">Base de Clientes (1-a-1)</div>
+                        <div className="text-[11px] text-slate-400 mt-0.5">
+                          Envia no privado dos clientes ({audienceCount} clientes)
+                        </div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setEditingCampaign({ ...editingCampaign, targetAudience: 'WHATSAPP_GROUPS' })}
+                      className={`p-3 rounded-xl border text-left transition flex items-start gap-3 cursor-pointer ${
+                        editingCampaign.targetAudience === 'WHATSAPP_GROUPS'
+                          ? 'bg-purple-500/10 border-purple-500/50 text-white shadow-sm'
+                          : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                        editingCampaign.targetAudience === 'WHATSAPP_GROUPS'
+                          ? 'bg-purple-500 text-white font-bold'
+                          : 'bg-slate-800 text-slate-400'
+                      }`}>
+                        <Users2 className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold">Grupos do WhatsApp</div>
+                        <div className="text-[11px] text-slate-400 mt-0.5">
+                          Dispara nos grupos que você participa (Bairro, amigos, etc.)
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+
+                  {/* Groups checklist and safety warning */}
+                  {editingCampaign.targetAudience === 'WHATSAPP_GROUPS' && (
+                    <div className="pt-2 space-y-3">
+                      {/* Safety Banner */}
+                      <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 flex items-start gap-2.5 text-xs">
+                        <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
+                        <div className="text-emerald-300 leading-relaxed text-[11px]">
+                          <strong className="text-emerald-200">100% Seguro:</strong> A IA <u>NÃO</u> responde mensagens dentro dos grupos. Ela apenas publica seu anúncio/promoção. Quem quiser pedir vai chamar você no privado!
+                        </div>
+                      </div>
+
+                      {/* Group selection header */}
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                          <span>Grupos do seu WhatsApp:</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-bold">
+                            {(editingCampaign.targetGroupIds || []).length} selecionado(s)
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-[10px]">
+                          <button
+                            type="button"
+                            onClick={handleSelectAllGroups}
+                            className="text-purple-400 hover:underline cursor-pointer"
+                          >
+                            Todos
+                          </button>
+                          <span className="text-slate-600">|</span>
+                          <button
+                            type="button"
+                            onClick={handleDeselectAllGroups}
+                            className="text-slate-400 hover:text-white cursor-pointer"
+                          >
+                            Nenhum
+                          </button>
+                          <span className="text-slate-600">|</span>
+                          <button
+                            type="button"
+                            onClick={fetchGroups}
+                            disabled={loadingGroups}
+                            className="text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                          >
+                            <RefreshCw className={`w-3 h-3 ${loadingGroups ? 'animate-spin' : ''}`} />
+                            Atualizar
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Group Search Filter */}
+                      {groups.length > 0 && (
+                        <div className="relative">
+                          <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          <input
+                            type="text"
+                            value={groupSearch}
+                            onChange={(e) => setGroupSearch(e.target.value)}
+                            placeholder="Filtrar por nome do grupo (ex: Bairro, Condomínio, Delivery)..."
+                            className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-8 pr-3.5 py-2 text-white text-xs placeholder:text-slate-500 focus:outline-none focus:border-purple-500"
+                          />
+                        </div>
+                      )}
+
+                      {/* Groups list */}
+                      {loadingGroups ? (
+                        <div className="py-6 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
+                          <span>Buscando seus grupos do WhatsApp...</span>
+                        </div>
+                      ) : groups.length === 0 ? (
+                        <div className="p-4 bg-slate-900 rounded-xl border border-slate-800 text-center text-xs text-slate-400 space-y-2">
+                          <p>Nenhum grupo encontrado na sua conta do WhatsApp ou WhatsApp desconectado.</p>
+                          <button
+                            type="button"
+                            onClick={fetchGroups}
+                            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold inline-flex items-center gap-1.5 transition cursor-pointer"
+                          >
+                            <RefreshCw className="w-3 h-3" />
+                            Tentar Novamente
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="max-h-56 overflow-y-auto space-y-1.5 pr-1 divide-y divide-slate-800/40">
+                          {groups
+                            .filter(g => !groupSearch || g.subject.toLowerCase().includes(groupSearch.toLowerCase()))
+                            .map((group) => {
+                              const isChecked = (editingCampaign.targetGroupIds || []).includes(group.id);
+                              return (
+                                <label
+                                  key={group.id}
+                                  className={`flex items-center justify-between p-2 rounded-xl transition cursor-pointer ${
+                                    isChecked ? 'bg-purple-950/30 border border-purple-500/30' : 'hover:bg-slate-900 border border-transparent'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2.5 min-w-0">
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => handleToggleGroup(group.id)}
+                                      className="w-4 h-4 rounded text-purple-500 focus:ring-purple-500 bg-slate-950 border-slate-800 cursor-pointer"
+                                    />
+                                    <div className="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 overflow-hidden flex items-center justify-center shrink-0">
+                                      {group.pictureUrl ? (
+                                        <img src={group.pictureUrl} alt={group.subject} className="w-full h-full object-cover" />
+                                      ) : (
+                                        <Users2 className="w-3.5 h-3.5 text-slate-400" />
+                                      )}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="text-xs font-semibold text-white truncate max-w-[240px] sm:max-w-[320px]">
+                                        {group.subject}
+                                      </div>
+                                      {group.size !== undefined && (
+                                        <div className="text-[10px] text-slate-400">
+                                          {group.size} participantes
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                                    isChecked ? 'bg-purple-500/20 text-purple-300' : 'text-slate-500'
+                                  }`}>
+                                    {isChecked ? 'Selecionado' : 'Ignorar'}
+                                  </span>
+                                </label>
+                              );
+                            })}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Time & Quick Presets */}
@@ -832,7 +1253,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                     <label className="text-xs font-semibold text-slate-300">
                       Mensagem de Disparo (WhatsApp):
                     </label>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="text-[10px] text-slate-400">Variáveis rápidas:</span>
                       <button
                         type="button"
@@ -850,6 +1271,14 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                       >
                         +{'{loja}'}
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => handleInsertVariable('{Olá|Oi|Tudo bem?}')}
+                        className="text-[10px] px-2 py-0.5 rounded bg-purple-950/60 hover:bg-purple-900/60 text-purple-300 border border-purple-700/60 cursor-pointer font-mono"
+                        title="Spintax: Varia a saudação aleatoriamente para cada cliente"
+                      >
+                        +{'{variação}'}
+                      </button>
                     </div>
                   </div>
 
@@ -861,9 +1290,19 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                     placeholder="Digite a mensagem promocional com emojis e detalhes do produto..."
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3.5 text-white text-xs leading-relaxed focus:outline-none focus:border-emerald-500 font-sans"
                   />
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    Use *texto* para negrito. A tag <strong>{'{cliente}'}</strong> será automaticamente trocada pelo nome real de quem comprou!
-                  </p>
+                  
+                  {/* Anti-Ban Shield Info Box */}
+                  <div className="mt-3 p-3.5 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs flex items-start gap-2.5">
+                    <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
+                    <div className="space-y-1 text-[11px] leading-relaxed">
+                      <span className="font-bold block text-emerald-200 text-xs">🛡️ Proteção Anti-Ban Ativa para seu Número</span>
+                      <p className="text-slate-300">
+                        • <strong>Intervalo Seguro:</strong> envios com pausas humanas de <strong>25s a 45s</strong> entre contatos.<br />
+                        • <strong>Variação Única (Spintax):</strong> cada mensagem é gerada com assinatura e hash única.<br />
+                        • <strong>Rodapé Automático:</strong> anexa <em>"Responda 0 para sair"</em>. Se o cliente responder 0, o sistema descadastra ele na hora, impedindo que denuncie seu número à Meta.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -875,7 +1314,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                     Prévia ao Vivo no WhatsApp
                   </span>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-900 text-slate-400 border border-slate-800">
-                    Visão do Cliente
+                    {editingCampaign.targetAudience === 'WHATSAPP_GROUPS' ? 'Visão no Grupo' : 'Visão do Cliente'}
                   </span>
                 </div>
 
@@ -899,9 +1338,16 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                     {/* Text */}
                     <div className="text-xs leading-relaxed whitespace-pre-line text-emerald-50">
                       {(editingCampaign.message || '')
-                        .replace('{cliente}', 'Thiago')
-                        .replace('{loja}', establishment?.name || 'Nosso Restaurante')}
+                        .replace('{cliente}', editingCampaign.targetAudience === 'WHATSAPP_GROUPS' ? 'Pessoal' : 'Thiago')
+                        .replace('{loja}', establishment?.name || 'Nosso Estabelecimento')}
                     </div>
+
+                    {/* Auto Opt-out Footer Preview */}
+                    {editingCampaign.targetAudience !== 'WHATSAPP_GROUPS' && (
+                      <div className="text-[10px] text-emerald-200/70 italic pt-1 border-t border-emerald-600/30">
+                        Responda 0 para não receber novidades.
+                      </div>
+                    )}
 
                     <div className="text-[10px] text-emerald-200/70 text-right flex items-center justify-end gap-1 font-mono">
                       <span>{editingCampaign.scheduledTime || '18:00'}</span>
@@ -910,8 +1356,12 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                   </div>
                 </div>
 
-                <p className="text-[11px] text-slate-400 text-center mt-3">
-                  Quando o cliente responder este disparo, a IA entra automaticamente para atender e fechar o pedido! 🤖
+                <p className="text-[11px] text-slate-400 text-center mt-3 leading-relaxed">
+                  {editingCampaign.targetAudience === 'WHATSAPP_GROUPS' ? (
+                    <span>🛡️ <strong>Seguro:</strong> A IA não conversa dentro do grupo. Os membros interessados abrem a conversa privada da loja para fazer o pedido com a IA! 🛵</span>
+                  ) : (
+                    <span>Quando o cliente responder este disparo, a IA entra automaticamente para atender e fechar o pedido! 🤖</span>
+                  )}
                 </p>
               </div>
 

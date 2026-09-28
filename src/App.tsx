@@ -407,6 +407,7 @@ export default function App() {
           setCurrentTab={setCurrentTab}
           pendingOrdersCount={pendingOrdersCount}
           isWhatsAppConnected={!!establishment?.evolutionConnected}
+          establishment={establishment}
         />
 
         {/* Main Content Area */}
@@ -439,6 +440,7 @@ export default function App() {
                 loading={loadingOrders}
                 couriers={establishment?.couriers || []}
                 establishmentName={establishment?.name || 'iaPedido'}
+                establishment={establishment}
               />
             )}
 
@@ -455,6 +457,7 @@ export default function App() {
                 onSaveProduct={handleSaveProduct}
                 onDeleteProduct={handleDeleteProduct}
                 loading={loadingProducts}
+                establishment={establishment}
               />
             )}
 
@@ -469,6 +472,7 @@ export default function App() {
             {currentTab === 'simulator' && (
               <SimulatorView
                 establishmentId={storeId}
+                establishment={establishment}
                 onOrderCreatedNotification={() => {
                   playNewOrderChime();
                 }}
@@ -500,6 +504,7 @@ export default function App() {
         pendingOrdersCount={pendingOrdersCount}
         isWhatsAppConnected={!!establishment?.evolutionConnected}
         onOpenDrawer={() => setIsMobileDrawerOpen(true)}
+        establishment={establishment}
       />
 
       {/* Mobile Drawer (Menu Completo para Celular) */}

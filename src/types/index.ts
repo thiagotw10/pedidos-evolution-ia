@@ -93,11 +93,20 @@ export interface OperatingSchedule {
 
 export type OutOfHoursAction = 'SILENT' | 'AUTO_REPLY';
 
+export type BusinessSegment = 
+  | 'FOOD'
+  | 'VEHICLES'
+  | 'REAL_ESTATE'
+  | 'FASHION'
+  | 'ELECTRONICS'
+  | 'GENERAL';
+
 export interface Establishment {
   id: string;
   name: string;
   phone: string;
   address: string;
+  segment?: BusinessSegment | string;
   deliveryFee: number;
   estimatedDeliveryTime: string;
   operatingHours: string;
@@ -136,6 +145,13 @@ export interface ChatMessage {
   mediaUrl?: string;
 }
 
+export interface WhatsAppGroup {
+  id: string; // e.g. "1203630283921938@g.us"
+  subject: string;
+  size?: number;
+  pictureUrl?: string;
+}
+
 export interface CampaignTemplate {
   id: string;
   establishmentId: string;
@@ -146,7 +162,8 @@ export interface CampaignTemplate {
   scheduledTime: string; // e.g. "18:00"
   daysOfWeek: number[]; // [0, 1, 2, 3, 4, 5, 6] (0 = Sunday, 1 = Monday, etc.)
   active: boolean;
-  targetAudience: 'ALL_CUSTOMERS' | 'LAST_30_DAYS';
+  targetAudience: 'ALL_CUSTOMERS' | 'LAST_30_DAYS' | 'WHATSAPP_GROUPS';
+  targetGroupIds?: string[]; // IDs of selected groups for WHATSAPP_GROUPS audience
   lastRunAt?: string;
   stats?: {
     totalSent: number;

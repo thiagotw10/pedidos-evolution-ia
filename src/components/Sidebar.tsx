@@ -8,26 +8,47 @@ import {
   Sparkles,
   Bot,
   Megaphone,
-  TrendingUp
+  TrendingUp,
+  Car,
+  Home,
+  Shirt,
+  Package
 } from 'lucide-react';
+import { Establishment } from '../types';
+import { getSegmentConfig } from '../utils/segments';
 
 interface SidebarProps {
   currentTab: string;
   setCurrentTab: (tab: string) => void;
   pendingOrdersCount: number;
   isWhatsAppConnected: boolean;
+  establishment?: Establishment | null;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   currentTab,
   setCurrentTab,
   pendingOrdersCount,
-  isWhatsAppConnected
+  isWhatsAppConnected,
+  establishment
 }) => {
+  const segConfig = getSegmentConfig(establishment?.segment);
+
+  const getCatalogIcon = () => {
+    switch (segConfig.id) {
+      case 'VEHICLES': return Car;
+      case 'REAL_ESTATE': return Home;
+      case 'FASHION': return Shirt;
+      case 'ELECTRONICS': return Smartphone;
+      case 'GENERAL': return Package;
+      default: return UtensilsCrossed;
+    }
+  };
+
   const menuItems = [
     {
       id: 'orders',
-      label: 'Gestor de Pedidos',
+      label: segConfig.ordersTitle,
       icon: ShoppingBag,
       badge: pendingOrdersCount > 0 ? pendingOrdersCount : null,
       badgeColor: 'bg-emerald-500 text-black font-bold animate-pulse'
@@ -40,8 +61,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'products',
-      label: 'Cardápio & Produtos',
-      icon: UtensilsCrossed,
+      label: segConfig.catalogTitle,
+      icon: getCatalogIcon(),
       badge: null
     },
     {

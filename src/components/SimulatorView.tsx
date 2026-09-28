@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Send, 
   Bot, 
@@ -12,24 +12,31 @@ import {
   MapPin,
   Navigation
 } from 'lucide-react';
-import { ChatMessage } from '../types';
+import { ChatMessage, Establishment } from '../types';
+import { getSegmentConfig } from '../utils/segments';
 
 interface SimulatorViewProps {
   onOrderCreatedNotification?: () => void;
   onNavigateToOrders: () => void;
   establishmentId?: string;
+  establishment?: Establishment | null;
 }
 
 export const SimulatorView: React.FC<SimulatorViewProps> = ({
   onOrderCreatedNotification,
   onNavigateToOrders,
-  establishmentId
+  establishmentId,
+  establishment
 }) => {
+  const segConfig = getSegmentConfig(establishment?.segment);
+  const initialGreeting = establishment?.aiWelcomeMessage || 
+    segConfig.defaultWelcome.replace(/\{loja\}/g, establishment?.name || 'Nossa Empresa');
+
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome',
       sender: 'assistant',
-      text: 'Olá! Sou a Inteligência Artificial de atendimento do restaurante 🍔! Como posso te ajudar com o cardápio hoje?',
+      text: initialGreeting,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
@@ -207,11 +214,46 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
     }
   };
 
-  const samplePrompts = [
-    'Quais são os hambúrgueres disponíveis e quanto custam?',
-    'Vou querer 1 Hamburguer Artesanal e 1 Batata Frita para entrega, pago no PIX.',
-    'Pode me mandar o cardápio com as fotos?'
-  ];
+  const samplePrompts = useMemo(() => {
+    switch (segConfig.id) {
+      case 'VEHICLES':
+        return [
+          'Tem algum veículo automático disponível até 80 mil?',
+          'Pode me mandar fotos dos carros que vocês têm em estoque?',
+          'Vocês aceitam carro na troca ou simulam financiamento?'
+        ];
+      case 'REAL_ESTATE':
+        return [
+          'Quais imóveis ou apartamentos vocês têm para alugar/vender?',
+          'Pode me mandar fotos das opções disponíveis?',
+          'Gostaria de agendar uma visita presencial para conhecer.'
+        ];
+      case 'FASHION':
+        return [
+          'Quais vestidos ou peças vocês têm no tamanho M?',
+          'Pode me mandar fotos das novidades da coleção?',
+          'Faz entrega por motoboy para hoje?'
+        ];
+      case 'ELECTRONICS':
+        return [
+          'Vocês têm iPhone 13 ou 14 em estoque? Qual o valor?',
+          'Pode me mandar fotos reais do aparelho?',
+          'Qual o valor com desconto à vista no Pix?'
+        ];
+      case 'GENERAL':
+        return [
+          'Quais produtos vocês têm disponíveis e quais os valores?',
+          'Pode me mandar fotos dos itens disponíveis?',
+          'Qual o prazo de entrega ou endereço para retirada?'
+        ];
+      default:
+        return [
+          'Quais são as opções disponíveis no cardápio e quanto custam?',
+          'Pode me mandar o cardápio com as fotos?',
+          'Vou querer 1 item para entrega, pago no PIX.'
+        ];
+    }
+  }, [segConfig.id]);
 
   return (
     <div className="p-3 sm:p-6 md:p-8 max-w-7xl mx-auto space-y-4 sm:space-y-6">

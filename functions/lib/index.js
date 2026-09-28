@@ -70,22 +70,72 @@ function getStoreId(req) {
 function hashPassword(password) {
     return crypto_1.default.createHash('sha256').update(password + '_iapedido_salt').digest('hex');
 }
-// Evolution API message sender helper (matching psicocall proven implementation)
+// Evolution API message sender helper (with Anti-Ban Human Delay & Composing Presence)
 async function sendWhatsAppMessage(evoUrl, evoKey, evoInst, number, text) {
     try {
-        const numericPhone = number.replace(/\D/g, '');
-        const finalPhone = numericPhone.startsWith('55') ? numericPhone : `55${numericPhone}`;
-        const res = await fetch(`${evoUrl}/send/text`, {
+        const isGroup = number.includes('@g.us');
+        let finalPhone = number;
+        if (!isGroup) {
+            const numericPhone = number.replace(/\D/g, '');
+            finalPhone = numericPhone.startsWith('55') ? numericPhone : `55${numericPhone}`;
+        }
+        // Anti-Ban: Calculate natural human typing delay (proportional to text length + random jitter)
+        // Between 2.2s and 6.5s so Meta heuristics detect realistic human keyboard action
+        const charDelay = Math.min(5500, Math.max(2200, Math.floor((text || '').length * 18)));
+        const randomJitter = Math.floor(Math.random() * 1200);
+        const typingDelay = charDelay + randomJitter;
+        // Send presence 'composing' (digitando...) via Evolution Go /message/presence
+        try {
+            fetch(`${evoUrl}/message/presence`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', apikey: evoInst },
+                body: JSON.stringify({ number: finalPhone, state: 'composing', delay: Math.min(typingDelay, 4000) }),
+                signal: AbortSignal.timeout(3000)
+            }).catch(() => { });
+        }
+        catch { }
+        // 1. Try Evolution Go (/send/text)
+        try {
+            const respGo = await fetch(`${evoUrl}/send/text`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    apikey: evoInst
+                },
+                body: JSON.stringify({
+                    number: finalPhone,
+                    text: text,
+                    delay: typingDelay
+                }),
+                signal: AbortSignal.timeout(12000)
+            });
+            if (respGo.ok) {
+                const dataGo = await respGo.json().catch(() => ({}));
+                return { success: true, data: dataGo };
+            }
+        }
+        catch (e) {
+            console.warn('[sendWhatsAppMessage] Evolution Go /send/text falhou ou timeout:', e.message);
+        }
+        // 2. Fallback to Evolution API v1/v2 (/message/sendText/{evoInst})
+        const res = await fetch(`${evoUrl}/message/sendText/${evoInst}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                apikey: evoInst
+                apikey: evoKey || evoInst
             },
             body: JSON.stringify({
                 number: finalPhone,
-                text: text,
-                delay: 1500
-            })
+                options: {
+                    delay: typingDelay,
+                    presence: 'composing',
+                    linkPreview: false
+                },
+                textMessage: {
+                    text: text
+                }
+            }),
+            signal: AbortSignal.timeout(10000)
         });
         if (!res.ok) {
             const errText = await res.text().catch(() => '');
@@ -101,8 +151,12 @@ async function sendWhatsAppMessage(evoUrl, evoKey, evoInst, number, text) {
 // Evolution API media sender helper (supporting images, audio, video, documents)
 async function sendWhatsAppMedia(evoUrl, evoKey, evoInst, number, mediaUrl, caption, type = 'image') {
     try {
-        const numericPhone = number.replace(/\D/g, '');
-        const finalPhone = numericPhone.startsWith('55') ? numericPhone : `55${numericPhone}`;
+        const isGroup = number.includes('@g.us');
+        let finalPhone = number;
+        if (!isGroup) {
+            const numericPhone = number.replace(/\D/g, '');
+            finalPhone = numericPhone.startsWith('55') ? numericPhone : `55${numericPhone}`;
+        }
         console.log(`[SendMedia] Enviando mídia (${type}) para ${finalPhone} via ${evoUrl}/send/media`);
         const res = await fetch(`${evoUrl}/send/media`, {
             method: 'POST',
@@ -115,19 +169,20 @@ async function sendWhatsAppMedia(evoUrl, evoKey, evoInst, number, mediaUrl, capt
                 type: type,
                 url: mediaUrl,
                 caption: formatWhatsAppText(caption),
-                delay: 1200
-            })
+                delay: 800
+            }),
+            signal: AbortSignal.timeout(8000)
         });
         if (!res.ok) {
             const errText = await res.text().catch(() => '');
-            console.error(`[SendMedia] Erro ${res.status}:`, errText);
+            console.warn(`[SendMedia] Erro ${res.status}:`, errText);
             return { success: false, error: errText };
         }
         const data = await res.json().catch(() => ({}));
         return { success: true, data };
     }
     catch (err) {
-        console.error('[SendMedia Exception]:', err.message);
+        console.warn('[SendMedia Exception / Timeout]:', err.message);
         return { success: false, error: err.message };
     }
 }
@@ -382,50 +437,73 @@ async function processAiCustomerMessage(establishmentId, customerPhone, incoming
         timestamp: new Date().toISOString()
     });
     const menuText = products.map((p) => `- ${p.name} (R$ ${Number(p.price).toFixed(2)}) [Categoria: ${p.category}]${p.imageUrl ? ` [POSSUI_FOTO_URL: ${p.imageUrl}]` : ''}: ${p.description || ''}`).join('\n');
+    const rawSegment = (establishment.segment || '').toUpperCase();
+    const isVehicles = rawSegment.includes('VEIC') || rawSegment.includes('CARRO') || rawSegment.includes('MOTO') || rawSegment.includes('AUTO');
+    const isRealEstate = rawSegment.includes('IMOB') || rawSegment.includes('IMOVE') || rawSegment.includes('CORRETOR');
+    const isFashion = rawSegment.includes('MODA') || rawSegment.includes('ROUPA') || rawSegment.includes('CALCAD');
+    const isElectronics = rawSegment.includes('ELETRO') || rawSegment.includes('CELULAR') || rawSegment.includes('IPHONE');
+    const isGeneral = rawSegment.includes('GERAL') || rawSegment.includes('VAREJO');
+    const isFood = !isVehicles && !isRealEstate && !isFashion && !isElectronics && !isGeneral;
+    const catalogHeader = isVehicles ? 'ESTOQUE DE VEÍCULOS DISPONÍVEIS'
+        : isRealEstate ? 'CATÁLOGO DE IMÓVEIS DISPONÍVEIS'
+            : isFashion ? 'COLEÇÃO & CATÁLOGO DE PEÇAS'
+                : isElectronics ? 'ESTOQUE DE APARELHOS & PRODUTOS'
+                    : isFood ? 'CARDÁPIO ATUAL'
+                        : 'CATÁLOGO DE PRODUTOS & SERVIÇOS';
+    const roleDesc = isVehicles
+        ? `Você é o consultor de vendas digital da loja de veículos / concessionária "${establishment.name || 'Loja de Veículos'}"`
+        : isRealEstate
+            ? `Você é o consultor imobiliário digital da imobiliária "${establishment.name || 'Imobiliária'}"`
+            : isFashion
+                ? `Você é a consultora de estilo e atendimento virtual da loja de moda "${establishment.name || 'Boutique'}"`
+                : isElectronics
+                    ? `Você é o especialista técnico e atendente da loja "${establishment.name || 'Loja de Eletrônicos'}"`
+                    : `Você é o atendente de Inteligência Artificial do estabelecimento "${establishment.name || 'Estabelecimento'}"`;
     const systemInstruction = `
-Você é o atendente de Inteligência Artificial do estabelecimento "${establishment.name || 'Restaurante'}".
+${roleDesc}.
 Seu objetivo é atender os clientes de forma educada, ágil, simpática e objetiva.
 
 DADOS DO ESTABELECIMENTO:
 - Nome: ${establishment.name}
 - Horário de Funcionamento: ${establishment.operatingHours || 'Aberto agora'}
 - Endereço da Loja: ${establishment.address || 'Não informado'}
-- Taxa de Entrega: R$ ${Number(establishment.deliveryFee || 0).toFixed(2)}
-- Tempo Estimado: ${establishment.estimatedDeliveryTime || '40 minutos'}
+- Taxa de Entrega / Despacho: R$ ${Number(establishment.deliveryFee || 0).toFixed(2)}
+- Tempo Estimado / Agendamento: ${establishment.estimatedDeliveryTime || '40 minutos'}
 - Chave PIX: ${establishment.pixKey || 'Chave cadastrada no caixa'}
-- Formas de Pagamento Aceitas: PIX, Cartão (Crédito/Débito na entrega), Dinheiro.
+- Formas de Pagamento Aceitas: PIX, Cartão (Crédito/Débito), Dinheiro/Financiamento.
 ${establishment.aiPromptCustom ? `\nINSTRUÇÕES PERSONALIZADAS DO ESTABELECIMENTO:\n${establishment.aiPromptCustom}` : ''}
 
-CARDÁPIO ATUAL:
+${catalogHeader}:
 ${menuText || 'Nenhum item cadastrado no momento.'}
 
 COMO VOCÊ DEVE AGIR:
-1. APRESENTAÇÃO DO CARDÁPIO COM FOTOS:
-   - Quando o cliente pedir o cardápio, as opções disponíveis ou perguntar o que tem para comer, acione a ferramenta 'enviar_cardapio_com_fotos'.
-   - O sistema enviará automaticamente cada item do cardápio como uma mensagem com a foto do prato, nome, valor e descrição!
+1. APRESENTAÇÃO DO CATÁLOGO / PRODUTOS COM FOTOS:
+   - Quando o cliente pedir o catálogo, estoque, cardápio, opções disponíveis ou fotos, acione a ferramenta 'enviar_cardapio_com_fotos'.
+   - O sistema enviará automaticamente cada item/veículo como uma mensagem com a respectiva foto, nome, valor e descrição!
+   - Se o cliente pedir a foto de um item específico (ex: "me manda foto do Civic" ou "tem foto do vestido azul?"), acione a ferramenta 'enviar_foto_produto'.
    - NUNCA reescreva IDs técnicos de banco de dados como [ID: ...] ou (ID: ...) nas mensagens.
-2. FLUXO NORMAL AO SELECIONAR OS ITENS:
-   - Quando o cliente escolher ou selecionar o que deseja (ex: "vou querer 2 hambúrgueres artesanais cheddar sem verdura"):
-     NÃO reenvie as fotos do cardápio! Prossiga imediatamente com o fluxo normal de atendimento:
-     1. Confirme os itens escolhidos e anote todas as observações (ex: "Perfeito! Dois Hambúrgueres Artesanais Cheddar anotados, com a observação: sem verdura.").
-     2. Pergunte se prefere Entrega (Delivery) ou Retirada no balcão. Se for entrega, pergunte o endereço completo com rua e número.
-     3. Pergunte a forma de pagamento (PIX, Cartão na entrega ou Dinheiro).
-     4. Ao ter os dados confirmados, acione a ferramenta 'registrar_pedido' para salvar no painel da cozinha.
+2. FLUXO NORMAL AO SELECIONAR OS ITENS / PROPOSTAS:
+   - Quando o cliente escolher ou demonstrar interesse em um item:
+     NÃO reenvie as fotos novamente! Prossiga imediatamente com o atendimento:
+     1. Confirme os itens e tire dúvidas técnicas (se for veículos: ano, km, opcionais, aceita troca, financiamento; se for imóveis: visita com corretor; se for produtos/refeição: adicionais e observações).
+     2. Pergunte se prefere Entrega/Envio ou Retirada/Visita na loja. Se for entrega, pergunte o endereço completo.
+     3. Pergunte a forma de pagamento (PIX, Cartão, Dinheiro ou Financiamento).
+     4. Ao ter os dados confirmados, acione a ferramenta 'registrar_pedido' para salvar no painel da empresa.
 3. ATENÇÃO MÁXIMA ÀS QUANTIDADES E OBSERVAÇÕES:
-   - Respeite rigorosamente a quantidade informada pelo cliente (se pedir 2 hambúrgueres, mantenha exatamente 2 unidades).
-   - Registre todas as observações do cliente (ex: sem verdura, sem cebola, ponto da carne).
+   - Respeite rigorosamente a quantidade informada pelo cliente.
+   - Registre todas as observações do cliente.
 4. REGRA OBRIGATÓRIA DE FECHAMENTO (CHAMADA DE FERRAMENTA):
-   - Assim que o cliente fornecer itens, endereço e forma de pagamento, você DEVE OBRIGATORIAMENTE chamar a ferramenta 'registrar_pedido'.
-   - O pedido SÓ EXISTE NO SISTEMA DO RESTAURANTE SE VOCÊ EXECUTAR A FERRAMENTA 'registrar_pedido'.
+   - Assim que os dados estiverem definidos, você DEVE OBRIGATORIAMENTE chamar a ferramenta 'registrar_pedido'.
+   - O pedido/proposta SÓ EXISTE NO SISTEMA SE VOCÊ EXECUTAR A FERRAMENTA 'registrar_pedido'.
 5. FORMATAÇÃO VISUAL PARA WHATSAPP:
-   - Use formato nativo do WhatsApp: negrito com APENAS UM asterisco (ex: *Hambúrguer Artesanal*). NUNCA use duplo asterisco **assim**.
-   - Para listas de itens, use marcadores como '• ' ou emojis (🍔, 🥤, 🍟, 🍕), NUNCA inicie a linha com '* '.
+   - Use formato nativo do WhatsApp: negrito com APENAS UM asterisco (ex: *Item Selecionado*). NUNCA use duplo asterisco **assim**.
+   - Para listas de itens, use marcadores como '• ' ou emojis (${isVehicles ? '🚗, 🏍️, 🔑' : isRealEstate ? '🏡, 🔑, 🏢' : isFashion ? '👗, ✨, 🛍️' : '🍔, 🥤, 📦'}), NUNCA inicie a linha com '* '.
 6. MENSAGENS DE ÁUDIO E IMAGEM (MULTIMODALIDADE):
    - O cliente pode enviar mensagens de áudio com pedidos, dúvidas ou endereço. Você tem capacidade de ouvir e compreender áudios perfeitamente em português.
-   - Extraia com atenção máxima todos os itens, quantidades, endereço e forma de pagamento informados por voz no áudio.
+   - Extraia com atenção máxima todos os itens, quantidades, endereço e detalhes informados por voz no áudio.
 7. SUGESTÃO DE ÁUDIO NO INÍCIO:
    - Na primeira saudação ou início da conversa, dê as boas-vindas com alegria e mencione:
-     "🎙️ *Dica:* Se preferir, pode me mandar mensagem de áudio que eu escuto perfeitamente e anoto seu pedido!"
+     "🎙️ *Dica:* Se preferir, pode me mandar mensagem de áudio que eu escuto perfeitamente e te atendo!"
 8. LOCALIZAÇÃO EXATA VIA WHATSAPP (GPS / WAZE):
    - Ao perguntar o endereço para entrega (Delivery), sempre dê a opção prática da localização do WhatsApp:
      "🛵 Para entrega, qual é o seu endereço completo (rua, número e bairro)?
@@ -1020,6 +1098,21 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
             console.log(`[Evolution Webhook] Modo silencioso fora do expediente. Nenhuma resposta enviada para ${phone}`);
             return res.status(200).json({ status: 'out_of_hours_silent' });
         }
+        // Anti-Ban Layer 1: Automatic Opt-out Interceptor
+        // If recipient replies 0, parar, sair, cancelar, etc., auto-block from future marketing broadcasts and confirm politely
+        const cleanInboundText = (text || '').trim().toLowerCase();
+        const optOutKeywords = ['0', 'parar', 'sair', 'cancelar', 'stop', 'descadastrar', 'remover', 'nao quero mais', 'não quero mais'];
+        if (optOutKeywords.includes(cleanInboundText)) {
+            console.log(`[Anti-Ban Opt-out] Cliente ${phone} solicitou descadastramento da lista de novidades da loja ${storeId}`);
+            await db.collection('establishments').doc(storeId).collection('blocked_contacts').doc(phone).set({
+                phone,
+                blockedAt: new Date().toISOString(),
+                reason: `Opt-out automático pelo WhatsApp (mensagem: "${cleanInboundText}")`
+            }, { merge: true });
+            const optOutReply = `Entendido! Você foi removido da nossa lista de novidades e promoções com sucesso. ✅\n\nCaso queira voltar a receber nossas ofertas no futuro, basta nos avisar por aqui. Se precisar de algo ou quiser fazer um pedido agora, fico à disposição! 😊`;
+            await sendWhatsAppMessage(evoUrl, evoKey, evoInst, phone, optOutReply);
+            return res.status(200).json({ status: 'opt_out_processed', phone });
+        }
         // Handle Media (Voice Audio / Image)
         let mediaPart = null;
         if (audioMsg || imageMsg) {
@@ -1054,16 +1147,15 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
         const pushName = info.PushName || messageData.pushName || '';
         console.log(`[Evolution Webhook] Processando mensagem de ${phone} (${pushName || 'Sem nome'}): ${text ? `"${text.slice(0, 50)}..."` : (mediaPart ? `[Mídia: ${mediaPart.mimeType}]` : '[Vazio]')}`);
         const result = await processAiCustomerMessage(storeId, phone, text, pushName, mediaPart || undefined);
-        // 1. Send product images if requested (e.g. menu items with individual photos)
+        // 1. Send product images FIRST (e.g. menu items with individual photos)
         if (result.mediaList && result.mediaList.length > 0) {
             console.log(`[Evolution Webhook] Enviando ${result.mediaList.length} foto(s) de item/cardápio para ${phone}...`);
             for (let i = 0; i < result.mediaList.length; i++) {
                 const item = result.mediaList[i];
                 console.log(`[Evolution Webhook] Enviando foto ${i + 1}/${result.mediaList.length}: ${item.productName || 'Item'} (${item.url})`);
                 await sendWhatsAppMedia(evoUrl, evoKey, evoInst, phone, item.url, item.caption, 'image');
-                // Small delay between photos to guarantee sequential delivery on WhatsApp
                 if (i < result.mediaList.length - 1) {
-                    await new Promise(r => setTimeout(r, 650));
+                    await new Promise(r => setTimeout(r, 400));
                 }
             }
         }
@@ -1071,7 +1163,7 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
             console.log(`[Evolution Webhook] Enviando foto de produto para ${phone}: ${result.mediaToSend.url}`);
             await sendWhatsAppMedia(evoUrl, evoKey, evoInst, phone, result.mediaToSend.url, result.mediaToSend.caption, 'image');
         }
-        // 2. Send reply text via Evolution API
+        // 2. Send reply text right AFTER the photos (referencing the items above 👆)
         let sendRes = null;
         if (result.replyText && (!result.mediaToSend || result.replyText !== result.mediaToSend.caption)) {
             if (result.mediaList && result.mediaList.length > 0) {
@@ -1378,21 +1470,29 @@ app.patch('/api/orders/:id/status', async (req, res) => {
             try {
                 let notifyText = '';
                 console.log(`[Order Status Update] Loja: ${storeId}, Pedido #${orderNum}, Status: ${status}, Telefone: ${customerPhone}`);
+                const estSegment = (est.segment || '').toUpperCase();
+                const isFoodEst = !estSegment.includes('VEIC') && !estSegment.includes('CARRO') && !estSegment.includes('IMOB') && !estSegment.includes('IMOVE') && !estSegment.includes('MODA') && !estSegment.includes('ELETRO');
                 if (status === 'CONFIRMADO' || status === 'EM_PREPARO' || status === 'PREPARANDO') {
-                    notifyText = `Olá, *${customerName}*! Seu pedido *#${orderNum}* foi confirmado pelo restaurante e já está sendo preparado com muito carinho! 👨‍🍳🔥\n\n⏱️ *Tempo estimado:* ${est.estimatedDeliveryTime || '35 a 50 minutos'}.`;
+                    notifyText = isFoodEst
+                        ? `Olá, *${customerName}*! Seu pedido *#${orderNum}* foi confirmado pelo restaurante e já está sendo preparado com muito carinho! 👨‍🍳🔥\n\n⏱️ *Tempo estimado:* ${est.estimatedDeliveryTime || '35 a 50 minutos'}.`
+                        : `Olá, *${customerName}*! Sua solicitação *#${orderNum}* foi confirmada pela equipe da *${est.name}* e já está em processamento! ✅\n\n⏱️ *Previsão/Atendimento:* ${est.estimatedDeliveryTime || 'Em breve'}.`;
                 }
                 else if (status === 'A_CAMINHO' || status === 'ENTREGA') {
                     const courierGreeting = courierName ? ` com o entregador *${courierName}*` : '';
-                    notifyText = `Oba, *${customerName}*! 🛵 Seu pedido *#${orderNum}* acabou de sair para entrega${courierGreeting}!\n\n📍 *Endereço:* ${orderData.customerAddress || 'Endereço informado'}\n\nFique atento(a), o entregador chegará em instantes. Bom apetite! 😋`;
+                    notifyText = isFoodEst
+                        ? `Oba, *${customerName}*! 🛵 Seu pedido *#${orderNum}* acabou de sair para entrega${courierGreeting}!\n\n📍 *Endereço:* ${orderData.customerAddress || 'Endereço informado'}\n\nFique atento(a), o entregador chegará em instantes. Bom apetite! 😋`
+                        : `Olá, *${customerName}*! 📦 Seu pedido/envio *#${orderNum}* acabou de sair para entrega${courierGreeting}!\n\n📍 *Endereço:* ${orderData.customerAddress || 'Endereço informado'}\n\nFique atento(a), já está a caminho! 🚀`;
                 }
                 else if (status === 'PRONTO') {
-                    notifyText = `Olá, *${customerName}*! 🛍️ Seu pedido *#${orderNum}* já está *PRONTO* para retirada no balcão!\n\nPode vir retirar quando quiser. Bom apetite! ✨`;
+                    notifyText = isFoodEst
+                        ? `Olá, *${customerName}*! 🛍️ Seu pedido *#${orderNum}* já está *PRONTO* para retirada no balcão!\n\nPode vir retirar quando quiser. Bom apetite! ✨`
+                        : `Olá, *${customerName}*! 📍 Sua solicitação *#${orderNum}* já está *PRONTA* para retirada ou visita!\n\nPode comparecer quando desejar. Estamos à disposição! ✨`;
                 }
                 else if (status === 'CONCLUIDO' || status === 'FINALIZADO') {
-                    notifyText = `Pedido *#${orderNum}* finalizado com sucesso! Muito obrigado pela preferência, *${customerName}*! Esperamos que tenha gostado da refeição. Até o próximo pedido! ⭐⭐⭐⭐⭐`;
+                    notifyText = `Solicitação/Pedido *#${orderNum}* finalizado com sucesso! Muito obrigado pela confiança, *${customerName}*! Se precisar de algo mais, estamos à disposição. ⭐⭐⭐⭐⭐`;
                 }
                 else if (status === 'CANCELADO') {
-                    notifyText = `Olá, *${customerName}*. Infelizmente seu pedido *#${orderNum}* precisou ser cancelado pelo restaurante.${rejectionReason ? `\n\n*Motivo:* ${rejectionReason}` : ''}\n\nPedimos desculpas pelo transtorno. Se tiver dúvidas, estamos à disposição!`;
+                    notifyText = `Olá, *${customerName}*. Infelizmente seu pedido/solicitação *#${orderNum}* precisou ser cancelado.${rejectionReason ? `\n\n*Motivo:* ${rejectionReason}` : ''}\n\nPedimos desculpas pelo ocorrido. Se tiver dúvidas, estamos à disposição!`;
                 }
                 if (notifyText) {
                     const cleanNotifyText = formatWhatsAppText(notifyText);
@@ -1582,15 +1682,36 @@ app.get('/api/evolution/status', async (req, res) => {
         const evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
         const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 20)}`;
         const evoInst = (est.evolutionInstanceName || defaultInstName).trim();
+        const appUrl = (process.env.APP_URL || 'https://iapedido.web.app').replace(/\/$/, '');
+        const autoWebhookUrl = `${appUrl}/api/webhook/evolution/${storeId}`;
         const allRes = await fetch(`${evoUrl}/instance/all`, {
             headers: { apikey: evoKey }
         });
         const allData = await allRes.json().catch(() => ({}));
         let isConnected = false;
         if (allData && Array.isArray(allData.data)) {
-            const found = allData.data.find((inst) => inst.name === evoInst);
-            if (found && found.connected) {
-                isConnected = true;
+            const found = allData.data.find((inst) => inst.name === evoInst ||
+                (inst.webhook && inst.webhook.includes(storeId)) ||
+                inst.name.startsWith(`pedidos_${storeId.slice(0, 15)}`));
+            if (found) {
+                if (found.connected) {
+                    isConnected = true;
+                }
+                else {
+                    try {
+                        const statusRes = await fetch(`${evoUrl}/instance/status`, {
+                            headers: { apikey: found.token || evoInst },
+                            signal: AbortSignal.timeout(3000)
+                        });
+                        if (statusRes.ok) {
+                            const statusData = await statusRes.json().catch(() => ({}));
+                            if (statusData?.data?.LoggedIn && statusData?.data?.Connected) {
+                                isConnected = true;
+                            }
+                        }
+                    }
+                    catch { }
+                }
             }
         }
         // Persist real-time connection state in Firestore
@@ -1602,6 +1723,113 @@ app.get('/api/evolution/status', async (req, res) => {
     }
     catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+// Fetch all WhatsApp groups that the connected instance belongs to
+app.get('/api/evolution/groups', async (req, res) => {
+    try {
+        const storeId = getStoreId(req);
+        const estDoc = await db.collection('establishments').doc(storeId).get();
+        const est = estDoc.data() || {};
+        const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+        const evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
+        const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 20)}`;
+        let evoInst = (est.evolutionInstanceName || defaultInstName).trim();
+        // Auto-resolve active instance name if needed
+        try {
+            const allRes = await fetch(`${evoUrl}/instance/all`, { headers: { apikey: evoKey } });
+            if (allRes.ok) {
+                const allData = await allRes.json();
+                if (Array.isArray(allData?.data)) {
+                    const match = allData.data.find((inst) => inst.name === evoInst ||
+                        (inst.webhook && inst.webhook.includes(storeId)) ||
+                        (inst.token && inst.token === evoInst) ||
+                        inst.name.startsWith(`pedidos_${storeId.slice(0, 15)}`));
+                    if (match && match.name) {
+                        evoInst = match.name;
+                    }
+                }
+            }
+        }
+        catch (e) {
+            console.warn('[Evolution Groups] Erro ao checar /instance/all:', e.message);
+        }
+        console.log(`[Evolution Groups] Buscando grupos para instância ${evoInst}...`);
+        let groups = [];
+        // Attempt 1 (Evolution Go): GET /group/list with apikey: evoInst
+        try {
+            const gRes = await fetch(`${evoUrl}/group/list`, {
+                headers: { apikey: evoInst }
+            });
+            if (gRes.ok) {
+                const json = await gRes.json();
+                const rawList = Array.isArray(json?.data) ? json.data : (Array.isArray(json) ? json : []);
+                if (rawList.length > 0) {
+                    groups = rawList.map((g) => ({
+                        id: g.JID || g.jid || g.id || '',
+                        subject: g.Name || g.subject || g.name || 'Grupo sem título',
+                        size: Array.isArray(g.Participants) ? g.Participants.length : (g.ParticipantCount || g.size || 0),
+                        pictureUrl: g.pictureUrl || g.avatar || ''
+                    })).filter((g) => g.id && g.id.includes('@g.us'));
+                }
+            }
+        }
+        catch (e) {
+            console.warn('[Evolution Groups] Tentativa 1 (/group/list) falhou:', e.message);
+        }
+        // Attempt 2 (Evolution Go): GET /group/myall with apikey: evoInst
+        if (groups.length === 0) {
+            try {
+                const gRes = await fetch(`${evoUrl}/group/myall`, {
+                    headers: { apikey: evoInst }
+                });
+                if (gRes.ok) {
+                    const json = await gRes.json();
+                    const rawList = Array.isArray(json?.data) ? json.data : (Array.isArray(json) ? json : []);
+                    if (rawList.length > 0) {
+                        groups = rawList.map((g) => ({
+                            id: g.JID || g.jid || g.id || '',
+                            subject: g.Name || g.subject || g.name || 'Grupo sem título',
+                            size: Array.isArray(g.Participants) ? g.Participants.length : (g.ParticipantCount || g.size || 0),
+                            pictureUrl: g.pictureUrl || g.avatar || ''
+                        })).filter((g) => g.id && g.id.includes('@g.us'));
+                    }
+                }
+            }
+            catch (e) {
+                console.warn('[Evolution Groups] Tentativa 2 (/group/myall) falhou:', e.message);
+            }
+        }
+        // Attempt 3 (Evolution Node): GET /group/fetchAllGroups/{instance} with evoKey
+        if (groups.length === 0) {
+            try {
+                const gRes = await fetch(`${evoUrl}/group/fetchAllGroups/${evoInst}?getParticipants=false`, {
+                    headers: { apikey: evoKey }
+                });
+                if (gRes.ok) {
+                    const raw = await gRes.json();
+                    const list = Array.isArray(raw) ? raw : (raw.groups || raw.data || []);
+                    if (Array.isArray(list) && list.length > 0) {
+                        groups = list.map((g) => ({
+                            id: g.id || g.jid || g.JID || '',
+                            subject: g.subject || g.Name || g.name || 'Grupo sem título',
+                            size: g.size || (Array.isArray(g.participants) ? g.participants.length : 0),
+                            pictureUrl: g.pictureUrl || g.avatar || ''
+                        })).filter((g) => g.id && g.id.includes('@g.us'));
+                    }
+                }
+            }
+            catch (e) {
+                console.warn('[Evolution Groups] Tentativa 3 falhou:', e.message);
+            }
+        }
+        // Sort by subject name alphabetically
+        groups.sort((a, b) => a.subject.localeCompare(b.subject, 'pt-BR', { sensitivity: 'base' }));
+        console.log(`[Evolution Groups] Encontrados ${groups.length} grupo(s) para a loja ${storeId}`);
+        return res.json({ success: true, groups, total: groups.length });
+    }
+    catch (err) {
+        return res.status(500).json({ error: err.message });
     }
 });
 app.all(['/api/evolution/connect', '/api/evolution/qr'], async (req, res) => {
@@ -1751,22 +1979,84 @@ app.post('/api/evolution/pair', async (req, res) => {
         const { phone } = req.body;
         if (!phone)
             return res.status(400).json({ error: 'Telefone é obrigatório para pairing code.' });
-        const cleanPhone = phone.replace(/\D/g, '');
+        const rawDigits = phone.replace(/\D/g, '');
+        const cleanPhone = rawDigits.startsWith('55') ? rawDigits : `55${rawDigits}`;
         const estDoc = await db.collection('establishments').doc(storeId).get();
         const est = estDoc.data() || {};
         const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+        const evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
         const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 20)}`;
-        const evoInst = (est.evolutionInstanceName || defaultInstName).trim();
+        let evoInst = (est.evolutionInstanceName || defaultInstName).trim();
+        const appUrl = (process.env.APP_URL || 'https://iapedido.web.app').replace(/\/$/, '');
+        const autoWebhookUrl = `${appUrl}/api/webhook/evolution/${storeId}`;
+        // 1. Check or resolve active instance
+        try {
+            const allRes = await fetch(`${evoUrl}/instance/all`, { headers: { apikey: evoKey } });
+            const allData = await allRes.json().catch(() => ({}));
+            let instanceExists = false;
+            if (allData && Array.isArray(allData.data)) {
+                const match = allData.data.find((inst) => inst.name === evoInst ||
+                    (inst.webhook && inst.webhook.includes(storeId)) ||
+                    inst.name.startsWith(`pedidos_${storeId.slice(0, 15)}`));
+                if (match && match.name) {
+                    evoInst = match.name;
+                    instanceExists = true;
+                }
+            }
+            if (!instanceExists) {
+                await fetch(`${evoUrl}/instance/create`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', apikey: evoKey },
+                    body: JSON.stringify({
+                        name: evoInst,
+                        token: evoInst,
+                        advancedSettings: {
+                            rejectCall: true,
+                            msgRejectCall: '',
+                            ignoreGroups: true,
+                            alwaysOnline: false,
+                            readMessages: false,
+                            ignoreStatus: true
+                        }
+                    })
+                });
+            }
+            // Ensure connect socket
+            await fetch(`${evoUrl}/instance/connect`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', apikey: evoInst },
+                body: JSON.stringify({
+                    webhookUrl: autoWebhookUrl,
+                    subscribe: ['MESSAGE', 'CONNECTION', 'MESSAGES_UPSERT']
+                })
+            }).catch(() => { });
+        }
+        catch (e) {
+            console.warn('[Evolution API Pair] Erro ao preparar instância:', e.message);
+        }
+        // Call /instance/pair
+        console.log(`[Evolution API] Solicitando Pairing Code para ${cleanPhone} na instância ${evoInst}...`);
         const pairRes = await fetch(`${evoUrl}/instance/pair`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', apikey: evoInst },
             body: JSON.stringify({ phone: cleanPhone })
         });
         const pairData = await pairRes.json().catch(() => ({}));
-        const code = pairData?.data?.PairingCode || pairData?.pairingCode || null;
-        res.json({ pairingCode: code, raw: pairData });
+        console.log(`[Evolution API] Resposta Pairing Code:`, JSON.stringify(pairData));
+        const code = pairData?.data?.PairingCode ||
+            pairData?.data?.pairingCode ||
+            pairData?.PairingCode ||
+            pairData?.pairingCode ||
+            pairData?.code ||
+            pairData?.data?.code || null;
+        if (!code) {
+            const errorMsg = pairData?.message || pairData?.error || 'Não foi possível gerar o código. Verifique se o número está correto e tente novamente.';
+            return res.status(400).json({ error: errorMsg, raw: pairData });
+        }
+        res.json({ success: true, pairingCode: code, raw: pairData });
     }
     catch (err) {
+        console.error('[Evolution API] Erro no Pairing Code:', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -1819,6 +2109,23 @@ async function getAudienceCustomers(establishmentId) {
     }
     return Array.from(customersMap.entries()).map(([phone, name]) => ({ phone, name }));
 }
+// Anti-Ban Helper: Spintax parser & zero-width variation injector
+// Generates unique message hashes so Meta servers cannot detect bulk text duplicates
+function applySpintaxAndVariation(text) {
+    // 1. Process custom spintax {opcao1|opcao2|opcao3}
+    let result = text.replace(/\{([^{}]+)\}/g, (match, choices) => {
+        const lower = choices.toLowerCase().trim();
+        if (lower === 'cliente' || lower === 'loja' || lower === 'horario') {
+            return match;
+        }
+        const parts = choices.split('|');
+        return parts[Math.floor(Math.random() * parts.length)].trim();
+    });
+    // 2. Add subtle invisible zero-width space variations to guarantee unique hash per message on Meta servers
+    const zeroWidthChars = ['\u200B', '\u200C', '\u200D', '\uFEFF'];
+    const randomInvisible = zeroWidthChars[Math.floor(Math.random() * zeroWidthChars.length)];
+    return result + randomInvisible;
+}
 // Helper to execute campaign broadcast to customer list
 async function executeCampaignBroadcast(establishmentId, campaign, customers) {
     const estDoc = await db.collection('establishments').doc(establishmentId).get();
@@ -1829,37 +2136,93 @@ async function executeCampaignBroadcast(establishmentId, campaign, customers) {
     const evoInst = (establishment.evolutionInstanceName || defaultInstName).trim();
     let sentCount = 0;
     let errorsCount = 0;
-    console.log(`[Broadcast Campaign] Iniciando disparo da campanha "${campaign.title}" para ${customers.length} cliente(s) de ${establishment.name || establishmentId}`);
-    for (let i = 0; i < customers.length; i++) {
-        const client = customers[i];
-        try {
-            // Extract clean first name
-            let firstName = (client.name || '').trim().split(' ')[0];
-            if (!firstName || firstName.toLowerCase() === 'cliente') {
-                firstName = 'Amigo(a)';
+    // Case 1: WhatsApp Groups Broadcast
+    if (campaign.targetAudience === 'WHATSAPP_GROUPS') {
+        const targetGroups = Array.isArray(campaign.targetGroupIds) && campaign.targetGroupIds.length > 0
+            ? campaign.targetGroupIds
+            : [];
+        console.log(`[Broadcast Groups] Iniciando disparo nos grupos ("${campaign.title}") para ${targetGroups.length} grupo(s)...`);
+        for (let i = 0; i < targetGroups.length; i++) {
+            const groupId = targetGroups[i];
+            try {
+                let msg = (campaign.message || '')
+                    .replace(/\{cliente\}/gi, 'Pessoal')
+                    .replace(/\{loja\}/gi, establishment.name || 'Nosso Estabelecimento')
+                    .replace(/\{horario\}/gi, establishment.operatingHours || 'Aberto agora');
+                // Apply Spintax variation {opcao1|opcao2} and invisible unique hash
+                msg = applySpintaxAndVariation(msg);
+                msg = formatWhatsAppText(msg);
+                if (campaign.imageUrl && campaign.imageUrl.trim()) {
+                    await sendWhatsAppMedia(evoUrl, evoKey, evoInst, groupId, campaign.imageUrl.trim(), msg, 'image');
+                }
+                else {
+                    await sendWhatsAppMessage(evoUrl, evoKey, evoInst, groupId, msg);
+                }
+                sentCount++;
+                console.log(`[Broadcast Groups] (${i + 1}/${targetGroups.length}) Enviado com sucesso para grupo ${groupId}`);
+                // Anti-Ban: Security delay between groups (12 to 24 seconds)
+                if (i < targetGroups.length - 1) {
+                    const groupDelayMs = 12000 + Math.floor(Math.random() * 12000);
+                    console.log(`[Anti-Ban Groups] Aguardando ${Math.round(groupDelayMs / 1000)}s antes do próximo grupo...`);
+                    await new Promise(r => setTimeout(r, groupDelayMs));
+                }
             }
-            // Replace template variables
-            let personalizedMsg = (campaign.message || '')
-                .replace(/\{cliente\}/gi, firstName)
-                .replace(/\{loja\}/gi, establishment.name || 'Nosso Restaurante')
-                .replace(/\{horario\}/gi, establishment.operatingHours || 'Aberto agora');
-            personalizedMsg = formatWhatsAppText(personalizedMsg);
-            if (campaign.imageUrl && campaign.imageUrl.trim()) {
-                await sendWhatsAppMedia(evoUrl, evoKey, evoInst, client.phone, campaign.imageUrl.trim(), personalizedMsg, 'image');
-            }
-            else {
-                await sendWhatsAppMessage(evoUrl, evoKey, evoInst, client.phone, personalizedMsg);
-            }
-            sentCount++;
-            console.log(`[Broadcast Campaign] (${i + 1}/${customers.length}) Enviado com sucesso para ${client.phone} (${firstName})`);
-            // Security delay between customers to protect WhatsApp instance from spam detection
-            if (i < customers.length - 1) {
-                await new Promise(r => setTimeout(r, 1200));
+            catch (err) {
+                console.error(`[Broadcast Groups Error] Falha ao enviar para grupo ${groupId}:`, err.message);
+                errorsCount++;
             }
         }
-        catch (err) {
-            console.error(`[Broadcast Campaign Error] Falha ao enviar para ${client.phone}:`, err.message);
-            errorsCount++;
+    }
+    else {
+        // Case 2: Individual Customers 1-to-1 Broadcast
+        console.log(`[Broadcast Campaign] Iniciando disparo da campanha "${campaign.title}" para ${customers.length} cliente(s) de ${establishment.name || establishmentId}`);
+        for (let i = 0; i < customers.length; i++) {
+            const client = customers[i];
+            try {
+                // Real-time Check: Verify if contact opted out or was blocked
+                const blockedDoc = await db.collection('establishments').doc(establishmentId).collection('blocked_contacts').doc(client.phone).get();
+                if (blockedDoc.exists) {
+                    console.log(`[Anti-Ban Opt-out] Pulando envio para ${client.phone} (contato cancelou inscrição ou foi bloqueado).`);
+                    continue;
+                }
+                // Extract clean first name
+                let firstName = (client.name || '').trim().split(' ')[0];
+                if (!firstName || firstName.toLowerCase() === 'cliente') {
+                    firstName = 'Amigo(a)';
+                }
+                // Replace template variables
+                let personalizedMsg = (campaign.message || '')
+                    .replace(/\{cliente\}/gi, firstName)
+                    .replace(/\{loja\}/gi, establishment.name || 'Nosso Estabelecimento')
+                    .replace(/\{horario\}/gi, establishment.operatingHours || 'Aberto agora');
+                // Apply Spintax variation {opcao1|opcao2} and unique hash per message
+                personalizedMsg = applySpintaxAndVariation(personalizedMsg);
+                // Anti-Ban Opt-out Footer: Prevents spam reports by giving recipient an easy 1-digit exit
+                const optOutNotice = '\n\n_Caso não queira mais receber nossas ofertas, responda 0._';
+                if (!personalizedMsg.toLowerCase().includes('responda 0') && !personalizedMsg.toLowerCase().includes('digite 0')) {
+                    personalizedMsg += optOutNotice;
+                }
+                personalizedMsg = formatWhatsAppText(personalizedMsg);
+                if (campaign.imageUrl && campaign.imageUrl.trim()) {
+                    await sendWhatsAppMedia(evoUrl, evoKey, evoInst, client.phone, campaign.imageUrl.trim(), personalizedMsg, 'image');
+                }
+                else {
+                    await sendWhatsAppMessage(evoUrl, evoKey, evoInst, client.phone, personalizedMsg);
+                }
+                sentCount++;
+                console.log(`[Broadcast Campaign] (${i + 1}/${customers.length}) Enviado com sucesso para ${client.phone} (${firstName})`);
+                // Anti-Ban: Human randomized delay between customers (25s to 45s)
+                // Prevents Meta automated bulk spam detection triggers
+                if (i < customers.length - 1) {
+                    const safeDelayMs = 25000 + Math.floor(Math.random() * 20000);
+                    console.log(`[Anti-Ban Jitter] Aguardando ${Math.round(safeDelayMs / 1000)}s antes do próximo envio...`);
+                    await new Promise(r => setTimeout(r, safeDelayMs));
+                }
+            }
+            catch (err) {
+                console.error(`[Broadcast Campaign Error] Falha ao enviar para ${client.phone}:`, err.message);
+                errorsCount++;
+            }
         }
     }
     // Update campaign execution stats in Firestore
@@ -1903,7 +2266,7 @@ app.get('/api/campaigns/audience', async (req, res) => {
 app.post('/api/campaigns', async (req, res) => {
     try {
         const storeId = getStoreId(req);
-        const { id, title, description, message, imageUrl, scheduledTime, daysOfWeek, active, targetAudience } = req.body;
+        const { id, title, description, message, imageUrl, scheduledTime, daysOfWeek, active, targetAudience, targetGroupIds } = req.body;
         if (!title || !message) {
             return res.status(400).json({ error: 'Título e mensagem são obrigatórios.' });
         }
@@ -1917,6 +2280,7 @@ app.post('/api/campaigns', async (req, res) => {
             daysOfWeek: Array.isArray(daysOfWeek) ? daysOfWeek : [0, 1, 2, 3, 4, 5, 6],
             active: active !== undefined ? Boolean(active) : true,
             targetAudience: targetAudience || 'ALL_CUSTOMERS',
+            targetGroupIds: Array.isArray(targetGroupIds) ? targetGroupIds : [],
             updatedAt: new Date().toISOString()
         };
         const campaignsCol = db.collection('establishments').doc(storeId).collection('campaigns');
@@ -1986,6 +2350,24 @@ app.post('/api/campaigns/:id/send-now', async (req, res) => {
             return res.status(404).json({ error: 'Campanha não encontrada.' });
         }
         const campaign = { id: docSnap.id, ...docSnap.data() };
+        // Handle WhatsApp Groups Broadcast
+        if (campaign.targetAudience === 'WHATSAPP_GROUPS') {
+            const groupCount = (campaign.targetGroupIds || []).length;
+            if (groupCount === 0) {
+                return res.json({
+                    success: false,
+                    message: 'Nenhum grupo do WhatsApp foi selecionado nesta campanha.',
+                    sentCount: 0
+                });
+            }
+            const result = await executeCampaignBroadcast(storeId, campaign, []);
+            return res.json({
+                success: true,
+                message: `Disparo concluído com sucesso em ${result.sentCount} grupo(s)!`,
+                sentCount: result.sentCount,
+                errorsCount: result.errorsCount
+            });
+        }
         const customers = await getAudienceCustomers(storeId);
         if (customers.length === 0) {
             return res.json({
@@ -1994,7 +2376,7 @@ app.post('/api/campaigns/:id/send-now', async (req, res) => {
                 sentCount: 0
             });
         }
-        // Trigger broadcast asynchronously and respond
+        // Trigger broadcast to customer list
         const result = await executeCampaignBroadcast(storeId, campaign, customers);
         res.json({
             success: true,
@@ -2148,10 +2530,16 @@ async function checkAndExecuteScheduledCampaigns() {
             const alreadyRunToday = lastRun === todayBR;
             if (isScheduledDay && isTimeWindow && !alreadyRunToday) {
                 console.log(`[Cron Trigger Match!] Disparando campanha "${camp.title}" para a loja ${storeId}`);
-                const customers = await getAudienceCustomers(storeId);
-                if (customers.length > 0) {
-                    await executeCampaignBroadcast(storeId, camp, customers);
+                if (camp.targetAudience === 'WHATSAPP_GROUPS') {
+                    await executeCampaignBroadcast(storeId, camp, []);
                     triggeredCount++;
+                }
+                else {
+                    const customers = await getAudienceCustomers(storeId);
+                    if (customers.length > 0) {
+                        await executeCampaignBroadcast(storeId, camp, customers);
+                        triggeredCount++;
+                    }
                 }
             }
         }

@@ -30,6 +30,11 @@ import {
   isStoreOpenNow, 
   DAY_LABELS 
 } from '../utils/schedule';
+import { 
+  SEGMENT_OPTIONS, 
+  getSegmentConfig, 
+  BusinessSegment 
+} from '../utils/segments';
 
 interface SettingsViewProps {
   establishment: Establishment | null;
@@ -202,6 +207,72 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5 sm:space-y-6">
+        {/* Segment Selector & Business Type */}
+        <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-4 sm:p-6 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h3 className="font-bold text-base text-white flex items-center gap-2">
+                <Store className="w-5 h-5 text-emerald-400" />
+                Nicho / Segmento do Estabelecimento
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Escolha o segmento para personalizar termos (cardápio, catálogo de veículos, imóveis) e o comportamento da IA.
+              </p>
+            </div>
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 w-fit">
+              {getSegmentConfig(formData.segment).label}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3 text-xs">
+            {SEGMENT_OPTIONS.map((seg) => {
+              const isSelected = getSegmentConfig(formData.segment).id === seg.id;
+              return (
+                <button
+                  key={seg.id}
+                  type="button"
+                  onClick={() => {
+                    const storeName = formData.name || 'Nossa Empresa';
+                    const newWelcome = seg.defaultWelcome.replace(/\{loja\}/g, storeName);
+                    const newPrompt = seg.defaultPrompt.replace(/\{loja\}/g, storeName);
+                    setFormData(prev => ({
+                      ...prev,
+                      segment: seg.id,
+                      aiWelcomeMessage: newWelcome,
+                      aiPromptCustom: newPrompt
+                    }));
+                  }}
+                  className={`p-3 rounded-xl border text-left transition flex flex-col justify-between gap-2 cursor-pointer ${
+                    isSelected
+                      ? 'bg-emerald-500/15 border-emerald-500 text-white shadow-sm ring-1 ring-emerald-500/40'
+                      : 'bg-slate-950/70 border-slate-800/80 text-slate-300 hover:border-slate-700 hover:bg-slate-950'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-2xl">{seg.emoji}</span>
+                    {isSelected && (
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    )}
+                  </div>
+                  <div>
+                    <p className="font-bold text-xs text-white">{seg.label}</p>
+                    <p className="text-[10px] text-slate-400 line-clamp-1 mt-0.5">{seg.shortLabel}</p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-xl flex items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2 text-slate-300">
+              <Sparkles className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>
+                Ao trocar o segmento, as respostas da IA, sugestões de fotos e termos da plataforma se adaptam automaticamente!
+              </span>
+            </div>
+          </div>
+        </div>
+
         {/* Basic Store Info */}
         <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-4 sm:p-6 space-y-4">
           <h3 className="font-bold text-base text-white flex items-center gap-2">
@@ -211,13 +282,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
             <div>
-              <label className="block text-slate-300 font-semibold mb-1">Nome do Estabelecimento *</label>
+              <label className="block text-slate-300 font-semibold mb-1">Nome da Empresa / Loja *</label>
               <input
                 type="text"
                 required
                 value={formData.name || ''}
                 onChange={e => setFormData({ ...formData, name: e.target.value })}
-                placeholder="Burger & Cia Gourmet"
+                placeholder="Ex: Auto Repasses Prime / Burger & Cia"
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-emerald-500/60"
               />
             </div>
@@ -239,30 +310,40 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 type="text"
                 value={formData.address || ''}
                 onChange={e => setFormData({ ...formData, address: e.target.value })}
-                placeholder="Av. Paulista, 1000 - Bela Vista, São Paulo - SP"
+                placeholder="Av. Principal, 1000 - Centro"
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-emerald-500/60"
               />
             </div>
 
             <div>
-              <label className="block text-slate-300 font-semibold mb-1">Taxa Padrão de Entrega (R$)</label>
+              <label className="block text-slate-300 font-semibold mb-1">
+                {getSegmentConfig(formData.segment).id === 'VEHICLES' 
+                  ? 'Taxa Padrão de Despacho / Guincho (R$)'
+                  : getSegmentConfig(formData.segment).id === 'REAL_ESTATE'
+                  ? 'Taxa / Deslocamento de Visita (R$)'
+                  : 'Taxa Padrão de Entrega (R$)'}
+              </label>
               <input
                 type="number"
                 step="0.01"
                 value={formData.deliveryFee !== undefined ? formData.deliveryFee : ''}
                 onChange={e => setFormData({ ...formData, deliveryFee: parseFloat(e.target.value) || 0 })}
-                placeholder="7.50"
+                placeholder="0.00"
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white font-mono focus:outline-none focus:border-emerald-500/60"
               />
             </div>
 
             <div>
-              <label className="block text-slate-300 font-semibold mb-1">Tempo Estimado de Entrega</label>
+              <label className="block text-slate-300 font-semibold mb-1">
+                {getSegmentConfig(formData.segment).id === 'VEHICLES' || getSegmentConfig(formData.segment).id === 'REAL_ESTATE'
+                  ? 'Prazo / Tempo Estimado de Atendimento ou Visita'
+                  : 'Tempo Estimado de Entrega'}
+              </label>
               <input
                 type="text"
                 value={formData.estimatedDeliveryTime || ''}
                 onChange={e => setFormData({ ...formData, estimatedDeliveryTime: e.target.value })}
-                placeholder="35 a 50 minutos"
+                placeholder={getSegmentConfig(formData.segment).id === 'VEHICLES' ? 'Visitas imediatas ou agendadas' : '35 a 50 minutos'}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-emerald-500/60"
               />
             </div>
@@ -273,7 +354,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 type="text"
                 value={formData.operatingHours || ''}
                 onChange={e => setFormData({ ...formData, operatingHours: e.target.value })}
-                placeholder="Terça a Domingo das 18:00 às 23:30"
+                placeholder="Segunda a Sábado das 08:00 às 18:00"
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-emerald-500/60"
               />
             </div>

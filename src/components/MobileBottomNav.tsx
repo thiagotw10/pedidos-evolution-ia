@@ -4,8 +4,14 @@ import {
   TrendingUp, 
   UtensilsCrossed, 
   Smartphone, 
-  Menu 
+  Menu,
+  Car,
+  Home,
+  Shirt,
+  Package
 } from 'lucide-react';
+import { Establishment } from '../types';
+import { getSegmentConfig } from '../utils/segments';
 
 interface MobileBottomNavProps {
   currentTab: string;
@@ -13,6 +19,7 @@ interface MobileBottomNavProps {
   pendingOrdersCount: number;
   isWhatsAppConnected: boolean;
   onOpenDrawer: () => void;
+  establishment?: Establishment | null;
 }
 
 export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
@@ -20,12 +27,28 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   setCurrentTab,
   pendingOrdersCount,
   isWhatsAppConnected,
-  onOpenDrawer
+  onOpenDrawer,
+  establishment
 }) => {
+  const segConfig = getSegmentConfig(establishment?.segment);
+
+  const getCatalogIconAndLabel = () => {
+    switch (segConfig.id) {
+      case 'VEHICLES': return { label: 'Veículos', icon: Car };
+      case 'REAL_ESTATE': return { label: 'Imóveis', icon: Home };
+      case 'FASHION': return { label: 'Coleção', icon: Shirt };
+      case 'ELECTRONICS': return { label: 'Aparelhos', icon: Smartphone };
+      case 'GENERAL': return { label: 'Produtos', icon: Package };
+      default: return { label: 'Cardápio', icon: UtensilsCrossed };
+    }
+  };
+
+  const catalogMeta = getCatalogIconAndLabel();
+
   const tabs = [
     {
       id: 'orders',
-      label: 'Pedidos',
+      label: segConfig.id === 'VEHICLES' ? 'Propostas' : segConfig.id === 'REAL_ESTATE' ? 'Leads' : 'Pedidos',
       icon: ShoppingBag,
       badge: pendingOrdersCount > 0 ? pendingOrdersCount : null
     },
@@ -37,8 +60,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
     },
     {
       id: 'products',
-      label: 'Cardápio',
-      icon: UtensilsCrossed,
+      label: catalogMeta.label,
+      icon: catalogMeta.icon,
       badge: null
     },
     {

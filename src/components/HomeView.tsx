@@ -20,18 +20,17 @@ import {
   Megaphone, 
   Award, 
   Coffee, 
-  Flame, 
-  HelpCircle,
-  Play
+  Flame 
 } from 'lucide-react';
 
 interface HomeViewProps {
   onGoToAuth: (mode: 'login' | 'register') => void;
-  onTryDemo: () => void;
+  onTryDemo?: () => void;
 }
 
-export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth, onTryDemo }) => {
+export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth }) => {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const [activeMockupNiche, setActiveMockupNiche] = useState<'VEHICLES' | 'REAL_ESTATE' | 'FASHION' | 'FOOD'>('VEHICLES');
 
   const toggleFaq = (index: number) => {
     setOpenFaq(openFaq === index ? null : index);
@@ -39,24 +38,28 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth, onTryDemo }) => 
 
   const faqs = [
     {
+      q: 'A plataforma serve para qualquer tipo de produto ou segmento?',
+      a: 'Sim! A plataforma atende com perfeição tanto estabelecimentos de alimentação (restaurantes, hamburguerias, pizzarias) quanto concessionárias de carros e motos, imobiliárias, lojas de roupas, celulares/eletrônicos, autopeças e comércio em geral. A IA se adapta com as fotos e termos do seu nicho!'
+    },
+    {
       q: 'Preciso deixar um computador ligado o dia inteiro?',
-      a: 'Não! O sistema roda 100% na nuvem. Depois de escanear o QR Code pelo seu smartphone, o atendimento por Inteligência Artificial continua funcionando 24h por dia, mesmo com o computador desligado.'
+      a: 'Não! O sistema roda 100% na nuvem. Depois de escanear o QR Code ou digitar o código de pareamento pelo seu smartphone, o atendimento por Inteligência Artificial continua funcionando 24h por dia, mesmo com o computador desligado.'
     },
     {
       q: 'Funciona com o WhatsApp Business ou número comum?',
-      a: 'Sim, funciona perfeitamente tanto no WhatsApp Business quanto no WhatsApp normal. Você usa o próprio número de telefone do seu restaurante sem precisar trocar.'
+      a: 'Sim, funciona perfeitamente tanto no WhatsApp Business quanto no WhatsApp normal. Você usa o próprio número de telefone da sua empresa sem precisar trocar.'
     },
     {
       q: 'A Inteligência Artificial realmente entende áudios dos clientes?',
-      a: 'Sim! Nossa IA escuta os áudios enviados pelos clientes, transcreve com precisão, identifica os itens pedidos, as quantidades e observações como "sem cebola" ou "ponto da carne", e cadastra tudo no seu painel.'
+      a: 'Sim! Nossa IA escuta os áudios enviados pelos clientes, transcreve com precisão, identifica os itens pedidos ou veículos/imóveis de interesse, quantidades e observações, e cadastra tudo no seu painel.'
     },
     {
       q: 'Vocês cobram porcentagem ou comissão sobre as minhas vendas?',
-      a: 'Zero porcento! Ao contrário de marketplaces tradicionais que chegam a cobrar 27% por pedido, na nossa plataforma 100% do valor dos pedidos e das taxas de entrega fica com você.'
+      a: 'Zero porcento! Ao contrário de marketplaces tradicionais que chegam a cobrar 27% por pedido ou lead, na nossa plataforma 100% do valor das suas vendas e propostas fica com você.'
     },
     {
-      q: 'Como funcionam os disparos agendados das 18h?',
-      a: 'Você configura um template com a foto do seu prato e o texto promocional. No horário que a sua loja abre, o sistema dispara automaticamente para quem já comprou com você, trazendo clientes recorrentes de volta!'
+      q: 'Como funcionam os disparos de campanhas e novidades?',
+      a: 'Você configura um template com a foto do seu produto/veículo e o texto promocional. O sistema pode disparar para quem já comprou com você ou para grupos do WhatsApp que você participa, atraindo novos compradores de imediato!'
     }
   ];
 
@@ -126,33 +129,47 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth, onTryDemo }) => 
         {/* Main Headline */}
         <div className="max-w-4xl mx-auto space-y-6">
           <h1 className="text-4xl sm:text-6xl lg:text-7xl font-black text-white tracking-tight leading-[1.08]">
-            Transforme o WhatsApp do seu Restaurante em uma{' '}
+            Transforme o WhatsApp do seu Negócio em uma{' '}
             <span className="bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent">
               Máquina de Vendas 24h
             </span>
           </h1>
 
-          <p className="text-base sm:text-xl text-slate-400 max-w-2xl mx-auto leading-relaxed">
-            Atenda clientes instantaneamente, anote pedidos por áudio ou texto, envie fotos do cardápio e dispare promoções no horário que sua cozinha abre.
+          <p className="text-base sm:text-xl text-slate-400 max-w-3xl mx-auto leading-relaxed">
+            Atenda clientes instantaneamente, apresente catálogos com fotos (veículos, imóveis, roupas, lanches e eletrônicos), tire dúvidas por áudio ou texto e dispare campanhas em massa no WhatsApp.
           </p>
+        </div>
+
+        {/* Niche Badges */}
+        <div className="flex flex-wrap items-center justify-center gap-2 max-w-3xl mx-auto pt-1">
+          <span className="px-3 py-1.5 rounded-full bg-slate-900/90 border border-slate-800 text-xs text-slate-300 font-semibold flex items-center gap-1.5 shadow-sm">
+            🚗 Veículos & Concessionárias
+          </span>
+          <span className="px-3 py-1.5 rounded-full bg-slate-900/90 border border-slate-800 text-xs text-slate-300 font-semibold flex items-center gap-1.5 shadow-sm">
+            🏠 Imóveis & Corretores
+          </span>
+          <span className="px-3 py-1.5 rounded-full bg-slate-900/90 border border-slate-800 text-xs text-slate-300 font-semibold flex items-center gap-1.5 shadow-sm">
+            👗 Moda & Boutiques
+          </span>
+          <span className="px-3 py-1.5 rounded-full bg-slate-900/90 border border-slate-800 text-xs text-slate-300 font-semibold flex items-center gap-1.5 shadow-sm">
+            📱 Celulares & Eletrônicos
+          </span>
+          <span className="px-3 py-1.5 rounded-full bg-slate-900/90 border border-slate-800 text-xs text-slate-300 font-semibold flex items-center gap-1.5 shadow-sm">
+            🍔 Restaurantes & Delivery
+          </span>
+          <span className="px-3 py-1.5 rounded-full bg-slate-900/90 border border-slate-800 text-xs text-slate-300 font-semibold flex items-center gap-1.5 shadow-sm">
+            📦 Comércio & Varejo Geral
+          </span>
         </div>
 
         {/* Action Buttons */}
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-2">
           <button
             onClick={() => onGoToAuth('register')}
-            className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-sm flex items-center justify-center gap-2.5 shadow-2xl shadow-emerald-500/30 transition cursor-pointer transform hover:-translate-y-1"
+            className="w-full sm:w-auto px-9 py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-sm flex items-center justify-center gap-2.5 shadow-2xl shadow-emerald-500/30 transition cursor-pointer transform hover:-translate-y-1"
           >
             <Sparkles className="w-4 h-4" />
             <span>Criar Conta & Começar Grátis</span>
-          </button>
-
-          <button
-            onClick={onTryDemo}
-            className="w-full sm:w-auto px-7 py-4 rounded-2xl bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-slate-800 font-bold text-sm flex items-center justify-center gap-2 transition cursor-pointer shadow-lg"
-          >
-            <Play className="w-4 h-4 text-emerald-400 fill-emerald-400" />
-            <span>Acessar Modo Demonstração</span>
           </button>
         </div>
 
@@ -173,47 +190,103 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth, onTryDemo }) => 
         </div>
 
         {/* 3. Interactive Mockup: Live WhatsApp Experience Preview */}
-        <div className="pt-10 max-w-4xl mx-auto">
-          <div className="rounded-3xl bg-slate-900/90 border border-slate-800 shadow-2xl p-6 md:p-8 relative overflow-hidden backdrop-blur-md">
+        <div className="pt-8 max-w-4xl mx-auto space-y-4">
+          {/* Interactive Niche Tabs */}
+          <div className="flex items-center justify-center gap-2 overflow-x-auto pb-2 scrollbar-none">
+            {[
+              { id: 'VEHICLES' as const, label: '🚗 Concessionária / Carros', badge: 'Veículos' },
+              { id: 'REAL_ESTATE' as const, label: '🏠 Imobiliária / Imóveis', badge: 'Imóveis' },
+              { id: 'FASHION' as const, label: '👗 Moda / Roupas', badge: 'Moda' },
+              { id: 'FOOD' as const, label: '🍔 Alimentação / Delivery', badge: 'Delivery' }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveMockupNiche(tab.id)}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+                  activeMockupNiche === tab.id
+                    ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/25'
+                    : 'bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="rounded-3xl bg-slate-900/90 border border-slate-800 shadow-2xl p-5 md:p-8 relative overflow-hidden backdrop-blur-md">
             {/* Window Top Bar */}
             <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-6 text-xs text-slate-400">
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full bg-rose-500/80"></div>
                 <div className="w-3 h-3 rounded-full bg-amber-500/80"></div>
                 <div className="w-3 h-3 rounded-full bg-emerald-500/80"></div>
-                <span className="ml-2 font-mono text-slate-300">Simulação de Atendimento WhatsApp em Tempo Real</span>
+                <span className="ml-2 font-mono text-slate-300 hidden sm:inline">Simulação de Atendimento WhatsApp em Tempo Real</span>
               </div>
               <span className="flex items-center gap-1 text-emerald-400 font-bold">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                IA Online Respondendo
+                IA Online Respondendo 24h
               </span>
             </div>
 
             {/* Simulated Chat Dialogue */}
-            <div className="space-y-4 max-w-2xl mx-auto text-left text-xs leading-relaxed">
-              {/* Message 1: Customer asks for menu */}
+            <div className="space-y-4 max-w-2xl mx-auto text-left text-xs leading-relaxed animate-fadeIn">
+              {/* Message 1: Customer asks */}
               <div className="flex justify-end">
                 <div className="bg-emerald-600 text-white rounded-2xl rounded-tr-none px-4 py-2.5 max-w-xs shadow-md">
-                  Boa noite! O que vocês tem de lanche hoje? Pode me mandar o cardápio?
-                  <span className="block text-[10px] text-emerald-200/80 text-right mt-1 font-mono">19:42</span>
+                  {activeMockupNiche === 'VEHICLES' && 'Boa tarde! Vocês têm algum sedã premium disponível para pronta entrega?'}
+                  {activeMockupNiche === 'REAL_ESTATE' && 'Olá! Vocês têm apartamento de 2 ou 3 quartos para alugar ou comprar no Centro?'}
+                  {activeMockupNiche === 'FASHION' && 'Boa tarde! Vocês têm vestidos ou novidades da nova coleção no tamanho M?'}
+                  {activeMockupNiche === 'FOOD' && 'Boa noite! O que vocês tem de lanche hoje? Pode me mandar o cardápio?'}
+                  <span className="block text-[10px] text-emerald-200/80 text-right mt-1 font-mono">15:42</span>
                 </div>
               </div>
 
-              {/* Message 2: Bot sends dish photo with caption */}
+              {/* Message 2: Bot sends photo with caption */}
               <div className="flex justify-start">
                 <div className="bg-slate-800 text-slate-100 rounded-2xl rounded-tl-none p-3 max-w-sm border border-slate-700/80 shadow-md space-y-2">
-                  <div className="rounded-xl overflow-hidden bg-slate-950 border border-slate-700/60 max-h-48">
+                  <div className="rounded-xl overflow-hidden bg-slate-950 border border-slate-700/60 aspect-[16/10] w-full">
                     <img 
-                      src="https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=700&q=80" 
-                      alt="Hambúrguer Artesanal Cheddar" 
-                      className="w-full h-full object-cover" 
+                      src={
+                        activeMockupNiche === 'VEHICLES'
+                          ? 'https://images.unsplash.com/photo-1580273916550-e323be2ae537?auto=format&fit=crop&w=800&h=500&q=80'
+                          : activeMockupNiche === 'REAL_ESTATE'
+                          ? 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&h=500&q=80'
+                          : activeMockupNiche === 'FASHION'
+                          ? 'https://images.unsplash.com/photo-1515372039744-b8f02a3ae446?auto=format&fit=crop&w=800&h=500&q=80'
+                          : 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=800&h=500&q=80'
+                      } 
+                      alt="Item Catálogo" 
+                      className="w-full h-full object-cover object-center" 
                     />
                   </div>
                   <div>
-                    <p className="font-bold text-white text-xs">🍽️ *Hambúrguer Artesanal Cheddar* - R$ 29.90</p>
-                    <p className="text-[11px] text-slate-300 mt-0.5">Blend 180g, muito queijo cheddar cremoso e cebola caramelizada no pão brioche.</p>
+                    {activeMockupNiche === 'VEHICLES' && (
+                      <>
+                        <p className="font-bold text-white text-xs">🚗 *BMW 320i M Sport 2.0 Turbo* - R$ 189.900</p>
+                        <p className="text-[11px] text-slate-300 mt-0.5">Ano 2021, 42.000 km, bancos em couro, faróis Full LED, rodas aro 19, teto solar e laudo cautelar 100% aprovado.</p>
+                      </>
+                    )}
+                    {activeMockupNiche === 'REAL_ESTATE' && (
+                      <>
+                        <p className="font-bold text-white text-xs">🏡 *Apartamento 3 Quartos c/ Suíte* - R$ 2.400/mês</p>
+                        <p className="text-[11px] text-slate-300 mt-0.5">85m² privativos, varanda gourmet com churrasqueira, 2 vagas cobertas e condomínio completo.</p>
+                      </>
+                    )}
+                    {activeMockupNiche === 'FASHION' && (
+                      <>
+                        <p className="font-bold text-white text-xs">👗 *Vestido Casual Branco em Laise* - R$ 189.90</p>
+                        <p className="text-[11px] text-slate-300 mt-0.5">Modelagem ombro a ombro com babados e caimento impecável. Tecido 100% algodão nos tamanhos P, M e G.</p>
+                      </>
+                    )}
+                    {activeMockupNiche === 'FOOD' && (
+                      <>
+                        <p className="font-bold text-white text-xs">🍽️ *Hambúrguer Artesanal Cheddar* - R$ 29.90</p>
+                        <p className="text-[11px] text-slate-300 mt-0.5">Blend 180g, muito queijo cheddar cremoso e cebola caramelizada no pão brioche.</p>
+                      </>
+                    )}
                   </div>
-                  <span className="block text-[10px] text-slate-400 text-right font-mono">19:42</span>
+                  <span className="block text-[10px] text-slate-400 text-right font-mono">15:42</span>
                 </div>
               </div>
 
@@ -228,27 +301,67 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth, onTryDemo }) => 
                       <div className="w-2/3 h-full bg-white rounded-full"></div>
                     </div>
                     <div className="flex justify-between text-[10px] text-emerald-100 font-mono">
-                      <span>0:08</span>
+                      <span>
+                        {activeMockupNiche === 'VEHICLES' ? '0:11' : activeMockupNiche === 'REAL_ESTATE' ? '0:07' : activeMockupNiche === 'FASHION' ? '0:06' : '0:08'}
+                      </span>
                       <span>Mensagem de Áudio</span>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Message 4: Bot confirms audio extraction and registers order */}
+              {/* Message 4: Bot confirms audio extraction and registers proposal/order */}
               <div className="flex justify-start">
                 <div className="bg-slate-800 text-slate-100 rounded-2xl rounded-tl-none p-3.5 max-w-md border border-slate-700/80 shadow-md space-y-2">
-                  <p className="text-xs">
-                    Perfeito, Thiago! Anotei seu pedido: <br />
-                    • <strong>2x Hambúrguer Artesanal Cheddar</strong> (com a observação: <em>sem salada</em>)<br />
-                    • <strong>Entrega:</strong> Rua das Flores, 120 - Centro<br />
-                    • <strong>Pagamento:</strong> PIX
-                  </p>
+                  <div className="text-xs">
+                    {activeMockupNiche === 'VEHICLES' && (
+                      <p>
+                        Perfeito, Thiago! Aceitamos seu carro na troca com avaliação justa e conseguimos simular o saldo em até 48x!<br />
+                        • <strong>Veículo de Interesse:</strong> BMW 320i M Sport 2021<br />
+                        • <strong>Condição:</strong> Simulação de Financiamento + Troca<br />
+                        • <strong>Atendimento:</strong> Agendamento de Visita & Test-Drive
+                      </p>
+                    )}
+                    {activeMockupNiche === 'REAL_ESTATE' && (
+                      <p>
+                        Perfeito, Thiago! O condomínio possui portaria 24h e aceitamos caução ou fiador.<br />
+                        • <strong>Imóvel:</strong> Apto 3 Quartos Jardins (Cód. 804)<br />
+                        • <strong>Visita:</strong> Amanhã às 14:30 com o corretor responsável<br />
+                        • <strong>Status:</strong> Visita Agendada
+                      </p>
+                    )}
+                    {activeMockupNiche === 'FASHION' && (
+                      <p>
+                        Amei sua escolha, Thiago! Já separamos 1 peça no tamanho M.<br />
+                        • <strong>1x Vestido Casual Branco em Laise</strong> (Tamanho: M)<br />
+                        • <strong>Entrega:</strong> Motoboy Express (em até 2 horas)<br />
+                        • <strong>Pagamento:</strong> PIX com 5% de desconto
+                      </p>
+                    )}
+                    {activeMockupNiche === 'FOOD' && (
+                      <p>
+                        Perfeito, Thiago! Anotei seu pedido:<br />
+                        • <strong>2x Hambúrguer Artesanal Cheddar</strong> (sem salada)<br />
+                        • <strong>Entrega:</strong> Rua das Flores, 120 - Centro<br />
+                        • <strong>Pagamento:</strong> PIX
+                      </p>
+                    )}
+                  </div>
+
                   <div className="p-2.5 rounded-xl bg-slate-950/80 border border-emerald-500/30 flex items-center justify-between text-[11px]">
                     <span className="font-bold text-emerald-400 flex items-center gap-1.5">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> Pedido #102 Registrado no Painel!
+                      <CheckCircle2 className="w-3.5 h-3.5" /> 
+                      {activeMockupNiche === 'VEHICLES' && 'Proposta #408 Registrada no Painel!'}
+                      {activeMockupNiche === 'REAL_ESTATE' && 'Lead #302 Registrado no Painel!'}
+                      {activeMockupNiche === 'FASHION' && 'Sacola #215 Registrada no Painel!'}
+                      {activeMockupNiche === 'FOOD' && 'Pedido #102 Registrado no Painel!'}
                     </span>
-                    <span className="font-mono font-bold text-white">Total: R$ 66.80</span>
+                    <span className="font-mono font-bold text-white">
+                      {activeMockupNiche === 'VEHICLES' && 'Valor: R$ 189.900'}
+                      {activeMockupNiche === 'REAL_ESTATE' && 'Aluguel: R$ 2.400'}
+                      {activeMockupNiche === 'FASHION' && 'Total: R$ 180.40'}
+                      {activeMockupNiche === 'FOOD' && 'Total: R$ 66.80'}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -264,10 +377,10 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth, onTryDemo }) => 
             Funcionalidades Exclusivas
           </span>
           <h2 className="text-3xl sm:text-5xl font-black text-white tracking-tight">
-            Tudo o que seu Delivery precisa em uma só plataforma
+            Tudo o que seu Negócio precisa em uma só plataforma
           </h2>
           <p className="text-sm sm:text-base text-slate-400">
-            Chega de perder pedidos porque o atendente demorou para responder ou anotou observações erradas.
+            Chega de perder clientes e vendas porque o atendente demorou para responder ou passou informações incompletas.
           </p>
         </div>
 
@@ -288,9 +401,9 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth, onTryDemo }) => 
             <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
               <ImageIcon className="w-6 h-6" />
             </div>
-            <h3 className="font-bold text-lg text-white">Cardápio Visual com Fotos Reais</h3>
+            <h3 className="font-bold text-lg text-white">Catálogo & Fotos Reais no WhatsApp</h3>
             <p className="text-xs text-slate-400 leading-relaxed">
-              O cliente compra com os olhos! Ao pedir o cardápio, a IA envia fotos individuais dos pratos acompanhadas de preço e descrição, aumentando o ticket médio.
+              O cliente compra com os olhos! Ao pedir opções, a IA envia fotos individuais dos produtos, veículos ou imóveis com valor e especificações, aumentando as conversões.
             </p>
           </div>
 
@@ -299,9 +412,9 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth, onTryDemo }) => 
             <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
               <Megaphone className="w-6 h-6" />
             </div>
-            <h3 className="font-bold text-lg text-white">Disparos Agendados de Abertura</h3>
+            <h3 className="font-bold text-lg text-white">Disparos e Campanhas em Massa</h3>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Todo dia às 18h quando sua cozinha abre, envie automaticamente uma foto promocional para toda a sua base de clientes que já compraram com você.
+              Dispare ofertas e novidades agendadas para seus clientes ou grupos do WhatsApp no horário de maior pico de compras do seu comércio.
             </p>
           </div>
 
@@ -310,9 +423,9 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth, onTryDemo }) => 
             <div className="w-12 h-12 rounded-2xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400">
               <ShoppingBag className="w-6 h-6" />
             </div>
-            <h3 className="font-bold text-lg text-white">Gestor de Cozinha em Tempo Real</h3>
+            <h3 className="font-bold text-lg text-white">Gestor de Pedidos & Propostas</h3>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Painel com avisos sonoros instantâneos de novos pedidos. Alterne status (Em preparo, A caminho, Entregue) com 1 clique e notifique o cliente no WhatsApp.
+              Painel com avisos sonoros instantâneos. Alterne status (Em atendimento, Proposta enviada, Concluído ou Agendado) com 1 clique e notifique o cliente no WhatsApp.
             </p>
           </div>
 
@@ -334,7 +447,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth, onTryDemo }) => 
             </div>
             <h3 className="font-bold text-lg text-white">Controle da Base de Clientes</h3>
             <p className="text-xs text-slate-400 leading-relaxed">
-              A lista completa de contatos que já pediram com você fica gravada. Tenha a liberdade de gerenciar quem deve ou não receber os disparos automáticos.
+              A lista completa de contatos que já compraram ou solicitaram atendimento com você fica gravada. Tenha a liberdade de gerenciar quem deve receber seus disparos automáticos.
             </p>
           </div>
         </div>
@@ -358,34 +471,34 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth, onTryDemo }) => 
                 <tr className="border-b border-slate-800 bg-slate-950/60 text-slate-400">
                   <th className="py-4 px-6 font-semibold">Comparativo de Benefícios</th>
                   <th className="py-4 px-6 font-bold text-emerald-400 text-center bg-emerald-500/10">iaPedido</th>
-                  <th className="py-4 px-6 font-semibold text-slate-400 text-center">Marketplaces (iFood, Rappi)</th>
+                  <th className="py-4 px-6 font-semibold text-slate-400 text-center">Portais e Marketplaces de Terceiros</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-slate-300">
                 <tr>
-                  <td className="py-4 px-6 font-medium">Comissão sobre cada pedido</td>
-                  <td className="py-4 px-6 text-center font-black text-emerald-400 bg-emerald-500/5">0% (Sem comissão)</td>
-                  <td className="py-4 px-6 text-center text-rose-400 font-semibold">12% a 27% por pedido</td>
+                  <td className="py-4 px-6 font-medium">Comissão sobre suas vendas</td>
+                  <td className="py-4 px-6 text-center font-black text-emerald-400 bg-emerald-500/5">0% (Sem comissões)</td>
+                  <td className="py-4 px-6 text-center text-rose-400 font-semibold">12% a 27% ou taxas caras por lead</td>
                 </tr>
                 <tr>
                   <td className="py-4 px-6 font-medium">Base de clientes e WhatsApp</td>
                   <td className="py-4 px-6 text-center font-bold text-emerald-400 bg-emerald-500/5">100% sua para sempre</td>
-                  <td className="py-4 px-6 text-center text-slate-500">Pertence ao app, você não tem o contato</td>
+                  <td className="py-4 px-6 text-center text-slate-500">Pertence ao app, você não tem o contato direto</td>
                 </tr>
                 <tr>
                   <td className="py-4 px-6 font-medium">Atendimento humanizado com IA e Áudio</td>
-                  <td className="py-4 px-6 text-center font-bold text-emerald-400 bg-emerald-500/5">Sim, escuta e anota pedidos</td>
-                  <td className="py-4 px-6 text-center text-slate-500">Não (apenas cardápio estático)</td>
+                  <td className="py-4 px-6 text-center font-bold text-emerald-400 bg-emerald-500/5">Sim, escuta áudios e envia fotos</td>
+                  <td className="py-4 px-6 text-center text-slate-500">Não (apenas links estáticos ou chatbots frios)</td>
                 </tr>
                 <tr>
-                  <td className="py-4 px-6 font-medium">Disparos de promoções para clientes fiéis</td>
+                  <td className="py-4 px-6 font-medium">Disparos de novidades para clientes e grupos</td>
                   <td className="py-4 px-6 text-center font-bold text-emerald-400 bg-emerald-500/5">Ilimitado e agendado</td>
-                  <td className="py-4 px-6 text-center text-slate-500">Cobram caro por cupons e anúncios</td>
+                  <td className="py-4 px-6 text-center text-slate-500">Cobram caro por anúncios patrocinados</td>
                 </tr>
                 <tr>
                   <td className="py-4 px-6 font-medium">Recebimento do dinheiro</td>
                   <td className="py-4 px-6 text-center font-bold text-emerald-400 bg-emerald-500/5">Direto na sua conta (PIX instantâneo)</td>
-                  <td className="py-4 px-6 text-center text-slate-400">Repasse em até 30 dias com taxas</td>
+                  <td className="py-4 px-6 text-center text-slate-400">Repasse demorado com descontos</td>
                 </tr>
               </tbody>
             </table>
@@ -400,7 +513,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth, onTryDemo }) => 
             Resultados Comprovados
           </span>
           <h2 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
-            O que donos de estabelecimentos dizem
+            O que empresários de diferentes segmentos dizem
           </h2>
         </div>
 
@@ -410,7 +523,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth, onTryDemo }) => 
               {[...Array(5)].map((_, i) => <Star key={i} className="w-4 h-4 fill-amber-400" />)}
             </div>
             <p className="text-xs text-slate-300 leading-relaxed italic">
-              "No sábado à noite nosso WhatsApp travava com mais de 30 clientes esperando ao mesmo tempo. Hoje a IA responde em 2 segundos e manda o pedido pronto para a chapa. Dobramos o faturamento!"
+              "No sábado à noite nosso WhatsApp travava com mais de 30 clientes esperando ao mesmo tempo. Hoje a IA responde em 2 segundos e manda o pedido pronto para a equipe. Dobramos o faturamento!"
             </p>
             <div className="pt-2 border-t border-slate-800 flex items-center gap-3">
               <div className="w-9 h-9 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center text-xs">
@@ -428,7 +541,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth, onTryDemo }) => 
               {[...Array(5)].map((_, i) => <Star key={i} className="w-4 h-4 fill-amber-400" />)}
             </div>
             <p className="text-xs text-slate-300 leading-relaxed italic">
-              "O recurso de entender mensagem de áudio é surreal. Meus clientes adoram porque não precisam ficar digitando nem abrindo link externo. O pedido cai direto no painel com endereço e PIX."
+              "O recurso de entender áudio e enviar fotos dos vestidos no WhatsApp é surreal. As clientes perguntam se tem tamanho M e a IA manda a foto no corpo e o link de pagamento. Nossas vendas dispararam!"
             </p>
             <div className="pt-2 border-t border-slate-800 flex items-center gap-3">
               <div className="w-9 h-9 rounded-full bg-purple-500/20 text-purple-300 font-bold flex items-center justify-center text-xs">
@@ -436,7 +549,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth, onTryDemo }) => 
               </div>
               <div>
                 <h4 className="text-xs font-bold text-white">Carla Vasconcelos</h4>
-                <p className="text-[11px] text-slate-400">Pizzaria Dom Bella • São Paulo/SP</p>
+                <p className="text-[11px] text-slate-400">La Belle Boutique & Moda • Belo Horizonte/MG</p>
               </div>
             </div>
           </div>
@@ -446,7 +559,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth, onTryDemo }) => 
               {[...Array(5)].map((_, i) => <Star key={i} className="w-4 h-4 fill-amber-400" />)}
             </div>
             <p className="text-xs text-slate-300 leading-relaxed italic">
-              "O disparo das 18h com a foto do lanche do dia virou nossa galinha dos ovos de ouro. Toda vez que a loja abre, em 15 minutos já temos 10 a 15 pedidos engatilhados. Vale cada centavo."
+              "Recebemos dezenas de mensagens por dia querendo saber estoque de veículos e financiamento. A IA responde de madrugada com fotos dos carros e já agenda a visita para o test-drive. Excelente!"
             </p>
             <div className="pt-2 border-t border-slate-800 flex items-center gap-3">
               <div className="w-9 h-9 rounded-full bg-blue-500/20 text-blue-300 font-bold flex items-center justify-center text-xs">
@@ -454,7 +567,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth, onTryDemo }) => 
               </div>
               <div>
                 <h4 className="text-xs font-bold text-white">Rodrigo Mendes</h4>
-                <p className="text-[11px] text-slate-400">Mendes Sanduíches • Fortaleza/CE</p>
+                <p className="text-[11px] text-slate-400">Prime Motors & Veículos • Goiânia/GO</p>
               </div>
             </div>
           </div>
@@ -503,11 +616,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth, onTryDemo }) => 
           </div>
 
           <h2 className="text-3xl sm:text-5xl font-black text-white tracking-tight max-w-2xl mx-auto">
-            Pronto para colocar o WhatsApp da sua loja no piloto automático?
+            Pronto para colocar o WhatsApp da sua empresa no piloto automático?
           </h2>
 
           <p className="text-sm sm:text-base text-slate-300 max-w-xl mx-auto leading-relaxed">
-            Crie sua conta agora mesmo. Em menos de 3 minutos seu cardápio estará ativo e sua IA estará pronta para vender.
+            Crie sua conta agora mesmo. Em menos de 3 minutos seu catálogo ou estoque estará configurado e sua IA estará pronta para vender.
           </p>
 
           <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -539,13 +652,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth, onTryDemo }) => 
           </div>
 
           <p className="text-center sm:text-left">
-            © {new Date().getFullYear()} iaPedido • Automação Inteligente de Pedidos para WhatsApp. Todos os direitos reservados.
+            © {new Date().getFullYear()} iaPedido • Automação Inteligente de Pedidos e Vendas para WhatsApp. Todos os direitos reservados.
           </p>
 
           <div className="flex items-center gap-4">
             <button onClick={() => onGoToAuth('login')} className="hover:text-slate-300 cursor-pointer">Login</button>
             <button onClick={() => onGoToAuth('register')} className="hover:text-slate-300 cursor-pointer">Criar Conta</button>
-            <button onClick={onTryDemo} className="hover:text-slate-300 cursor-pointer">Demo</button>
           </div>
         </div>
       </footer>
