@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Store, 
   Sparkles, 
@@ -20,7 +20,8 @@ import {
   MessageSquare,
   AlertCircle,
   CheckCircle2,
-  Power
+  Power,
+  Loader2
 } from 'lucide-react';
 import { Establishment, OperatingSchedule, DaySchedule, OutOfHoursAction } from '../types';
 import { 
@@ -42,10 +43,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [formData, setFormData] = useState<Partial<Establishment>>({});
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const initializedStoreIdRef = useRef<string | null>(null);
 
+  // Initialize form data only once per establishment ID so background pollings don't overwrite user edits
   useEffect(() => {
-    if (establishment) {
+    if (establishment && (!initializedStoreIdRef.current || initializedStoreIdRef.current !== establishment.id)) {
       setFormData({ ...establishment });
+      initializedStoreIdRef.current = establishment.id;
     }
   }, [establishment]);
 
@@ -63,6 +67,29 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     return isStoreOpenNow(operatingSchedule, scheduleEnabled);
   }, [operatingSchedule, scheduleEnabled]);
 
+  // Immediately persist toggle switch changes so it never deactivates
+  const handleToggleSchedule = async (newVal: boolean) => {
+    const updated: Partial<Establishment> = {
+      ...formData,
+      aiScheduleEnabled: newVal,
+      aiOperatingSchedule: formData.aiOperatingSchedule || DEFAULT_AI_SCHEDULE,
+      aiOutOfHoursAction: formData.aiOutOfHoursAction || 'SILENT',
+      aiOutOfHoursMessage: formData.aiOutOfHoursMessage || DEFAULT_OUT_OF_HOURS_MESSAGE
+    };
+    setFormData(updated);
+
+    try {
+      setSaving(true);
+      await onSaveEstablishment(updated);
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 2500);
+    } catch (err: any) {
+      alert('Erro ao salvar alteração: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const updateDaySchedule = (dayKey: keyof OperatingSchedule, updates: Partial<DaySchedule>) => {
     const current = operatingSchedule[dayKey] || { enabled: false, open: '18:00', close: '23:30' };
     const updatedSchedule: OperatingSchedule = {
@@ -75,7 +102,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }));
   };
 
-  const applyPreset = (preset: 'TER_A_DOM' | 'SEG_A_SAB' | 'TODOS_OS_DIAS' | 'ALMOCO_JANTAR') => {
+  const applyPreset = async (preset: 'TER_A_DOM' | 'SEG_A_SAB' | 'TODOS_OS_DIAS' | 'ALMOCO_JANTAR') => {
     let newSchedule: OperatingSchedule;
     if (preset === 'TER_A_DOM') {
       newSchedule = {
@@ -119,11 +146,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         sunday: { enabled: true, open: '18:00', close: '23:30' },
       };
     }
-    setFormData(prev => ({
-      ...prev,
+    const updated: Partial<Establishment> = {
+      ...formData,
       aiScheduleEnabled: true,
       aiOperatingSchedule: newSchedule
-    }));
+    };
+    setFormData(updated);
+
+    try {
+      setSaving(true);
+      await onSaveEstablishment(updated);
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 2500);
+    } catch (err: any) {
+      alert('Erro ao salvar modelo: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const DAYS_LIST: (keyof OperatingSchedule)[] = [
@@ -398,15 +437,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
             {/* Main Toggle Switch */}
             <div className="flex items-center gap-2.5 bg-slate-950 p-2 px-3 rounded-xl border border-slate-800 shrink-0">
+              {saving && <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin" />}
               <span className={`text-xs font-bold ${scheduleEnabled ? 'text-emerald-400' : 'text-slate-400'}`}>
                 {scheduleEnabled ? 'Horário Ativo' : 'Atender 24 Horas'}
               </span>
               <button
                 type="button"
-                onClick={() => setFormData({ ...formData, aiScheduleEnabled: !scheduleEnabled })}
+                disabled={saving}
+                onClick={() => handleToggleSchedule(!scheduleEnabled)}
                 className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
                   scheduleEnabled ? 'bg-emerald-500' : 'bg-slate-700'
-                }`}
+                } ${saving ? 'opacity-60 cursor-wait' : ''}`}
+                title={scheduleEnabled ? 'Clique para desativar e atender 24h' : 'Clique para ativar controle de horários'}
               >
                 <span
                   className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${

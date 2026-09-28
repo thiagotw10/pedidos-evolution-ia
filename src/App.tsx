@@ -244,7 +244,11 @@ export default function App() {
         const res = await fetch(`/api/evolution/status?establishmentId=${storeId}`);
         const data = await res.json();
         const isOnline = !!data.connected;
-        setEstablishment(prev => prev ? { ...prev, evolutionConnected: isOnline } : null);
+        setEstablishment(prev => {
+          if (!prev) return null;
+          if (prev.evolutionConnected === isOnline) return prev;
+          return { ...prev, evolutionConnected: isOnline };
+        });
       } catch (err) {
         console.warn('Could not sync Evolution status:', err);
       }
