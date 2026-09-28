@@ -42,6 +42,7 @@ export default function App() {
   const [unauthView, setUnauthView] = useState<'home' | 'auth'>('home');
   const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('register');
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
+  const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
 
   const [currentTab, setCurrentTab] = useState<string>('orders');
   const [orders, setOrders] = useState<Order[]>([]);
