@@ -176,6 +176,57 @@ function isEstablishmentSubscriptionActive(est: any): boolean {
   return now < trialEndsMs;
 }
 
+// Web Push Notification Helper (PWA Background Notifications)
+async function sendOrderPushNotification(establishmentId: string, orderData: any) {
+  try {
+    const vapidPublic = process.env.VAPID_PUBLIC_KEY;
+    const vapidPrivate = process.env.VAPID_PRIVATE_KEY;
+    if (!vapidPublic || !vapidPrivate) return;
+
+    const { default: webpush } = await import('web-push');
+    webpush.setVapidDetails(
+      'mailto:contato@iapedido.com.br',
+      vapidPublic,
+      vapidPrivate
+    );
+
+    const subsSnap = await db.collection('establishments').doc(establishmentId).collection('pushSubscriptions').get();
+    if (subsSnap.empty) return;
+
+    const itemsSummary = (orderData.items || []).map((i: any) => `${i.quantity}x ${i.name}`).join(', ') || 'Novo pedido recebido';
+    const totalFormatted = Number(orderData.total || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    const title = `🔔 Novo Pedido #${orderData.orderNumber || ''}! (${totalFormatted})`;
+    const body = `${orderData.customerName || 'Cliente'} pediu: ${itemsSummary}. Toque para abrir!`;
+
+    const payload = JSON.stringify({
+      title,
+      body,
+      data: {
+        orderId: orderData.id,
+        orderNumber: orderData.orderNumber,
+        url: '/?tab=orders'
+      }
+    });
+
+    console.log(`[PWA Push] Disparando notificação de pedido para ${subsSnap.size} aparelho(s) do estabelecimento ${establishmentId}`);
+
+    for (const subDoc of subsSnap.docs) {
+      const sub = subDoc.data()?.subscription;
+      if (sub && sub.endpoint) {
+        try {
+          await webpush.sendNotification(sub, payload);
+        } catch (err: any) {
+          if (err.statusCode === 404 || err.statusCode === 410) {
+            await subDoc.ref.delete().catch(() => {});
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[sendOrderPushNotification Exception]:', err);
+  }
+}
+
 // Evolution API helper: Send WhatsApp Message (Supports Evolution Go and Evolution API v1/v2)
 async function sendWhatsAppMessage(
   evolutionUrl: string,
@@ -432,6 +483,9 @@ COMO VOCÊ DEVE AGIR:
 
           const newOrderRef = await db.collection('establishments').doc(establishmentId).collection('orders').add(orderData);
           createdOrder = { id: newOrderRef.id, ...orderData };
+
+          // Disparar Push Notification em segundo plano para o lojista
+          sendOrderPushNotification(establishmentId, createdOrder).catch(err => console.warn('[Push Dispatch Warning]:', err));
 
           console.log(`[Order Created] Pedido #${orderNumber} registrado para ${customerPhone}! Total: R$ ${total}`);
 
@@ -1542,6 +1596,54 @@ _Bom trabalho e dirija com segurança! 🚀_`;
     } catch (err) {
       console.error('[Subscription Webhook MP Error]:', err);
       return res.status(200).send('ok');
+    }
+  });
+
+  // ----------------------------------------------------
+  // Web Push Notifications Endpoints (PWA Background Push)
+  // ----------------------------------------------------
+
+  // API: Inscrever aparelho no Web Push
+  app.post('/api/notifications/subscribe', async (req, res) => {
+    try {
+      const { establishmentId, subscription, userAgent } = req.body;
+      const storeId = establishmentId || getStoreId(req);
+      if (!storeId || !subscription?.endpoint) {
+        return res.status(400).json({ error: 'Dados de inscrição push inválidos.' });
+      }
+
+      const endpoint = subscription.endpoint;
+      const subHash = crypto.createHash('sha256').update(endpoint).digest('hex').slice(0, 24);
+
+      await db.collection('establishments').doc(storeId).collection('pushSubscriptions').doc(subHash).set({
+        subscription,
+        userAgent: userAgent || '',
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+
+      console.log(`[PWA Push] Novo aparelho inscrito para notificações na loja: ${storeId}`);
+      return res.json({ success: true, message: 'Aparelho inscrito para notificações!' });
+    } catch (err: any) {
+      console.error('[Notifications Subscribe Error]:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // API: Enviar notificação de teste (para validação do lojista)
+  app.post('/api/notifications/test', async (req, res) => {
+    try {
+      const storeId = req.body.establishmentId || getStoreId(req);
+      const testOrder = {
+        id: 'test_demo',
+        orderNumber: Math.floor(100 + Math.random() * 900),
+        customerName: 'Cliente Teste',
+        total: 48.90,
+        items: [{ quantity: 1, name: 'Combo Burger Especial + Fritas' }]
+      };
+      await sendOrderPushNotification(storeId, testOrder);
+      return res.json({ success: true, message: 'Notificação de teste disparada com sucesso!' });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
     }
   });
 

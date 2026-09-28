@@ -1,0 +1,49 @@
+{
+  "name": "iaPedido - Gestão de Pedidos com IA",
+  "short_name": "iaPedido",
+  "description": "Automação no WhatsApp, Gestão de Pedidos em Tempo Real e Inteligência Artificial para Restaurantes e Delivery",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#020617",
+  "theme_color": "#10b981",
+  "lang": "pt-BR",
+  "categories": ["business", "food", "productivity"],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Painel de Pedidos",
+      "short_name": "Pedidos",
+      "description": "Visualizar pedidos em tempo real",
+      "url": "/?tab=orders",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Módulo Financeiro",
+      "short_name": "Financeiro",
+      "description": "Faturamento e projeções",
+      "url": "/?tab=finance",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

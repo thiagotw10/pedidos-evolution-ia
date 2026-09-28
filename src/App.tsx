@@ -21,6 +21,7 @@ import { AuthView } from './components/AuthView';
 import { HomeView } from './components/HomeView';
 import { SubscriptionGate } from './components/SubscriptionGate';
 import { SubscriptionModal } from './components/SubscriptionModal';
+import { PwaInstallBanner } from './components/PwaInstallBanner';
 import { Order, Product, Establishment, OrderStatus } from './types';
 import { Loader2 } from 'lucide-react';
 
@@ -116,6 +117,19 @@ export default function App() {
         const pendingCount = fetchedOrders.filter(o => o.status === 'PENDENTE').length;
         if (pendingCount > prevOrdersCountRef.current && prevOrdersCountRef.current !== 0) {
           playNewOrderChime();
+          // Notificação do navegador/sistema
+          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+            const newest = fetchedOrders[0];
+            try {
+              new Notification(`🔔 Novo Pedido #${newest?.orderNumber || ''}!`, {
+                body: `${newest?.customerName || 'Cliente'} pediu: ${newest?.items?.map(i => `${i.quantity}x ${i.name}`).join(', ') || 'Novo pedido'} (R$ ${Number(newest?.total || 0).toFixed(2)})`,
+                icon: '/icon-192.png',
+                badge: '/icon-192.png'
+              });
+            } catch (e) {
+              console.warn('Erro ao criar notificação local:', e);
+            }
+          }
         }
         prevOrdersCountRef.current = pendingCount;
 
@@ -387,6 +401,9 @@ export default function App() {
             userEmail={currentUser?.email || sessionUser?.email || (demoMode ? 'demo@burgercia.com.br' : null)}
             onSignOut={handleSignOut}
           />
+
+          {/* PWA Install & Push Notification Banner */}
+          <PwaInstallBanner establishmentId={storeId} />
 
           <main className="flex-1 pb-16">
             {currentTab === 'orders' && (
