@@ -34,7 +34,7 @@ interface DispatchModalProps {
 export const DispatchModal: React.FC<DispatchModalProps> = ({
   order,
   couriers = [],
-  establishmentName = 'iaPedido.com',
+  establishmentName = 'iaPedido',
   onClose,
   onConfirmDispatch
 }) => {

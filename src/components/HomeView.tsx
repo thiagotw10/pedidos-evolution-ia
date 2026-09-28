@@ -77,7 +77,6 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth, onTryDemo }) => 
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="font-black text-xl text-white tracking-tight">ia<span className="text-emerald-400">Pedido</span></span>
-                <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">.COM</span>
               </div>
               <p className="text-[10px] text-slate-400 font-medium tracking-wide">WhatsApp & Inteligência Artificial</p>
             </div>
@@ -358,7 +357,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth, onTryDemo }) => 
               <thead>
                 <tr className="border-b border-slate-800 bg-slate-950/60 text-slate-400">
                   <th className="py-4 px-6 font-semibold">Comparativo de Benefícios</th>
-                  <th className="py-4 px-6 font-bold text-emerald-400 text-center bg-emerald-500/10">iaPedido.com</th>
+                  <th className="py-4 px-6 font-bold text-emerald-400 text-center bg-emerald-500/10">iaPedido</th>
                   <th className="py-4 px-6 font-semibold text-slate-400 text-center">Marketplaces (iFood, Rappi)</th>
                 </tr>
               </thead>
@@ -536,11 +535,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth, onTryDemo }) => 
             <div className="w-7 h-7 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400">
               <Bot className="w-4 h-4" />
             </div>
-            <span className="font-bold text-slate-300 text-sm">iaPedido.com</span>
+            <span className="font-bold text-slate-300 text-sm">iaPedido</span>
           </div>
 
           <p className="text-center sm:text-left">
-            © {new Date().getFullYear()} iaPedido.com • Automação Inteligente de Pedidos para WhatsApp. Todos os direitos reservados.
+            © {new Date().getFullYear()} iaPedido • Automação Inteligente de Pedidos para WhatsApp. Todos os direitos reservados.
           </p>
 
           <div className="flex items-center gap-4">

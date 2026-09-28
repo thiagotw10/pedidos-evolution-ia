@@ -37,7 +37,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   onUpdateStatus,
   loading,
   couriers = [],
-  establishmentName = 'iaPedido.com'
+  establishmentName = 'iaPedido'
 }) => {
   const [activeFilter, setActiveFilter] = useState<string>('PENDENTE');
   const [rejectModalOrder, setRejectModalOrder] = useState<Order | null>(null);
@@ -114,7 +114,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           </style>
         </head>
         <body>
-          <div class="center bold">=== IAPEDIDO.COM ===</div>
+          <div class="center bold">=== IAPEDIDO ===</div>
           <div class="center bold" style="font-size: 16px;">PEDIDO #${order.orderNumber || order.id.slice(-4)}</div>
           <div class="center">${new Date(order.createdAt).toLocaleString('pt-BR')}</div>
           <div class="line"></div>

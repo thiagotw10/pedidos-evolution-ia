@@ -1357,7 +1357,7 @@ _Bom trabalho e dirija com segurança! 🚀_`;
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`\n========================================================`);
-    console.log(`🚀 iaPedido.com - Servidor Ativo na porta ${PORT}`);
+    console.log(`🚀 iaPedido - Servidor Ativo na porta ${PORT}`);
     console.log(`🌐 Painel Web: http://localhost:${PORT}`);
     console.log(`⚡ Webhook Evolution: http://localhost:${PORT}/api/webhook/evolution`);
     console.log(`🤖 Motor IA: Google Gemini 2.5 Flash Ativo`);

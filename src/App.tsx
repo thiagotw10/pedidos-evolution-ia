@@ -315,7 +315,7 @@ export default function App() {
     return (
       <div className="h-screen w-screen bg-slate-950 flex flex-col items-center justify-center text-white space-y-4">
         <Loader2 className="w-10 h-10 text-emerald-400 animate-spin" />
-        <p className="text-sm text-slate-400 font-medium">Carregando iaPedido.com...</p>
+        <p className="text-sm text-slate-400 font-medium">Carregando iaPedido...</p>
       </div>
     );
   }
@@ -386,7 +386,7 @@ export default function App() {
               onUpdateStatus={handleUpdateOrderStatus}
               loading={loadingOrders}
               couriers={establishment?.couriers || []}
-              establishmentName={establishment?.name || 'iaPedido.com'}
+              establishmentName={establishment?.name || 'iaPedido'}
             />
           )}
 
