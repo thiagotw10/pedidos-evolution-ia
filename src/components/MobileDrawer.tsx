@@ -15,7 +15,8 @@ import {
   Bell, 
   Bot,
   Store,
-  Clock
+  Clock,
+  Download
 } from 'lucide-react';
 import { Establishment } from '../types';
 import { getSubscriptionStatus } from '../utils/subscription';
@@ -29,6 +30,7 @@ interface MobileDrawerProps {
   soundEnabled: boolean;
   setSoundEnabled: (val: boolean) => void;
   onOpenSubscription?: () => void;
+  onOpenInstallModal?: () => void;
   userEmail?: string | null;
   onSignOut?: () => void;
 }
@@ -42,6 +44,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
   soundEnabled,
   setSoundEnabled,
   onOpenSubscription,
+  onOpenInstallModal,
   userEmail,
   onSignOut
 }) => {
@@ -135,6 +138,28 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
             <span>{soundEnabled ? 'Som Ativo' : 'Sem Som'}</span>
           </button>
         </div>
+
+        {/* PWA Install Button in Drawer */}
+        {onOpenInstallModal && (
+          <button
+            onClick={() => {
+              onClose();
+              onOpenInstallModal();
+            }}
+            className="mb-4 p-3 rounded-2xl bg-gradient-to-r from-emerald-500/20 to-teal-500/20 border border-emerald-500/40 text-emerald-300 flex items-center justify-between transition cursor-pointer hover:from-emerald-500/30 hover:to-teal-500/30"
+          >
+            <div className="flex items-center gap-2.5">
+              <Download className="w-4 h-4 text-emerald-400" />
+              <div className="text-left">
+                <p className="text-xs font-black text-white">Instalar App no Celular</p>
+                <p className="text-[10px] text-emerald-400/80">Baixar como aplicativo PWA</p>
+              </div>
+            </div>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950">
+              BAIXAR
+            </span>
+          </button>
+        )}
 
         {/* Navigation Links */}
         <nav className="flex-1 space-y-1">

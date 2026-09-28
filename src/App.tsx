@@ -22,6 +22,7 @@ import { HomeView } from './components/HomeView';
 import { SubscriptionGate } from './components/SubscriptionGate';
 import { SubscriptionModal } from './components/SubscriptionModal';
 import { PwaInstallBanner } from './components/PwaInstallBanner';
+import { PwaInstallModal } from './components/PwaInstallModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { MobileDrawer } from './components/MobileDrawer';
 import { Order, Product, Establishment, OrderStatus } from './types';
@@ -43,6 +44,8 @@ export default function App() {
   const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('register');
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
+  const [isPwaInstallModalOpen, setIsPwaInstallModalOpen] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   const [currentTab, setCurrentTab] = useState<string>('orders');
   const [orders, setOrders] = useState<Order[]>([]);
@@ -53,6 +56,16 @@ export default function App() {
   const [soundEnabled, setSoundEnabled] = useState(true);
 
   const prevOrdersCountRef = useRef<number>(0);
+
+  // Capture PWA beforeinstallprompt globally
+  useEffect(() => {
+    const handleBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+  }, []);
 
   // Monitor Authentication State
   useEffect(() => {
@@ -402,12 +415,17 @@ export default function App() {
             onOpenSettings={() => setCurrentTab('settings')}
             onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
             onOpenMenu={() => setIsMobileDrawerOpen(true)}
+            onOpenInstallModal={() => setIsPwaInstallModalOpen(true)}
             userEmail={currentUser?.email || sessionUser?.email || (demoMode ? 'demo@burgercia.com.br' : null)}
             onSignOut={handleSignOut}
           />
 
           {/* PWA Install & Push Notification Banner */}
-          <PwaInstallBanner establishmentId={storeId} />
+          <PwaInstallBanner 
+            establishmentId={storeId} 
+            onOpenModal={() => setIsPwaInstallModalOpen(true)}
+            deferredPrompt={deferredPrompt}
+          />
 
           <main className="flex-1 pb-24 md:pb-16">
             {currentTab === 'orders' && (
@@ -490,6 +508,7 @@ export default function App() {
         soundEnabled={soundEnabled}
         setSoundEnabled={setSoundEnabled}
         onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
+        onOpenInstallModal={() => setIsPwaInstallModalOpen(true)}
         userEmail={currentUser?.email || sessionUser?.email || (demoMode ? 'demo@burgercia.com.br' : null)}
         onSignOut={handleSignOut}
       />
@@ -500,6 +519,14 @@ export default function App() {
         onClose={() => setIsSubscriptionModalOpen(false)}
         establishment={establishment}
         userEmail={currentUser?.email || sessionUser?.email}
+      />
+
+      {/* PWA Install Modal (Baixar como App) */}
+      <PwaInstallModal
+        isOpen={isPwaInstallModalOpen}
+        onClose={() => setIsPwaInstallModalOpen(false)}
+        deferredPrompt={deferredPrompt}
+        establishmentId={storeId}
       />
     </SubscriptionGate>
   );
