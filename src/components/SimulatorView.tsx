@@ -214,30 +214,30 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
   ];
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6">
+    <div className="p-3 sm:p-6 md:p-8 max-w-7xl mx-auto space-y-4 sm:space-y-6">
       {/* Header Info */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div>
-          <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-3">
+          <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2.5">
             Simulador de Atendimento WhatsApp
             <span className="w-2.5 h-2.5 rounded-full bg-purple-500 animate-pulse"></span>
           </h2>
-          <p className="text-sm text-slate-400 mt-1">
+          <p className="text-xs sm:text-sm text-slate-400 mt-1">
             Teste em tempo real a conversa da IA, cardápio e fechamento de pedidos como se você fosse um cliente no WhatsApp!
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
           <button
             onClick={handleResetChat}
-            className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer border border-slate-700/80"
+            className="flex-1 sm:flex-initial px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer border border-slate-700/80"
           >
             <RotateCcw className="w-3.5 h-3.5" />
             <span>Limpar Chat</span>
           </button>
           <button
             onClick={onNavigateToOrders}
-            className="px-4 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+            className="flex-1 sm:flex-initial px-4 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer whitespace-nowrap"
           >
             <ShoppingBag className="w-3.5 h-3.5" />
             <span>Ver Pedidos no Gestor</span>

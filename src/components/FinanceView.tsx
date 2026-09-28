@@ -217,30 +217,30 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ orders }) => {
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in">
+    <div className="p-3 sm:p-6 md:p-8 max-w-7xl mx-auto space-y-5 sm:space-y-8 animate-in fade-in">
       {/* Top Banner & Filter Controls */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4">
         <div>
-          <div className="flex items-center gap-3">
-            <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2">
               Painel Financeiro & Receita
-              <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+              <span className="text-[10px] sm:text-xs font-bold px-2 sm:px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
                 <Sparkles className="w-3 h-3" /> Tempo Real
               </span>
             </h2>
           </div>
-          <p className="text-sm text-slate-400 mt-1">
+          <p className="text-xs sm:text-sm text-slate-400 mt-1">
             Visão consolidada de faturamento, ticket médio, métodos de pagamento e projeções de receita da sua loja.
           </p>
         </div>
 
         {/* Action Buttons & Period Pills */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 -mx-3 px-3 sm:mx-0 sm:px-0 overflow-x-auto scrollbar-none pb-1 sm:pb-0">
           {/* Period Selector Pills */}
-          <div className="bg-slate-900 border border-slate-800 p-1 rounded-2xl flex items-center gap-1 text-xs">
+          <div className="bg-slate-900 border border-slate-800 p-1 rounded-2xl flex items-center gap-1 text-xs shrink-0">
             <button
               onClick={() => setPeriod('TODAY')}
-              className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer whitespace-nowrap ${
                 period === 'TODAY'
                   ? 'bg-emerald-500 text-slate-950 shadow-md'
                   : 'text-slate-400 hover:text-white'
@@ -250,7 +250,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ orders }) => {
             </button>
             <button
               onClick={() => setPeriod('WEEK')}
-              className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer whitespace-nowrap ${
                 period === 'WEEK'
                   ? 'bg-emerald-500 text-slate-950 shadow-md'
                   : 'text-slate-400 hover:text-white'
@@ -260,7 +260,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ orders }) => {
             </button>
             <button
               onClick={() => setPeriod('MONTH')}
-              className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer whitespace-nowrap ${
                 period === 'MONTH'
                   ? 'bg-emerald-500 text-slate-950 shadow-md'
                   : 'text-slate-400 hover:text-white'
@@ -270,7 +270,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ orders }) => {
             </button>
             <button
               onClick={() => setPeriod('LAST_MONTH')}
-              className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer whitespace-nowrap ${
                 period === 'LAST_MONTH'
                   ? 'bg-emerald-500 text-slate-950 shadow-md'
                   : 'text-slate-400 hover:text-white'
@@ -280,7 +280,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ orders }) => {
             </button>
             <button
               onClick={() => setPeriod('ALL')}
-              className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer whitespace-nowrap ${
                 period === 'ALL'
                   ? 'bg-emerald-500 text-slate-950 shadow-md'
                   : 'text-slate-400 hover:text-white'
@@ -293,7 +293,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ orders }) => {
           {/* Export Button */}
           <button
             onClick={handleExportCSV}
-            className="px-3.5 py-2 rounded-2xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 text-xs font-semibold flex items-center gap-2 transition cursor-pointer shadow-sm"
+            className="px-3.5 py-2 rounded-2xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 text-xs font-semibold flex items-center gap-2 transition cursor-pointer shadow-sm shrink-0 whitespace-nowrap"
             title="Exportar planilha CSV"
           >
             <Download className="w-3.5 h-3.5 text-emerald-400" />
@@ -305,7 +305,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ orders }) => {
       {/* Primary KPI Cards Grid (4 columns) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Revenue */}
-        <div className="bg-slate-900/80 border border-emerald-500/30 rounded-3xl p-6 relative overflow-hidden backdrop-blur-md shadow-xl">
+        <div className="bg-slate-900/80 border border-emerald-500/30 rounded-3xl p-4 sm:p-6 relative overflow-hidden backdrop-blur-md shadow-xl">
           <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Faturamento Total</span>
@@ -325,7 +325,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ orders }) => {
         </div>
 
         {/* Monthly Projection */}
-        <div className="bg-slate-900/80 border border-slate-800/80 rounded-3xl p-6 relative overflow-hidden backdrop-blur-md shadow-xl">
+        <div className="bg-slate-900/80 border border-slate-800/80 rounded-3xl p-4 sm:p-6 relative overflow-hidden backdrop-blur-md shadow-xl">
           <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 rounded-full blur-2xl pointer-events-none" />
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Projeção do Mês</span>
@@ -334,7 +334,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ orders }) => {
             </div>
           </div>
           <div className="mt-4">
-            <div className="text-3xl font-black text-purple-300 tracking-tight">
+            <div className="text-2xl sm:text-3xl font-black text-purple-300 tracking-tight">
               R$ {stats.projectedMonthTotal.toFixed(2)}
             </div>
             <p className="text-xs text-slate-400 mt-1">
@@ -344,7 +344,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ orders }) => {
         </div>
 
         {/* Average Ticket */}
-        <div className="bg-slate-900/80 border border-slate-800/80 rounded-3xl p-6 relative overflow-hidden backdrop-blur-md shadow-xl">
+        <div className="bg-slate-900/80 border border-slate-800/80 rounded-3xl p-4 sm:p-6 relative overflow-hidden backdrop-blur-md shadow-xl">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Ticket Médio</span>
             <div className="w-10 h-10 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shadow-sm">
@@ -352,7 +352,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ orders }) => {
             </div>
           </div>
           <div className="mt-4">
-            <div className="text-3xl font-black text-white tracking-tight">
+            <div className="text-2xl sm:text-3xl font-black text-white tracking-tight">
               R$ {stats.averageTicket.toFixed(2)}
             </div>
             <p className="text-xs text-slate-400 mt-1">
@@ -362,7 +362,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ orders }) => {
         </div>
 
         {/* Delivery Fees Collected */}
-        <div className="bg-slate-900/80 border border-slate-800/80 rounded-3xl p-6 relative overflow-hidden backdrop-blur-md shadow-xl">
+        <div className="bg-slate-900/80 border border-slate-800/80 rounded-3xl p-4 sm:p-6 relative overflow-hidden backdrop-blur-md shadow-xl">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Taxas de Entrega</span>
             <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shadow-sm">
@@ -370,7 +370,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ orders }) => {
             </div>
           </div>
           <div className="mt-4">
-            <div className="text-3xl font-black text-white tracking-tight">
+            <div className="text-2xl sm:text-3xl font-black text-white tracking-tight">
               R$ {stats.totalDeliveryFees.toFixed(2)}
             </div>
             <p className="text-xs text-slate-400 mt-1">
@@ -383,7 +383,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ orders }) => {
       {/* Middle Section: Chart & Payment Methods Breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column (8 cols): Daily Evolution Chart */}
-        <div className="lg:col-span-8 bg-slate-900/80 border border-slate-800/80 rounded-3xl p-7 space-y-6 backdrop-blur-md">
+        <div className="lg:col-span-8 bg-slate-900/80 border border-slate-800/80 rounded-3xl p-4 sm:p-6 lg:p-7 space-y-6 backdrop-blur-md">
           <div className="flex items-center justify-between">
             <div className="space-y-1">
               <h3 className="font-bold text-base text-white flex items-center gap-2">
@@ -397,8 +397,8 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ orders }) => {
           </div>
 
           {/* Bar Chart Visualization */}
-          <div className="pt-6 pb-2">
-            <div className="h-56 flex items-end gap-2 sm:gap-3 border-b border-slate-800 pb-2">
+          <div className="pt-6 pb-2 overflow-x-auto scrollbar-none">
+            <div className="h-56 min-w-[320px] flex items-end gap-2 sm:gap-3 border-b border-slate-800 pb-2">
               {dailyChartData.entries.map((item, idx) => {
                 const heightPercent = Math.max(8, Math.round((item.revenue / dailyChartData.maxRev) * 100));
                 const isMax = item.revenue > 0 && item.revenue === dailyChartData.maxRev;
@@ -435,7 +435,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ orders }) => {
         </div>
 
         {/* Right Column (4 cols): Payment Methods Breakdown */}
-        <div className="lg:col-span-4 bg-slate-900/80 border border-slate-800/80 rounded-3xl p-7 space-y-6 backdrop-blur-md">
+        <div className="lg:col-span-4 bg-slate-900/80 border border-slate-800/80 rounded-3xl p-4 sm:p-6 lg:p-7 space-y-6 backdrop-blur-md">
           <div className="space-y-1">
             <h3 className="font-bold text-base text-white flex items-center gap-2">
               <CreditCard className="w-4 h-4 text-purple-400" />
@@ -478,7 +478,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ orders }) => {
       {/* Bottom Section: Top Products & Recent Financial Orders Log */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Top 5 Products (5 cols) */}
-        <div className="lg:col-span-5 bg-slate-900/80 border border-slate-800/80 rounded-3xl p-7 space-y-5 backdrop-blur-md">
+        <div className="lg:col-span-5 bg-slate-900/80 border border-slate-800/80 rounded-3xl p-4 sm:p-6 lg:p-7 space-y-5 backdrop-blur-md">
           <div className="space-y-1">
             <h3 className="font-bold text-base text-white flex items-center gap-2">
               <Award className="w-4 h-4 text-amber-400" />
@@ -516,7 +516,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ orders }) => {
         </div>
 
         {/* Recent Financial Orders Table (7 cols) */}
-        <div className="lg:col-span-7 bg-slate-900/80 border border-slate-800/80 rounded-3xl p-7 space-y-5 backdrop-blur-md">
+        <div className="lg:col-span-7 bg-slate-900/80 border border-slate-800/80 rounded-3xl p-4 sm:p-6 lg:p-7 space-y-5 backdrop-blur-md">
           <div className="flex items-center justify-between">
             <div className="space-y-1">
               <h3 className="font-bold text-base text-white flex items-center gap-2">
@@ -532,8 +532,8 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ orders }) => {
             </span>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+          <div className="overflow-x-auto -mx-1 sm:mx-0">
+            <table className="w-full min-w-[500px] text-left text-xs">
               <thead>
                 <tr className="border-b border-slate-800 text-slate-400 font-semibold">
                   <th className="pb-3">Pedido</th>

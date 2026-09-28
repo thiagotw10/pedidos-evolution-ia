@@ -104,41 +104,41 @@ export const DispatchModal: React.FC<DispatchModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
       <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
         {/* Modal Header */}
-        <div className="p-6 border-b border-slate-800 bg-slate-950/50 flex items-center justify-between">
+        <div className="p-4 sm:p-6 border-b border-slate-800 bg-slate-950/50 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-inner">
-              <Bike className="w-6 h-6 animate-pulse" />
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-inner shrink-0">
+              <Bike className="w-5 h-5 sm:w-6 sm:h-6 animate-pulse" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-xl font-black text-white tracking-tight">
+                <h3 className="text-base sm:text-xl font-black text-white tracking-tight">
                   Despachar Pedido #{orderNum}
                 </h3>
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                <span className="text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
                   Rota & GPS
                 </span>
               </div>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Envie os dados completos para o motoboy e avise o cliente automaticamente no WhatsApp
+              <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5 line-clamp-1 sm:line-clamp-none">
+                Envie dados ao motoboy e notifique o cliente no WhatsApp
               </p>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition cursor-pointer"
+            className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition cursor-pointer shrink-0 ml-2"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Modal Scrollable Body */}
-        <div className="p-6 overflow-y-auto space-y-6 flex-1 text-slate-200">
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-4 sm:space-y-6 flex-1 text-slate-200">
           {/* Order Summary Summary Card */}
-          <div className="bg-slate-950/70 p-4 rounded-2xl border border-slate-800/80 space-y-3">
+          <div className="bg-slate-950/70 p-3.5 sm:p-4 rounded-2xl border border-slate-800/80 space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-800/60 text-xs">
               <div className="flex items-center gap-2">
                 <span className="font-bold text-white text-sm">{order.customerName}</span>
@@ -147,7 +147,7 @@ export const DispatchModal: React.FC<DispatchModalProps> = ({
                   {order.customerPhone}
                 </span>
               </div>
-              <div className="flex items-center gap-2 font-mono">
+              <div className="flex items-center gap-2 font-mono flex-wrap">
                 <span className="text-slate-400">Total:</span>
                 <span className="font-black text-emerald-400 text-sm">
                   R$ {order.total.toFixed(2).replace('.', ',')}
@@ -160,41 +160,43 @@ export const DispatchModal: React.FC<DispatchModalProps> = ({
             </div>
 
             {/* Address with Quick GPS Preview */}
-            <div className="flex items-start gap-2.5 text-xs">
-              <MapPin className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-slate-300">Endereço de Entrega:</span>
-                  {hasGps && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold">
-                      <Navigation className="w-2.5 h-2.5 text-emerald-400" />
-                      GPS WhatsApp (Exato)
-                    </span>
-                  )}
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2.5 text-xs">
+              <div className="flex items-start gap-2.5 flex-1">
+                <MapPin className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-slate-300">Endereço de Entrega:</span>
+                    {hasGps && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold">
+                        <Navigation className="w-2.5 h-2.5 text-emerald-400" />
+                        GPS WhatsApp (Exato)
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-white font-medium mt-0.5">{deliveryAddress}</p>
                 </div>
-                <p className="text-white font-medium mt-0.5">{deliveryAddress}</p>
               </div>
 
               {/* Direct GPS links buttons for test/view */}
-              <div className="flex items-center gap-1.5 shrink-0">
+              <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto pt-1 sm:pt-0">
                 <a
                   href={wazeUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="px-2.5 py-1 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-[11px] font-bold flex items-center gap-1 transition"
+                  className="px-3 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-bold flex items-center gap-1.5 transition"
                   title="Abrir no Waze"
                 >
-                  <Navigation className="w-3 h-3" />
+                  <Navigation className="w-3.5 h-3.5" />
                   <span>Waze</span>
                 </a>
                 <a
                   href={mapsUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-bold flex items-center gap-1 transition"
+                  className="px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold flex items-center gap-1.5 transition"
                   title="Abrir no Google Maps"
                 >
-                  <MapPin className="w-3 h-3" />
+                  <MapPin className="w-3.5 h-3.5" />
                   <span>Maps</span>
                 </a>
               </div>
@@ -203,31 +205,31 @@ export const DispatchModal: React.FC<DispatchModalProps> = ({
 
           {/* Section: Select Courier / Motoboy */}
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
                 <User className="w-3.5 h-3.5 text-cyan-400" />
                 Quem vai fazer a entrega?
               </label>
 
               {/* Type Switcher */}
-              <div className="flex rounded-xl bg-slate-950 p-1 border border-slate-800 text-[11px] font-semibold">
+              <div className="flex rounded-xl bg-slate-950 p-1 border border-slate-800 text-[11px] font-semibold overflow-x-auto scrollbar-none">
                 {couriers.length > 0 && (
                   <button
                     type="button"
                     onClick={() => setDispatchType('registered')}
-                    className={`px-3 py-1 rounded-lg transition cursor-pointer ${
+                    className={`px-3 py-1 rounded-lg transition cursor-pointer whitespace-nowrap ${
                       dispatchType === 'registered'
                         ? 'bg-cyan-500 text-slate-950 font-bold'
                         : 'text-slate-400 hover:text-white'
                     }`}
                   >
-                    Equipe Cadastrada ({couriers.length})
+                    Equipe ({couriers.length})
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={() => setDispatchType('custom')}
-                  className={`px-3 py-1 rounded-lg transition cursor-pointer ${
+                  className={`px-3 py-1 rounded-lg transition cursor-pointer whitespace-nowrap ${
                     dispatchType === 'custom'
                       ? 'bg-cyan-500 text-slate-950 font-bold'
                       : 'text-slate-400 hover:text-white'
@@ -238,7 +240,7 @@ export const DispatchModal: React.FC<DispatchModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setDispatchType('none')}
-                  className={`px-3 py-1 rounded-lg transition cursor-pointer ${
+                  className={`px-3 py-1 rounded-lg transition cursor-pointer whitespace-nowrap ${
                     dispatchType === 'none'
                       ? 'bg-slate-800 text-slate-200 font-bold'
                       : 'text-slate-400 hover:text-white'
@@ -362,12 +364,12 @@ export const DispatchModal: React.FC<DispatchModalProps> = ({
         </div>
 
         {/* Modal Footer Actions */}
-        <div className="p-5 border-t border-slate-800 bg-slate-950/60 flex items-center justify-end gap-3">
+        <div className="p-4 sm:p-5 border-t border-slate-800 bg-slate-950/60 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2.5 sm:gap-3">
           <button
             type="button"
             disabled={loading}
             onClick={onClose}
-            className="px-5 py-2.5 rounded-xl text-xs font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+            className="w-full sm:w-auto px-5 py-2.5 rounded-xl text-xs font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer text-center"
           >
             Cancelar
           </button>
@@ -376,7 +378,7 @@ export const DispatchModal: React.FC<DispatchModalProps> = ({
             type="button"
             disabled={loading}
             onClick={handleConfirm}
-            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-slate-950 font-black text-xs flex items-center gap-2 shadow-lg shadow-cyan-500/20 transition cursor-pointer disabled:opacity-50"
+            className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/20 transition cursor-pointer disabled:opacity-50"
           >
             <Send className="w-3.5 h-3.5" />
             <span>{loading ? 'Despachando...' : 'Confirmar & Despachar Entrega 🚀'}</span>

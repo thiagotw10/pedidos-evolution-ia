@@ -22,6 +22,8 @@ import { HomeView } from './components/HomeView';
 import { SubscriptionGate } from './components/SubscriptionGate';
 import { SubscriptionModal } from './components/SubscriptionModal';
 import { PwaInstallBanner } from './components/PwaInstallBanner';
+import { MobileBottomNav } from './components/MobileBottomNav';
+import { MobileDrawer } from './components/MobileDrawer';
 import { Order, Product, Establishment, OrderStatus } from './types';
 import { Loader2 } from 'lucide-react';
 
@@ -398,6 +400,7 @@ export default function App() {
             onOpenWhatsApp={() => setCurrentTab('whatsapp')}
             onOpenSettings={() => setCurrentTab('settings')}
             onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
+            onOpenMenu={() => setIsMobileDrawerOpen(true)}
             userEmail={currentUser?.email || sessionUser?.email || (demoMode ? 'demo@burgercia.com.br' : null)}
             onSignOut={handleSignOut}
           />
@@ -405,7 +408,7 @@ export default function App() {
           {/* PWA Install & Push Notification Banner */}
           <PwaInstallBanner establishmentId={storeId} />
 
-          <main className="flex-1 pb-16">
+          <main className="flex-1 pb-24 md:pb-16">
             {currentTab === 'orders' && (
               <OrdersView
                 orders={orders}
@@ -466,6 +469,29 @@ export default function App() {
           </main>
         </div>
       </div>
+
+      {/* Mobile Bottom Navigation Bar (Fixed for Phones) */}
+      <MobileBottomNav
+        currentTab={currentTab}
+        setCurrentTab={setCurrentTab}
+        pendingOrdersCount={pendingOrdersCount}
+        isWhatsAppConnected={!!establishment?.evolutionConnected}
+        onOpenDrawer={() => setIsMobileDrawerOpen(true)}
+      />
+
+      {/* Mobile Drawer (Menu Completo para Celular) */}
+      <MobileDrawer
+        isOpen={isMobileDrawerOpen}
+        onClose={() => setIsMobileDrawerOpen(false)}
+        currentTab={currentTab}
+        setCurrentTab={setCurrentTab}
+        establishment={establishment}
+        soundEnabled={soundEnabled}
+        setSoundEnabled={setSoundEnabled}
+        onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
+        userEmail={currentUser?.email || sessionUser?.email || (demoMode ? 'demo@burgercia.com.br' : null)}
+        onSignOut={handleSignOut}
+      />
 
       {/* Subscription / Plan Modal */}
       <SubscriptionModal

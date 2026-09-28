@@ -50,20 +50,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   };
 
   return (
-    <div className="p-8 max-w-5xl mx-auto space-y-6">
+    <div className="p-3 sm:p-6 md:p-8 max-w-5xl mx-auto space-y-4 sm:space-y-6">
       <div>
-        <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-3">
+        <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2.5">
           Configurações da Loja & IA
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
         </h2>
-        <p className="text-sm text-slate-400 mt-1">
+        <p className="text-xs sm:text-sm text-slate-400 mt-1">
           Ajuste as informações da empresa, taxas, regras de entrega e o comportamento do atendente de IA.
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-5 sm:space-y-6">
         {/* Basic Store Info */}
-        <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-6 space-y-4">
+        <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-4 sm:p-6 space-y-4">
           <h3 className="font-bold text-base text-white flex items-center gap-2">
             <Store className="w-5 h-5 text-emerald-400" />
             Dados do Estabelecimento
@@ -152,7 +152,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
 
         {/* Motoboys & Couriers Management */}
-        <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-6 space-y-5">
+        <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-4 sm:p-6 space-y-4 sm:space-y-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
               <h3 className="font-bold text-base text-white flex items-center gap-2">
@@ -281,7 +281,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
 
         {/* AI Behavior & Personality */}
-        <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-6 space-y-4">
+        <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-4 sm:p-6 space-y-4">
           <h3 className="font-bold text-base text-white flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-emerald-400" />
             Personalidade & Regras da Inteligência Artificial
@@ -317,7 +317,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
 
         {/* Submit Bar */}
-        <div className="flex items-center justify-end gap-4 pt-2">
+        <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-3 sm:gap-4 pt-2">
           {savedSuccess && (
             <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5 animate-pulse">
               <Check className="w-4 h-4 stroke-[3]" /> Configurações salvas com sucesso!
@@ -327,7 +327,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <button
             type="submit"
             disabled={saving}
-            className="px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-sm flex items-center gap-2 transition cursor-pointer shadow-lg shadow-emerald-500/20"
+            className="w-full sm:w-auto px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-sm flex items-center justify-center gap-2 transition cursor-pointer shadow-lg shadow-emerald-500/20"
           >
             <Save className="w-4 h-4 stroke-[2.5]" />
             <span>{saving ? 'Salvando...' : 'Salvar Alterações'}</span>

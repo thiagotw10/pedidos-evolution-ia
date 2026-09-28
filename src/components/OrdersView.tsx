@@ -150,22 +150,22 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   };
 
   return (
-    <div className="p-8 space-y-6 max-w-7xl mx-auto">
+    <div className="p-3 sm:p-6 md:p-8 space-y-4 sm:space-y-6 max-w-7xl mx-auto">
       {/* Top Banner & Stats */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div>
-          <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-3">
+          <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2.5">
             Gestão de Pedidos em Tempo Real
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
           </h2>
-          <p className="text-sm text-slate-400 mt-1">
+          <p className="text-xs sm:text-sm text-slate-400 mt-1">
             Pedidos recebidos via WhatsApp pela Inteligência Artificial. Ao confirmar ou alterar status, a IA avisa o cliente automaticamente!
           </p>
         </div>
       </div>
 
       {/* Filter Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-800/80">
+      <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-800/80 -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-none">
         {filterTabs.map(tab => {
           const count = orders.filter(o => tab.id === 'ALL' ? true : o.status === tab.id).length;
           const isActive = activeFilter === tab.id;
@@ -173,7 +173,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             <button
               key={tab.id}
               onClick={() => setActiveFilter(tab.id)}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+              className={`px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer whitespace-nowrap shrink-0 ${
                 isActive
                   ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
                   : 'bg-slate-900/80 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-800'
@@ -214,7 +214,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 className="bg-slate-900/90 rounded-2xl border border-slate-800/90 hover:border-slate-700/80 transition shadow-xl overflow-hidden flex flex-col justify-between"
               >
                 {/* Order Top Bar */}
-                <div className="p-5 border-b border-slate-800/80 bg-slate-950/40">
+                <div className="p-4 sm:p-5 border-b border-slate-800/80 bg-slate-950/40">
                   <div className="flex items-center justify-between mb-3">
                     <span className="font-extrabold text-lg text-white font-mono flex items-center gap-1.5">
                       #{order.orderNumber || order.id.slice(-4)}
@@ -242,7 +242,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 </div>
 
                 {/* Customer & Address Details */}
-                <div className="p-5 space-y-3 flex-1">
+                <div className="p-4 sm:p-5 space-y-3 flex-1">
                   <div>
                     <h4 className="font-bold text-slate-100 text-sm">{order.customerName}</h4>
                     <p className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5 font-mono">
@@ -462,13 +462,13 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
       {/* Reject Modal */}
       {rejectModalOrder && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-5 sm:p-6 space-y-4 shadow-2xl">
             <div className="flex items-center gap-3 text-rose-400">
-              <AlertCircle className="w-6 h-6" />
-              <h3 className="font-bold text-lg text-white">Recusar Pedido #{rejectModalOrder.orderNumber || rejectModalOrder.id.slice(-4)}</h3>
+              <AlertCircle className="w-6 h-6 shrink-0" />
+              <h3 className="font-bold text-base sm:text-lg text-white">Recusar Pedido #{rejectModalOrder.orderNumber || rejectModalOrder.id.slice(-4)}</h3>
             </div>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-slate-400 leading-relaxed">
               Ao recusar, a IA enviará automaticamente uma mensagem no WhatsApp do cliente informando o cancelamento e o motivo abaixo:
             </p>
             <div>
@@ -480,19 +480,19 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 onChange={e => setRejectReason(e.target.value)}
                 placeholder="Ex: Ingredientes esgotados, endereço fora da área de entrega, ou cozinha encerrando."
                 rows={3}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-rose-500/60"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm sm:text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-rose-500/60"
               />
             </div>
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 onClick={() => setRejectModalOrder(null)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white transition cursor-pointer"
+                className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-400 hover:text-white transition cursor-pointer"
               >
                 Voltar
               </button>
               <button
                 onClick={() => handleStatusChange(rejectModalOrder.id, 'CANCELADO', rejectReason || 'Sem estoque disponível')}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white transition cursor-pointer shadow-lg shadow-rose-600/30"
+                className="px-4 py-2.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white transition cursor-pointer shadow-lg shadow-rose-600/30"
               >
                 Confirmar Cancelamento
               </button>

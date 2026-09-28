@@ -289,16 +289,16 @@ export const WhatsAppView: React.FC<WhatsAppViewProps> = ({
   const blockedAudienceCount = customers.filter(c => c.isBlocked).length;
 
   return (
-    <div className="p-8 max-w-6xl mx-auto space-y-8 animate-in fade-in">
+    <div className="p-3 sm:p-6 md:p-8 max-w-6xl mx-auto space-y-5 sm:space-y-8 animate-in fade-in">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div>
-          <div className="flex items-center gap-3">
-            <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2">
               WhatsApp & Clientes
               <span className={`w-2.5 h-2.5 rounded-full ${isOnline ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
             </h2>
-            <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full border ${
+            <span className={`text-[10px] sm:text-xs font-bold px-2 sm:px-2.5 py-0.5 rounded-full border ${
               isOnline 
                 ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' 
                 : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
@@ -306,16 +306,16 @@ export const WhatsAppView: React.FC<WhatsAppViewProps> = ({
               {isOnline ? 'Conectado e Operando' : 'Desconectado'}
             </span>
           </div>
-          <p className="text-sm text-slate-400 mt-1">
+          <p className="text-xs sm:text-sm text-slate-400 mt-1">
             Conexão com seu smartphone e gerenciamento da base de clientes que já fizeram e receberam pedidos.
           </p>
         </div>
 
         {/* Navigation Tabs (Connection vs Contacts) */}
-        <div className="bg-slate-900 border border-slate-800 p-1.5 rounded-2xl flex items-center gap-1.5 self-start sm:self-auto shadow-sm">
+        <div className="bg-slate-900 border border-slate-800 p-1 rounded-2xl flex items-center gap-1 self-start sm:self-auto shadow-sm -mx-3 px-3 sm:mx-0 sm:px-1 overflow-x-auto scrollbar-none w-full sm:w-auto">
           <button
             onClick={() => setActiveTab('connection')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition cursor-pointer ${
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer whitespace-nowrap flex-1 sm:flex-initial ${
               activeTab === 'connection'
                 ? 'bg-emerald-500 text-slate-950 shadow-md'
                 : 'text-slate-400 hover:text-white'
@@ -330,7 +330,7 @@ export const WhatsAppView: React.FC<WhatsAppViewProps> = ({
               setActiveTab('contacts');
               fetchCustomers();
             }}
-            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition cursor-pointer ${
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer whitespace-nowrap flex-1 sm:flex-initial ${
               activeTab === 'contacts'
                 ? 'bg-emerald-500 text-slate-950 shadow-md'
                 : 'text-slate-400 hover:text-white'
@@ -344,10 +344,10 @@ export const WhatsAppView: React.FC<WhatsAppViewProps> = ({
 
       {/* TAB 1: CONNECTION & QR CODE */}
       {activeTab === 'connection' && (
-        <div className="space-y-8 animate-in fade-in">
+        <div className="space-y-6 sm:space-y-8 animate-in fade-in">
           {isOnline ? (
             /* CONNECTED STATE */
-            <div className="bg-slate-900/90 border border-emerald-500/30 rounded-3xl p-8 space-y-6 shadow-2xl relative overflow-hidden backdrop-blur-md">
+            <div className="bg-slate-900/90 border border-emerald-500/30 rounded-3xl p-4 sm:p-6 lg:p-8 space-y-6 shadow-2xl relative overflow-hidden backdrop-blur-md">
               <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
 
               <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
@@ -408,7 +408,7 @@ export const WhatsAppView: React.FC<WhatsAppViewProps> = ({
             /* DISCONNECTED / CONNECTING STATE */
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
               {/* Instructions Step-by-Step (7 cols) */}
-              <div className="lg:col-span-7 bg-slate-900/80 border border-slate-800/80 rounded-3xl p-7 space-y-6 backdrop-blur-md">
+              <div className="lg:col-span-7 bg-slate-900/80 border border-slate-800/80 rounded-3xl p-4 sm:p-6 lg:p-7 space-y-6 backdrop-blur-md">
                 <div className="space-y-2">
                   <h3 className="font-bold text-lg text-white flex items-center gap-2.5">
                     <Smartphone className="w-5 h-5 text-emerald-400" />
@@ -484,7 +484,7 @@ export const WhatsAppView: React.FC<WhatsAppViewProps> = ({
               </div>
 
               {/* QR Code Presentation Box (5 cols) */}
-              <div className="lg:col-span-5 bg-slate-900/80 border border-slate-800/80 rounded-3xl p-7 flex flex-col items-center justify-center text-center space-y-4 backdrop-blur-md min-h-[420px]">
+              <div className="lg:col-span-5 bg-slate-900/80 border border-slate-800/80 rounded-3xl p-4 sm:p-6 lg:p-7 flex flex-col items-center justify-center text-center space-y-4 backdrop-blur-md min-h-[420px]">
                 <h3 className="font-bold text-base text-white flex items-center gap-2">
                   <QrCode className="w-4 h-4 text-emerald-400" />
                   Escanear com o Celular
