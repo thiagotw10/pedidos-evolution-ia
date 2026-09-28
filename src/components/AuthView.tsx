@@ -68,7 +68,11 @@ export const AuthView: React.FC<AuthViewProps> = ({
         evolutionConnected: false,
         aiPromptCustom: `Você é o atendente virtual de ${name}. Seja amigável, rápido e atencioso. Apresente os itens do cardápio e quando o cliente decidir, colete: nome, endereço ou retirada, e forma de pagamento.`,
         aiWelcomeMessage: `Olá! Seja muito bem-vindo a ${name} 🍽️! O que você gostaria de pedir hoje?`,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        trialEndsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        plan: 'trial',
+        accountStatus: 'trial',
+        planPrice: 50
       };
 
       if (!snap.exists()) {

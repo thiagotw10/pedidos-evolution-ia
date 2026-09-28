@@ -144,6 +144,35 @@ function formatWhatsAppText(text: string): string {
   return formatted.trim();
 }
 
+// Helper to verify if an establishment has active access (7-day free trial or active paid subscription)
+function isEstablishmentSubscriptionActive(est: any): boolean {
+  if (!est) return true;
+  // Demo store always allowed for previewing
+  if (est.id === DEFAULT_ESTABLISHMENT_ID) return true;
+
+  const now = Date.now();
+
+  // 1. Paid active subscription
+  if (est.subscriptionValidUntil) {
+    const validUntilMs = new Date(est.subscriptionValidUntil).getTime();
+    if (!isNaN(validUntilMs) && validUntilMs > now) {
+      return true;
+    }
+  }
+
+  // 2. 7-day free trial from creation
+  let createdAtMs = est.createdAt ? new Date(est.createdAt).getTime() : 0;
+  if (!createdAtMs || isNaN(createdAtMs)) {
+    createdAtMs = now;
+  }
+  let trialEndsMs = est.trialEndsAt ? new Date(est.trialEndsAt).getTime() : 0;
+  if (!trialEndsMs || isNaN(trialEndsMs)) {
+    trialEndsMs = createdAtMs + 7 * 24 * 60 * 60 * 1000;
+  }
+
+  return now < trialEndsMs;
+}
+
 // Helper to download media (audio / image) from WhatsApp via Evolution API
 async function downloadWhatsAppMedia(
   evoUrl: string,
@@ -899,6 +928,16 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
     // Load store establishment configuration
     const estDoc = await db.collection('establishments').doc(storeId).get();
     const est = estDoc.data() || {};
+
+    // Subscription / Trial Verification (7 days trial or active paid subscription)
+    if (!isEstablishmentSubscriptionActive(est)) {
+      console.warn(`[Evolution Webhook] 🛑 BLOQUEADO: Assinatura do estabelecimento "${est.name || storeId}" expirada (teste de 7 dias encerrado). Mensagem de ${phone} não será respondida pela IA.`);
+      return res.status(200).json({
+        status: 'subscription_expired',
+        message: 'Período de teste de 7 dias encerrado. Assinatura de R$ 50/mês necessária.'
+      });
+    }
+
     const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
     const evoKey = est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108';
     const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 20)}`;
@@ -938,6 +977,7 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
     }
 
     const pushName = info.PushName || messageData.pushName || '';
+
     console.log(`[Evolution Webhook] Processando mensagem de ${phone} (${pushName || 'Sem nome'}): ${text ? `"${text.slice(0, 50)}..."` : (mediaPart ? `[Mídia: ${mediaPart.mimeType}]` : '[Vazio]')}`);
     const result = await processAiCustomerMessage(storeId, phone, text, pushName, mediaPart || undefined);
 
@@ -2198,6 +2238,185 @@ app.all('/api/cron/check-campaigns', async (req, res) => {
     res.json({ status: 'checked', ...result });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------------------------------------------
+// Mercado Pago PIX Subscription Endpoints (R$ 50/mês)
+// ----------------------------------------------------
+
+// API: Gerar cobrança PIX para assinatura mensal
+app.post('/api/subscription/pix', async (req, res) => {
+  try {
+    const { establishmentId, email, name } = req.body;
+    const storeId = establishmentId || getStoreId(req);
+    if (!storeId) {
+      return res.status(400).json({ error: 'ID do estabelecimento não fornecido.' });
+    }
+
+    const mpToken = process.env.MP_ACCESS_TOKEN;
+    if (!mpToken) {
+      return res.status(500).json({ error: 'Configuração do Mercado Pago (MP_ACCESS_TOKEN) não encontrada no servidor.' });
+    }
+
+    const { MercadoPagoConfig, Payment } = await import('mercadopago');
+    const client = new MercadoPagoConfig({ accessToken: mpToken, options: { timeout: 10000 } });
+    const payment = new Payment(client);
+
+    const paymentResponse = await payment.create({
+      body: {
+        transaction_amount: 50,
+        description: 'Assinatura Mensal iaPedido (30 dias) - Atendimento WhatsApp & IA',
+        payment_method_id: 'pix',
+        payer: {
+          email: email || 'cliente@iapedido.com.br',
+          first_name: name || 'Estabelecimento iaPedido'
+        },
+        external_reference: storeId
+      }
+    });
+
+    const paymentId = String(paymentResponse.id);
+    console.log(`[Mercado Pago] PIX Gerado com sucesso! ID: ${paymentId} para loja: ${storeId}`);
+
+    // Registrar cobrança pendente no Firestore
+    await db.collection('pendingSubscriptions').doc(paymentId).set({
+      establishmentId: storeId,
+      amount: 50,
+      status: 'pending',
+      payerEmail: email || '',
+      createdAt: new Date().toISOString()
+    }, { merge: true });
+
+    return res.json({
+      success: true,
+      id: paymentId,
+      qr_code: paymentResponse.point_of_interaction?.transaction_data?.qr_code,
+      qr_code_base64: paymentResponse.point_of_interaction?.transaction_data?.qr_code_base64
+    });
+  } catch (err: any) {
+    console.error('[Mercado Pago Subscription Error]:', err);
+    return res.status(500).json({ error: err.message || 'Falha ao gerar cobrança PIX.' });
+  }
+});
+
+// API: Consultar status de pagamento PIX e ativar plano automaticamente
+app.get('/api/subscription/status/:paymentId', async (req, res) => {
+  try {
+    const paymentId = req.params.paymentId;
+    const mpToken = process.env.MP_ACCESS_TOKEN;
+    if (!mpToken) {
+      return res.status(500).json({ error: 'MP_ACCESS_TOKEN não configurado.' });
+    }
+
+    const { MercadoPagoConfig, Payment } = await import('mercadopago');
+    const client = new MercadoPagoConfig({ accessToken: mpToken, options: { timeout: 10000 } });
+    const payment = new Payment(client);
+
+    const paymentInfo = await payment.get({ id: paymentId }).catch(() => null);
+    if (!paymentInfo) {
+      return res.status(404).json({ error: 'Pagamento não encontrado.' });
+    }
+
+    const isApproved = paymentInfo.status === 'approved';
+
+    if (isApproved) {
+      let storeId = paymentInfo.external_reference;
+      if (!storeId) {
+        const pendingDoc = await db.collection('pendingSubscriptions').doc(paymentId).get();
+        storeId = pendingDoc.data()?.establishmentId;
+      }
+
+      if (storeId) {
+        const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+        const estDoc = await db.collection('establishments').doc(storeId).get();
+        const estData = estDoc.data() || {};
+        const currentValidUntilMs = estData.subscriptionValidUntil ? new Date(estData.subscriptionValidUntil).getTime() : 0;
+        const baseTime = currentValidUntilMs > Date.now() ? currentValidUntilMs : Date.now();
+        const newValidUntil = new Date(baseTime + thirtyDaysMs).toISOString();
+
+        await db.collection('establishments').doc(storeId).set({
+          plan: 'active',
+          accountStatus: 'active_paid',
+          subscriptionValidUntil: newValidUntil,
+          lastPaymentDate: new Date().toISOString(),
+          planPrice: 50,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+
+        await db.collection('pendingSubscriptions').doc(paymentId).set({
+          status: 'approved',
+          approvedAt: new Date().toISOString()
+        }, { merge: true });
+
+        console.log(`[Mercado Pago] Assinatura da loja ${storeId} ativada por mais 30 dias (até ${newValidUntil})!`);
+      }
+    }
+
+    return res.json({
+      id: paymentId,
+      status: paymentInfo.status,
+      approved: isApproved
+    });
+  } catch (err: any) {
+    console.error('[Subscription Status Check Error]:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// API: Webhook do Mercado Pago para confirmação assíncrona
+app.post('/api/subscription/webhook', async (req, res) => {
+  try {
+    const { type, data } = req.body || {};
+    if ((type !== 'payment' && type !== 'payment.created' && type !== 'payment.updated') || !data?.id) {
+      return res.status(200).send('ok');
+    }
+
+    const paymentId = String(data.id);
+    const mpToken = process.env.MP_ACCESS_TOKEN;
+    if (!mpToken) return res.status(200).send('ok');
+
+    const { MercadoPagoConfig, Payment } = await import('mercadopago');
+    const client = new MercadoPagoConfig({ accessToken: mpToken, options: { timeout: 10000 } });
+    const paymentInfo = await new Payment(client).get({ id: paymentId }).catch(() => null);
+
+    if (paymentInfo && paymentInfo.status === 'approved') {
+      let storeId = paymentInfo.external_reference;
+      if (!storeId) {
+        const pendingDoc = await db.collection('pendingSubscriptions').doc(paymentId).get();
+        storeId = pendingDoc.data()?.establishmentId;
+      }
+
+      if (storeId) {
+        const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+        const estDoc = await db.collection('establishments').doc(storeId).get();
+        const estData = estDoc.data() || {};
+        const currentValidUntilMs = estData.subscriptionValidUntil ? new Date(estData.subscriptionValidUntil).getTime() : 0;
+        const baseTime = currentValidUntilMs > Date.now() ? currentValidUntilMs : Date.now();
+        const newValidUntil = new Date(baseTime + thirtyDaysMs).toISOString();
+
+        await db.collection('establishments').doc(storeId).set({
+          plan: 'active',
+          accountStatus: 'active_paid',
+          subscriptionValidUntil: newValidUntil,
+          lastPaymentDate: new Date().toISOString(),
+          planPrice: 50,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+
+        await db.collection('pendingSubscriptions').doc(paymentId).set({
+          status: 'approved',
+          approvedAt: new Date().toISOString()
+        }, { merge: true });
+
+        console.log(`[Subscription Webhook MP] Loja ${storeId} ativada via webhook para o pagamento ${paymentId}!`);
+      }
+    }
+
+    return res.status(200).send('ok');
+  } catch (err) {
+    console.error('[Subscription Webhook MP Error]:', err);
+    return res.status(200).send('ok');
   }
 });
 

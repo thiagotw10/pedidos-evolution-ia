@@ -19,6 +19,8 @@ import { CampaignsView } from './components/CampaignsView';
 import { FinanceView } from './components/FinanceView';
 import { AuthView } from './components/AuthView';
 import { HomeView } from './components/HomeView';
+import { SubscriptionGate } from './components/SubscriptionGate';
+import { SubscriptionModal } from './components/SubscriptionModal';
 import { Order, Product, Establishment, OrderStatus } from './types';
 import { Loader2 } from 'lucide-react';
 
@@ -36,6 +38,7 @@ export default function App() {
   const [demoMode, setDemoMode] = useState(false);
   const [unauthView, setUnauthView] = useState<'home' | 'auth'>('home');
   const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('register');
+  const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
 
   const [currentTab, setCurrentTab] = useState<string>('orders');
   const [orders, setOrders] = useState<Order[]>([]);
@@ -358,87 +361,102 @@ export default function App() {
   const pendingOrdersCount = orders.filter(o => o.status === 'PENDENTE').length;
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-950 font-sans text-slate-100">
-      {/* Sidebar Navigation */}
-      <Sidebar
-        currentTab={currentTab}
-        setCurrentTab={setCurrentTab}
-        pendingOrdersCount={pendingOrdersCount}
-        isWhatsAppConnected={!!establishment?.evolutionConnected}
-      />
-
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col h-screen overflow-y-auto">
-        <Header
-          establishment={establishment}
-          soundEnabled={soundEnabled}
-          setSoundEnabled={setSoundEnabled}
-          onOpenWhatsApp={() => setCurrentTab('whatsapp')}
-          onOpenSettings={() => setCurrentTab('settings')}
-          userEmail={currentUser?.email || sessionUser?.email || (demoMode ? 'demo@burgercia.com.br' : null)}
-          onSignOut={handleSignOut}
+    <SubscriptionGate
+      establishment={establishment}
+      userEmail={currentUser?.email || sessionUser?.email || (demoMode ? 'demo@burgercia.com.br' : null)}
+      onSignOut={handleSignOut}
+    >
+      <div className="flex h-screen w-screen overflow-hidden bg-slate-950 font-sans text-slate-100">
+        {/* Sidebar Navigation */}
+        <Sidebar
+          currentTab={currentTab}
+          setCurrentTab={setCurrentTab}
+          pendingOrdersCount={pendingOrdersCount}
+          isWhatsAppConnected={!!establishment?.evolutionConnected}
         />
 
-        <main className="flex-1 pb-16">
-          {currentTab === 'orders' && (
-            <OrdersView
-              orders={orders}
-              onUpdateStatus={handleUpdateOrderStatus}
-              loading={loadingOrders}
-              couriers={establishment?.couriers || []}
-              establishmentName={establishment?.name || 'iaPedido'}
-            />
-          )}
+        {/* Main Content Area */}
+        <div className="flex-1 flex flex-col h-screen overflow-y-auto">
+          <Header
+            establishment={establishment}
+            soundEnabled={soundEnabled}
+            setSoundEnabled={setSoundEnabled}
+            onOpenWhatsApp={() => setCurrentTab('whatsapp')}
+            onOpenSettings={() => setCurrentTab('settings')}
+            onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
+            userEmail={currentUser?.email || sessionUser?.email || (demoMode ? 'demo@burgercia.com.br' : null)}
+            onSignOut={handleSignOut}
+          />
 
-          {currentTab === 'finance' && (
-            <FinanceView
-              orders={orders}
-            />
-          )}
+          <main className="flex-1 pb-16">
+            {currentTab === 'orders' && (
+              <OrdersView
+                orders={orders}
+                onUpdateStatus={handleUpdateOrderStatus}
+                loading={loadingOrders}
+                couriers={establishment?.couriers || []}
+                establishmentName={establishment?.name || 'iaPedido'}
+              />
+            )}
 
-          {currentTab === 'products' && (
-            <ProductsView
-              products={products}
-              establishmentId={storeId}
-              onSaveProduct={handleSaveProduct}
-              onDeleteProduct={handleDeleteProduct}
-              loading={loadingProducts}
-            />
-          )}
+            {currentTab === 'finance' && (
+              <FinanceView
+                orders={orders}
+              />
+            )}
 
-          {currentTab === 'campaigns' && (
-            <CampaignsView
-              establishmentId={storeId}
-              establishment={establishment}
-              onNavigateToWhatsApp={() => setCurrentTab('whatsapp')}
-            />
-          )}
+            {currentTab === 'products' && (
+              <ProductsView
+                products={products}
+                establishmentId={storeId}
+                onSaveProduct={handleSaveProduct}
+                onDeleteProduct={handleDeleteProduct}
+                loading={loadingProducts}
+              />
+            )}
 
-          {currentTab === 'simulator' && (
-            <SimulatorView
-              establishmentId={storeId}
-              onOrderCreatedNotification={() => {
-                playNewOrderChime();
-              }}
-              onNavigateToOrders={() => setCurrentTab('orders')}
-            />
-          )}
+            {currentTab === 'campaigns' && (
+              <CampaignsView
+                establishmentId={storeId}
+                establishment={establishment}
+                onNavigateToWhatsApp={() => setCurrentTab('whatsapp')}
+              />
+            )}
 
-          {currentTab === 'whatsapp' && (
-            <WhatsAppView
-              establishment={establishment}
-              onSaveEstablishment={handleSaveEstablishment}
-            />
-          )}
+            {currentTab === 'simulator' && (
+              <SimulatorView
+                establishmentId={storeId}
+                onOrderCreatedNotification={() => {
+                  playNewOrderChime();
+                }}
+                onNavigateToOrders={() => setCurrentTab('orders')}
+              />
+            )}
 
-          {currentTab === 'settings' && (
-            <SettingsView
-              establishment={establishment}
-              onSaveEstablishment={handleSaveEstablishment}
-            />
-          )}
-        </main>
+            {currentTab === 'whatsapp' && (
+              <WhatsAppView
+                establishment={establishment}
+                onSaveEstablishment={handleSaveEstablishment}
+              />
+            )}
+
+            {currentTab === 'settings' && (
+              <SettingsView
+                establishment={establishment}
+                onSaveEstablishment={handleSaveEstablishment}
+              />
+            )}
+          </main>
+        </div>
       </div>
-    </div>
+
+      {/* Subscription / Plan Modal */}
+      <SubscriptionModal
+        isOpen={isSubscriptionModalOpen}
+        onClose={() => setIsSubscriptionModalOpen(false)}
+        establishment={establishment}
+        userEmail={currentUser?.email || sessionUser?.email}
+      />
+    </SubscriptionGate>
   );
 }

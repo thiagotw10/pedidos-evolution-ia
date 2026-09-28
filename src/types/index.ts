@@ -94,6 +94,14 @@ export interface Establishment {
   // AI Settings
   aiPromptCustom?: string;
   aiWelcomeMessage?: string;
+  // Subscription & Plan (Mercado Pago PIX)
+  plan?: 'trial' | 'active' | 'expired';
+  accountStatus?: 'trial' | 'active_paid' | 'expired';
+  trialEndsAt?: string;
+  subscriptionValidUntil?: string;
+  lastPaymentDate?: string;
+  planPrice?: number;
+  createdAt?: string;
 }
 
 export interface ChatMessage {
