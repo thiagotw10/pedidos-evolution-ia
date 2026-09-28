@@ -173,6 +173,98 @@ function isEstablishmentSubscriptionActive(est: any): boolean {
   return now < trialEndsMs;
 }
 
+// Map to throttle out-of-hours auto-replies (storeId_phone -> lastSentTimestamp)
+const outOfHoursReplies = new Map<string, number>();
+
+// Helper to evaluate store operating hours in America/Sao_Paulo timezone
+function isEstablishmentOpenNow(est: any): { isOpen: boolean; reason?: string } {
+  if (!est || !est.aiScheduleEnabled || !est.aiOperatingSchedule) {
+    return { isOpen: true };
+  }
+
+  const schedule = est.aiOperatingSchedule;
+  const now = new Date();
+  
+  // Format into America/Sao_Paulo time components
+  const spFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Sao_Paulo',
+    hour: 'numeric',
+    minute: 'numeric',
+    weekday: 'short',
+    hour12: false
+  });
+
+  const parts = spFormatter.formatToParts(now);
+  let hour = 0;
+  let minute = 0;
+  
+  for (const part of parts) {
+    if (part.type === 'hour') hour = parseInt(part.value, 10);
+    if (part.type === 'minute') minute = parseInt(part.value, 10);
+  }
+
+  const spDate = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+  const dayOfWeek = spDate.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  const currentMinutes = hour * 60 + minute;
+
+  const dayKeys = [
+    'sunday',    // 0
+    'monday',    // 1
+    'tuesday',   // 2
+    'wednesday', // 3
+    'thursday',  // 4
+    'friday',    // 5
+    'saturday'   // 6
+  ];
+
+  const currentDayKey = dayKeys[dayOfWeek];
+  const todayConfig = schedule[currentDayKey];
+
+  const parseTimeToMinutes = (timeStr: string) => {
+    if (!timeStr) return 0;
+    const [h, m] = timeStr.split(':').map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+
+  // 1. Check today's schedule
+  if (todayConfig && todayConfig.enabled) {
+    const openMin = parseTimeToMinutes(todayConfig.open);
+    const closeMin = parseTimeToMinutes(todayConfig.close);
+
+    if (closeMin > openMin) {
+      if (currentMinutes >= openMin && currentMinutes < closeMin) {
+        return { isOpen: true };
+      }
+    } else if (closeMin < openMin) {
+      // Crosses midnight (e.g. 18:00 to 02:00)
+      if (currentMinutes >= openMin) {
+        return { isOpen: true };
+      }
+    } else {
+      // 24 hours if open === close
+      return { isOpen: true };
+    }
+  }
+
+  // 2. Check yesterday's schedule in case it crossed midnight into today's early morning
+  const prevDayIndex = (dayOfWeek + 6) % 7;
+  const prevDayKey = dayKeys[prevDayIndex];
+  const prevDayConfig = schedule[prevDayKey];
+
+  if (prevDayConfig && prevDayConfig.enabled) {
+    const prevOpen = parseTimeToMinutes(prevDayConfig.open);
+    const prevClose = parseTimeToMinutes(prevDayConfig.close);
+
+    if (prevClose < prevOpen) {
+      if (currentMinutes < prevClose) {
+        return { isOpen: true };
+      }
+    }
+  }
+
+  return { isOpen: false, reason: 'Fora do horário de expediente da IA' };
+}
+
 // Web Push Notification Helper (PWA Background Notifications)
 async function sendOrderPushNotification(establishmentId: string, orderData: any) {
   try {
@@ -1000,6 +1092,45 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
     const evoKey = est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108';
     const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 20)}`;
     const evoInst = est.evolutionInstanceName || defaultInstName;
+
+    // AI Operating Hours Verification (Check if store is open in America/Sao_Paulo)
+    const openStatus = isEstablishmentOpenNow(est);
+    if (!openStatus.isOpen) {
+      console.log(`[Evolution Webhook] 🌙 IA em repouso para o estabelecimento "${est.name || storeId}": ${openStatus.reason}`);
+
+      // Prune outOfHoursReplies cache if large
+      if (outOfHoursReplies.size > 2000) {
+        const cutoff = Date.now() - 6 * 60 * 60 * 1000;
+        for (const [k, t] of outOfHoursReplies.entries()) {
+          if (t < cutoff) outOfHoursReplies.delete(k);
+        }
+      }
+
+      const outOfHoursAction = est.aiOutOfHoursAction || 'SILENT';
+      if (outOfHoursAction === 'AUTO_REPLY') {
+        const cacheKey = `${storeId}_${phone}`;
+        const lastReply = outOfHoursReplies.get(cacheKey) || 0;
+        const nowMs = Date.now();
+        const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
+
+        if (nowMs - lastReply > THREE_HOURS_MS) {
+          outOfHoursReplies.set(cacheKey, nowMs);
+          const customMsg = est.aiOutOfHoursMessage || 
+            `Olá! Agradecemos pelo seu contato. 😊\n\nNo momento nosso atendimento automático de pedidos está fechado. Deixe sua mensagem que te responderemos assim que abrirmos nosso expediente!\n\nHorário de atendimento: ${est.operatingHours || 'Consulte nosso horário em nosso perfil.'}`;
+          
+          await sendWhatsAppMessage(evoUrl, evoKey, evoInst, phone, customMsg);
+          console.log(`[Evolution Webhook] Mensagem automática de fora do expediente enviada para ${phone}`);
+          return res.status(200).json({ status: 'out_of_hours_replied' });
+        } else {
+          console.log(`[Evolution Webhook] Mensagem fora do expediente suprimida para ${phone} (já enviada recentemente)`);
+          return res.status(200).json({ status: 'out_of_hours_throttled' });
+        }
+      }
+
+      // Silent mode: do not respond at all
+      console.log(`[Evolution Webhook] Modo silencioso fora do expediente. Nenhuma resposta enviada para ${phone}`);
+      return res.status(200).json({ status: 'out_of_hours_silent' });
+    }
 
     // Handle Media (Voice Audio / Image)
     let mediaPart: { mimeType: string; data: string } | null = null;

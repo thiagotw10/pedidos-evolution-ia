@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Smartphone, 
   QrCode, 
@@ -19,9 +19,13 @@ import {
   Calendar,
   Check,
   Ban,
-  Filter
+  Filter,
+  Clock,
+  Moon,
+  Sun
 } from 'lucide-react';
 import { Establishment } from '../types';
+import { isStoreOpenNow, DEFAULT_AI_SCHEDULE } from '../utils/schedule';
 
 interface WhatsAppViewProps {
   establishment: Establishment | null;
@@ -70,6 +74,13 @@ export const WhatsAppView: React.FC<WhatsAppViewProps> = ({
   const [togglingPhone, setTogglingPhone] = useState<string | null>(null);
 
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const aiScheduleStatus = useMemo(() => {
+    return isStoreOpenNow(
+      establishment?.aiOperatingSchedule || DEFAULT_AI_SCHEDULE,
+      establishment?.aiScheduleEnabled
+    );
+  }, [establishment?.aiOperatingSchedule, establishment?.aiScheduleEnabled]);
 
   useEffect(() => {
     if (establishment?.evolutionConnected) {
@@ -383,10 +394,24 @@ export const WhatsAppView: React.FC<WhatsAppViewProps> = ({
 
               <div className="pt-6 border-t border-slate-800 grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
                 <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800/80 space-y-1">
-                  <span className="text-slate-400">Atendimento Automático:</span>
-                  <p className="font-bold text-emerald-400 flex items-center gap-1.5">
-                    <Check className="w-4 h-4" /> Ativo para todos os clientes
-                  </p>
+                  <span className="text-slate-400">Atendimento da IA:</span>
+                  {establishment?.aiScheduleEnabled ? (
+                    aiScheduleStatus.isOpen ? (
+                      <p className="font-bold text-emerald-400 flex items-center gap-1.5">
+                        <Sun className="w-4 h-4 text-emerald-400 animate-pulse" />
+                        <span>Aberto Agora ({aiScheduleStatus.currentTimeStr})</span>
+                      </p>
+                    ) : (
+                      <p className="font-bold text-amber-400 flex items-center gap-1.5">
+                        <Moon className="w-4 h-4 text-amber-400" />
+                        <span>Em Repouso ({aiScheduleStatus.currentTimeStr})</span>
+                      </p>
+                    )
+                  ) : (
+                    <p className="font-bold text-emerald-400 flex items-center gap-1.5">
+                      <Check className="w-4 h-4" /> Ativo 24 Horas
+                    </p>
+                  )}
                 </div>
 
                 <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800/80 space-y-1">

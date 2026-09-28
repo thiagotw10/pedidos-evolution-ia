@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Store, 
   Sparkles, 
@@ -8,13 +8,27 @@ import {
   Phone, 
   Save, 
   Check, 
-  Bot,
-  QrCode,
-  Bike,
-  Plus,
-  Trash2
+  Bot, 
+  QrCode, 
+  Bike, 
+  Plus, 
+  Trash2,
+  Calendar,
+  Moon,
+  Sun,
+  VolumeX,
+  MessageSquare,
+  AlertCircle,
+  CheckCircle2,
+  Power
 } from 'lucide-react';
-import { Establishment } from '../types';
+import { Establishment, OperatingSchedule, DaySchedule, OutOfHoursAction } from '../types';
+import { 
+  DEFAULT_AI_SCHEDULE, 
+  DEFAULT_OUT_OF_HOURS_MESSAGE, 
+  isStoreOpenNow, 
+  DAY_LABELS 
+} from '../utils/schedule';
 
 interface SettingsViewProps {
   establishment: Establishment | null;
@@ -34,6 +48,93 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       setFormData({ ...establishment });
     }
   }, [establishment]);
+
+  // Operating schedule state with fallback to defaults
+  const operatingSchedule: OperatingSchedule = useMemo(() => {
+    return formData.aiOperatingSchedule || DEFAULT_AI_SCHEDULE;
+  }, [formData.aiOperatingSchedule]);
+
+  const scheduleEnabled = formData.aiScheduleEnabled ?? false;
+  const outOfHoursAction: OutOfHoursAction = formData.aiOutOfHoursAction || 'SILENT';
+  const outOfHoursMessage = formData.aiOutOfHoursMessage || DEFAULT_OUT_OF_HOURS_MESSAGE;
+
+  // Real-time calculation of current AI status in São Paulo time
+  const currentOpenStatus = useMemo(() => {
+    return isStoreOpenNow(operatingSchedule, scheduleEnabled);
+  }, [operatingSchedule, scheduleEnabled]);
+
+  const updateDaySchedule = (dayKey: keyof OperatingSchedule, updates: Partial<DaySchedule>) => {
+    const current = operatingSchedule[dayKey] || { enabled: false, open: '18:00', close: '23:30' };
+    const updatedSchedule: OperatingSchedule = {
+      ...operatingSchedule,
+      [dayKey]: { ...current, ...updates }
+    };
+    setFormData(prev => ({
+      ...prev,
+      aiOperatingSchedule: updatedSchedule
+    }));
+  };
+
+  const applyPreset = (preset: 'TER_A_DOM' | 'SEG_A_SAB' | 'TODOS_OS_DIAS' | 'ALMOCO_JANTAR') => {
+    let newSchedule: OperatingSchedule;
+    if (preset === 'TER_A_DOM') {
+      newSchedule = {
+        monday: { enabled: false, open: '18:00', close: '23:30' },
+        tuesday: { enabled: true, open: '18:00', close: '23:30' },
+        wednesday: { enabled: true, open: '18:00', close: '23:30' },
+        thursday: { enabled: true, open: '18:00', close: '23:30' },
+        friday: { enabled: true, open: '18:00', close: '23:59' },
+        saturday: { enabled: true, open: '18:00', close: '23:59' },
+        sunday: { enabled: true, open: '18:00', close: '23:30' },
+      };
+    } else if (preset === 'SEG_A_SAB') {
+      newSchedule = {
+        monday: { enabled: true, open: '08:00', close: '18:00' },
+        tuesday: { enabled: true, open: '08:00', close: '18:00' },
+        wednesday: { enabled: true, open: '08:00', close: '18:00' },
+        thursday: { enabled: true, open: '08:00', close: '18:00' },
+        friday: { enabled: true, open: '08:00', close: '18:00' },
+        saturday: { enabled: true, open: '08:00', close: '14:00' },
+        sunday: { enabled: false, open: '08:00', close: '14:00' },
+      };
+    } else if (preset === 'ALMOCO_JANTAR') {
+      newSchedule = {
+        monday: { enabled: true, open: '11:00', close: '23:00' },
+        tuesday: { enabled: true, open: '11:00', close: '23:00' },
+        wednesday: { enabled: true, open: '11:00', close: '23:00' },
+        thursday: { enabled: true, open: '11:00', close: '23:00' },
+        friday: { enabled: true, open: '11:00', close: '23:30' },
+        saturday: { enabled: true, open: '11:00', close: '23:30' },
+        sunday: { enabled: true, open: '11:00', close: '23:00' },
+      };
+    } else {
+      // TODOS_OS_DIAS
+      newSchedule = {
+        monday: { enabled: true, open: '18:00', close: '23:30' },
+        tuesday: { enabled: true, open: '18:00', close: '23:30' },
+        wednesday: { enabled: true, open: '18:00', close: '23:30' },
+        thursday: { enabled: true, open: '18:00', close: '23:30' },
+        friday: { enabled: true, open: '18:00', close: '23:59' },
+        saturday: { enabled: true, open: '18:00', close: '23:59' },
+        sunday: { enabled: true, open: '18:00', close: '23:30' },
+      };
+    }
+    setFormData(prev => ({
+      ...prev,
+      aiScheduleEnabled: true,
+      aiOperatingSchedule: newSchedule
+    }));
+  };
+
+  const DAYS_LIST: (keyof OperatingSchedule)[] = [
+    'monday',
+    'tuesday',
+    'wednesday',
+    'thursday',
+    'friday',
+    'saturday',
+    'sunday'
+  ];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -278,6 +379,275 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
             </div>
           </div>
+        </div>
+
+        {/* AI Operating Hours & Business Schedule */}
+        <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-4 sm:p-6 space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+            <div>
+              <div className="flex items-center gap-2">
+                <Clock className="w-5 h-5 text-amber-400" />
+                <h3 className="font-bold text-base text-white">
+                  Horário de Funcionamento da IA no WhatsApp
+                </h3>
+              </div>
+              <p className="text-xs text-slate-400 mt-1 max-w-2xl">
+                Mantenha seu WhatsApp sempre conectado sem precisar escanear QR Code todo dia! A IA só responderá aos clientes nos horários que você determinar.
+              </p>
+            </div>
+
+            {/* Main Toggle Switch */}
+            <div className="flex items-center gap-2.5 bg-slate-950 p-2 px-3 rounded-xl border border-slate-800 shrink-0">
+              <span className={`text-xs font-bold ${scheduleEnabled ? 'text-emerald-400' : 'text-slate-400'}`}>
+                {scheduleEnabled ? 'Horário Ativo' : 'Atender 24 Horas'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, aiScheduleEnabled: !scheduleEnabled })}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  scheduleEnabled ? 'bg-emerald-500' : 'bg-slate-700'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    scheduleEnabled ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+
+          {/* Current Live Status Banner */}
+          {scheduleEnabled ? (
+            <div className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 text-xs ${
+              currentOpenStatus.isOpen 
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' 
+                : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+            }`}>
+              <div className="flex items-center gap-2.5">
+                {currentOpenStatus.isOpen ? (
+                  <Sun className="w-4 h-4 text-emerald-400 shrink-0 animate-pulse" />
+                ) : (
+                  <Moon className="w-4 h-4 text-amber-400 shrink-0" />
+                )}
+                <div>
+                  <p className="font-bold text-white flex items-center gap-1.5">
+                    {currentOpenStatus.isOpen ? '🟢 IA ABERTA AGORA' : '🌙 IA EM REPOUSO AGORA'}
+                    <span className="text-[11px] font-normal text-slate-300 font-mono">
+                      ({currentOpenStatus.currentTimeStr} - Brasília)
+                    </span>
+                  </p>
+                  <p className="text-[11px] text-slate-300 mt-0.5">
+                    {currentOpenStatus.isOpen 
+                      ? `Atendendo e fechando pedidos normalmente hoje (${currentOpenStatus.currentDayLabel}).`
+                      : (currentOpenStatus.reason || 'Fora do horário configurado. A IA não fechará pedidos.')}
+                  </p>
+                </div>
+              </div>
+
+              <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider ${
+                currentOpenStatus.isOpen ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+              }`}>
+                {currentOpenStatus.isOpen ? 'Em Atendimento' : 'Pausado'}
+              </span>
+            </div>
+          ) : (
+            <div className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 flex items-center gap-2.5 text-xs text-slate-400">
+              <Sparkles className="w-4 h-4 text-cyan-400 shrink-0" />
+              <span>
+                <strong>Modo 24 Horas:</strong> O controle de horário está desativado. A IA responderá a todas as mensagens que chegarem ao WhatsApp a qualquer hora do dia ou da noite.
+              </span>
+            </div>
+          )}
+
+          {/* Schedule Configuration (visible when enabled) */}
+          {scheduleEnabled && (
+            <div className="space-y-4 pt-1 animate-fadeIn">
+              {/* Presets Bar */}
+              <div className="space-y-1.5">
+                <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
+                  <Sparkles className="w-3 h-3 text-amber-400" />
+                  Preencher rapidamente com modelo:
+                </span>
+                <div className="flex flex-wrap gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => applyPreset('TER_A_DOM')}
+                    className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 hover:border-amber-500/60 hover:text-amber-300 text-slate-300 transition cursor-pointer text-[11px]"
+                  >
+                    🍕 Delivery / Noturno (Ter a Dom 18h às 23h30)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyPreset('SEG_A_SAB')}
+                    className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 hover:border-amber-500/60 hover:text-amber-300 text-slate-300 transition cursor-pointer text-[11px]"
+                  >
+                    🏢 Comercial (Seg a Sáb 08h às 18h)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyPreset('ALMOCO_JANTAR')}
+                    className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 hover:border-amber-500/60 hover:text-amber-300 text-slate-300 transition cursor-pointer text-[11px]"
+                  >
+                    🍽️ Almoço & Jantar (Todos os dias 11h às 23h)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyPreset('TODOS_OS_DIAS')}
+                    className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 hover:border-amber-500/60 hover:text-amber-300 text-slate-300 transition cursor-pointer text-[11px]"
+                  >
+                    ⭐ Todos os Dias (18h às 23h30)
+                  </button>
+                </div>
+              </div>
+
+              {/* Day by Day Table/Cards */}
+              <div className="space-y-2 pt-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2">
+                  {DAYS_LIST.map(dayKey => {
+                    const info = DAY_LABELS[dayKey];
+                    const cfg = operatingSchedule[dayKey] || { enabled: false, open: '18:00', close: '23:30' };
+                    const isOvernight = cfg.enabled && cfg.close && cfg.open && cfg.close < cfg.open;
+
+                    return (
+                      <div
+                        key={dayKey}
+                        className={`p-3 rounded-xl border transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${
+                          cfg.enabled
+                            ? 'bg-slate-950/80 border-slate-800'
+                            : 'bg-slate-950/30 border-slate-900 opacity-60'
+                        }`}
+                      >
+                        {/* Day Name & Toggle */}
+                        <div className="flex items-center gap-3 min-w-[150px]">
+                          <input
+                            type="checkbox"
+                            id={`day_${dayKey}`}
+                            checked={cfg.enabled}
+                            onChange={e => updateDaySchedule(dayKey, { enabled: e.target.checked })}
+                            className="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500 bg-slate-900 border-slate-700 cursor-pointer"
+                          />
+                          <label
+                            htmlFor={`day_${dayKey}`}
+                            className={`font-bold cursor-pointer select-none ${
+                              cfg.enabled ? 'text-white' : 'text-slate-500 line-through'
+                            }`}
+                          >
+                            {info.full}
+                          </label>
+                        </div>
+
+                        {/* Hours Inputs */}
+                        {cfg.enabled ? (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[11px] text-slate-400">Das</span>
+                              <input
+                                type="time"
+                                value={cfg.open || '18:00'}
+                                onChange={e => updateDaySchedule(dayKey, { open: e.target.value })}
+                                className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-white font-mono text-xs focus:outline-none focus:border-amber-500"
+                              />
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[11px] text-slate-400">até</span>
+                              <input
+                                type="time"
+                                value={cfg.close || '23:30'}
+                                onChange={e => updateDaySchedule(dayKey, { close: e.target.value })}
+                                className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-white font-mono text-xs focus:outline-none focus:border-amber-500"
+                              />
+                            </div>
+                            {isOvernight && (
+                              <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 font-medium">
+                                🌙 Madrugada (+1 dia)
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-slate-500 italic">
+                            Fechado o dia todo (IA em repouso)
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Out of hours behavior */}
+              <div className="pt-4 border-t border-slate-800 space-y-3">
+                <label className="block text-slate-200 font-bold text-xs">
+                  O que a IA deve fazer quando o estabelecimento estiver fechado?
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, aiOutOfHoursAction: 'SILENT' })}
+                    className={`p-3.5 rounded-xl border text-left transition flex items-start gap-3 cursor-pointer ${
+                      outOfHoursAction === 'SILENT'
+                        ? 'bg-emerald-500/10 border-emerald-500 text-white'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    <VolumeX className={`w-5 h-5 shrink-0 mt-0.5 ${outOfHoursAction === 'SILENT' ? 'text-emerald-400' : 'text-slate-500'}`} />
+                    <div>
+                      <p className="font-bold text-xs text-white">Ficar em Silêncio (Recomendado)</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        A IA não responde nenhuma mensagem fora do horário. Você pode conversar manualmente no WhatsApp ou responder quando abrir.
+                      </p>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, aiOutOfHoursAction: 'AUTO_REPLY' })}
+                    className={`p-3.5 rounded-xl border text-left transition flex items-start gap-3 cursor-pointer ${
+                      outOfHoursAction === 'AUTO_REPLY'
+                        ? 'bg-emerald-500/10 border-emerald-500 text-white'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    <MessageSquare className={`w-5 h-5 shrink-0 mt-0.5 ${outOfHoursAction === 'AUTO_REPLY' ? 'text-emerald-400' : 'text-slate-500'}`} />
+                    <div>
+                      <p className="font-bold text-xs text-white">Enviar Mensagem Automática</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        A IA envia uma resposta educada avisando que a loja está fechada e informa seus horários de funcionamento.
+                      </p>
+                    </div>
+                  </button>
+                </div>
+
+                {outOfHoursAction === 'AUTO_REPLY' && (
+                  <div className="pt-2 space-y-1.5 animate-fadeIn">
+                    <div className="flex items-center justify-between">
+                      <label className="text-slate-300 font-semibold text-xs">
+                        Mensagem de Estabelecimento Fechado:
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setFormData({ ...formData, aiOutOfHoursMessage: DEFAULT_OUT_OF_HOURS_MESSAGE })}
+                        className="text-[11px] text-emerald-400 hover:underline cursor-pointer"
+                      >
+                        Restaurar padrão
+                      </button>
+                    </div>
+                    <textarea
+                      rows={4}
+                      value={formData.aiOutOfHoursMessage ?? DEFAULT_OUT_OF_HOURS_MESSAGE}
+                      onChange={e => setFormData({ ...formData, aiOutOfHoursMessage: e.target.value })}
+                      placeholder={DEFAULT_OUT_OF_HOURS_MESSAGE}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:outline-none focus:border-emerald-500/60 text-xs leading-relaxed font-sans"
+                    />
+                    <p className="text-[11px] text-slate-400 flex items-center gap-1.5">
+                      <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      Para não irritar o cliente, essa mensagem é enviada no máximo 1 vez a cada 3 horas para o mesmo número.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* AI Behavior & Personality */}

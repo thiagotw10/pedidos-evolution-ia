@@ -75,6 +75,24 @@ export interface Order {
   updatedAt: string;
 }
 
+export interface DaySchedule {
+  enabled: boolean;
+  open: string;  // e.g. "18:00"
+  close: string; // e.g. "23:30"
+}
+
+export interface OperatingSchedule {
+  monday: DaySchedule;
+  tuesday: DaySchedule;
+  wednesday: DaySchedule;
+  thursday: DaySchedule;
+  friday: DaySchedule;
+  saturday: DaySchedule;
+  sunday: DaySchedule;
+}
+
+export type OutOfHoursAction = 'SILENT' | 'AUTO_REPLY';
+
 export interface Establishment {
   id: string;
   name: string;
@@ -94,6 +112,11 @@ export interface Establishment {
   // AI Settings
   aiPromptCustom?: string;
   aiWelcomeMessage?: string;
+  // AI Operating Hours & Schedule
+  aiScheduleEnabled?: boolean;
+  aiOperatingSchedule?: OperatingSchedule;
+  aiOutOfHoursAction?: OutOfHoursAction;
+  aiOutOfHoursMessage?: string;
   // Subscription & Plan (Mercado Pago PIX)
   plan?: 'trial' | 'active' | 'expired';
   accountStatus?: 'trial' | 'active_paid' | 'expired';
