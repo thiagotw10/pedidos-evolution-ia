@@ -37,6 +37,15 @@ export type OrderStatus =
   | 'CONCLUIDO' 
   | 'CANCELADO';
 
+export interface Courier {
+  id: string;
+  name: string;
+  phone: string;
+  vehicle?: 'MOTO' | 'CARRO' | 'BIKE';
+  active?: boolean;
+  createdAt?: string;
+}
+
 export interface Order {
   id: string;
   establishmentId: string;
@@ -54,6 +63,14 @@ export interface Order {
   status: OrderStatus;
   notes?: string;
   rejectionReason?: string;
+  latitude?: number;
+  longitude?: number;
+  locationUrl?: string;
+  isGpsLocation?: boolean;
+  courierId?: string;
+  courierName?: string;
+  courierPhone?: string;
+  dispatchedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -68,6 +85,7 @@ export interface Establishment {
   operatingHours: string;
   description: string;
   pixKey?: string;
+  couriers?: Courier[];
   // Evolution API
   evolutionApiUrl: string;
   evolutionApiKey: string;
@@ -85,4 +103,24 @@ export interface ChatMessage {
   timestamp: string;
   orderId?: string;
   mediaUrl?: string;
+}
+
+export interface CampaignTemplate {
+  id: string;
+  establishmentId: string;
+  title: string;
+  description?: string;
+  message: string;
+  imageUrl?: string;
+  scheduledTime: string; // e.g. "18:00"
+  daysOfWeek: number[]; // [0, 1, 2, 3, 4, 5, 6] (0 = Sunday, 1 = Monday, etc.)
+  active: boolean;
+  targetAudience: 'ALL_CUSTOMERS' | 'LAST_30_DAYS';
+  lastRunAt?: string;
+  stats?: {
+    totalSent: number;
+    lastBatchCount: number;
+  };
+  createdAt: string;
+  updatedAt: string;
 }

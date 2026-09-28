@@ -18,15 +18,22 @@ import {
   Sparkles, 
   CheckCircle2, 
   AlertCircle,
-  HelpCircle
+  HelpCircle,
+  ArrowLeft
 } from 'lucide-react';
 
 interface AuthViewProps {
   onAuthSuccess: (storeId: string, email?: string) => void;
+  initialMode?: 'login' | 'register';
+  onBackToHome?: () => void;
 }
 
-export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
-  const [isRegister, setIsRegister] = useState(false);
+export const AuthView: React.FC<AuthViewProps> = ({ 
+  onAuthSuccess, 
+  initialMode = 'login',
+  onBackToHome 
+}) => {
+  const [isRegister, setIsRegister] = useState(initialMode === 'register');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   
@@ -232,6 +239,18 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
       {/* Main Container */}
       <div className="w-full max-w-md relative z-10">
         
+        {/* Back to Home Button */}
+        {onBackToHome && (
+          <button
+            type="button"
+            onClick={onBackToHome}
+            className="mb-4 inline-flex items-center gap-2 text-xs font-semibold text-slate-400 hover:text-emerald-400 transition cursor-pointer"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Voltar para a Página Inicial</span>
+          </button>
+        )}
+
         {/* Brand Header */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-400 p-0.5 shadow-lg shadow-emerald-500/20 mb-4">

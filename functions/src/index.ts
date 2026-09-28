@@ -1,4 +1,5 @@
 import { onRequest } from 'firebase-functions/v2/https';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 import express from 'express';
 import admin from 'firebase-admin';
 import crypto from 'crypto';
@@ -298,6 +299,14 @@ COMO VOCÊ DEVE AGIR:
 7. SUGESTÃO DE ÁUDIO NO INÍCIO:
    - Na primeira saudação ou início da conversa, dê as boas-vindas com alegria e mencione:
      "🎙️ *Dica:* Se preferir, pode me mandar mensagem de áudio que eu escuto perfeitamente e anoto seu pedido!"
+8. LOCALIZAÇÃO EXATA VIA WHATSAPP (GPS / WAZE):
+   - Ao perguntar o endereço para entrega (Delivery), sempre dê a opção prática da localização do WhatsApp:
+     "🛵 Para entrega, qual é o seu endereço completo (rua, número e bairro)?
+     📍 *Dica:* Se preferir, você pode simplesmente compartilhar sua *Localização aqui pelo WhatsApp* (no botão de anexo 📎 > Localização)! Nosso motoboy receberá a rota exata no Waze e Maps."
+   - Quando o cliente enviar a localização (você receberá a indicação [LOCALIZAÇÃO GPS RECEBIDA]), confirme com muito entusiasmo que as coordenadas foram gravadas:
+     "📍 *Localização recebida com sucesso!* Seus dados exatos de GPS foram salvos e o entregador irá direto pelo Waze/Google Maps até você! 🚀"
+     Peça apenas o número da residência/apartamento e a forma de pagamento caso ainda faltem!
+   - Ao chamar 'registrar_pedido', inclua a 'latitude' e 'longitude' fornecidas!
 `;
 
   // Define Function Calling Tool for order placement
@@ -310,6 +319,9 @@ COMO VOCÊ DEVE AGIR:
         customerName: { type: 'string', description: 'Nome informado pelo cliente' },
         deliveryType: { type: 'string', enum: ['DELIVERY', 'RETIRADA'], description: 'Tipo do pedido' },
         customerAddress: { type: 'string', description: 'Endereço de entrega completo com número e bairro' },
+        latitude: { type: 'number', description: 'Latitude GPS enviada pelo cliente se houver' },
+        longitude: { type: 'number', description: 'Longitude GPS enviada pelo cliente se houver' },
+        locationUrl: { type: 'string', description: 'Link do Google Maps com coordenadas se houver' },
         paymentMethod: { type: 'string', description: 'Forma de pagamento (ex: Crédito na entrega, PIX, Dinheiro)' },
         changeFor: { type: 'number', description: 'Valor para troco caso pague em dinheiro' },
         notes: { type: 'string', description: 'Observações gerais do pedido' },
@@ -492,6 +504,10 @@ COMO VOCÊ DEVE AGIR:
             customerName: args.customerName || customerNameParam || 'Cliente',
             customerPhone: customerPhone,
             customerAddress: args.customerAddress || (args.deliveryType === 'RETIRADA' ? 'Retirada no Balcão' : 'A confirmar'),
+            latitude: args.latitude || null,
+            longitude: args.longitude || null,
+            locationUrl: args.locationUrl || (args.latitude && args.longitude ? `https://www.google.com/maps?q=${args.latitude},${args.longitude}` : null),
+            isGpsLocation: !!(args.latitude && args.longitude),
             deliveryType: args.deliveryType || 'DELIVERY',
             items: orderItems,
             subtotal: subtotal,
@@ -779,7 +795,7 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
 
     // Extract message content (handles Evolution Go Message and Node message)
     const msgContent = messageData.Message || messageData.message || messageData.msg || {};
-    const text = msgContent.conversation || 
+    let text = msgContent.conversation || 
                  msgContent.extendedTextMessage?.text || 
                  msgContent.imageMessage?.caption || 
                  messageData.conversation ||
@@ -788,6 +804,65 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
 
     const audioMsg = msgContent.audioMessage || msgContent.AudioMessage;
     const imageMsg = msgContent.imageMessage || msgContent.ImageMessage;
+    const locationMsg = msgContent.locationMessage || 
+                        msgContent.LocationMessage || 
+                        msgContent.liveLocationMessage || 
+                        msgContent.LiveLocationMessage ||
+                        messageData.locationMessage;
+
+    let gpsData: { latitude: number; longitude: number; name?: string; address?: string } | null = null;
+    if (locationMsg) {
+      const lat = Number(locationMsg.degreesLatitude ?? locationMsg.latitude);
+      const lng = Number(locationMsg.degreesLongitude ?? locationMsg.longitude);
+      if (!isNaN(lat) && !isNaN(lng) && lat !== 0) {
+        gpsData = {
+          latitude: lat,
+          longitude: lng,
+          name: locationMsg.name || '',
+          address: locationMsg.address || ''
+        };
+        const locDesc = (gpsData.name || gpsData.address) 
+          ? `${gpsData.name ? gpsData.name + ' - ' : ''}${gpsData.address}`
+          : `Coordenadas GPS: ${lat}, ${lng}`;
+        
+        const wazeDirect = `https://waze.com/ul?ll=${lat},${lng}&navigate=yes`;
+        const mapsDirect = `https://www.google.com/maps?q=${lat},${lng}`;
+
+        text = `[LOCALIZAÇÃO GPS RECEBIDA DO WHATSAPP]:\nO cliente acabou de compartilhar sua localização exata no WhatsApp!\n- Latitude: ${lat}\n- Longitude: ${lng}\n- Referência/Endereço: ${locDesc}\n- Waze: ${wazeDirect}\n- Google Maps: ${mapsDirect}\n\nPor favor, confirme com muita simpatia que a localização GPS foi salva com sucesso para o motoboy seguir pelo Waze/Google Maps e pergunte se falta apenas confirmar o número da casa/apto ou forma de pagamento se ainda não foram informados.`;
+
+        console.log(`[Evolution Webhook] Localização GPS recebida de ${phone}: ${lat}, ${lng} (${locDesc})`);
+
+        // Check if there is an active/pending order for this customer created in the last 2 hours and update its GPS
+        try {
+          const recentOrdersSnap = await db.collection('establishments').doc(storeId)
+            .collection('orders')
+            .where('customerPhone', '==', phone)
+            .orderBy('createdAt', 'desc')
+            .limit(1)
+            .get();
+
+          if (!recentOrdersSnap.empty) {
+            const recentOrderDoc = recentOrdersSnap.docs[0];
+            const recentOrder = recentOrderDoc.data();
+            if (recentOrder.status === 'PENDENTE' || recentOrder.status === 'CONFIRMADO' || recentOrder.status === 'EM_PREPARO') {
+              await recentOrderDoc.ref.update({
+                latitude: lat,
+                longitude: lng,
+                locationUrl: mapsDirect,
+                isGpsLocation: true,
+                customerAddress: recentOrder.customerAddress && recentOrder.customerAddress !== 'A confirmar'
+                  ? `${recentOrder.customerAddress} (GPS WhatsApp: ${lat}, ${lng})`
+                  : locDesc || `GPS WhatsApp: ${lat}, ${lng}`,
+                updatedAt: new Date().toISOString()
+              });
+              console.log(`[Evolution Webhook] Pedido #${recentOrder.orderNumber} atualizado automaticamente com coordenadas GPS!`);
+            }
+          }
+        } catch (gpsUpdateErr) {
+          console.warn('[Evolution Webhook] Could not auto-attach GPS to recent order:', gpsUpdateErr);
+        }
+      }
+    }
 
     // De-duplication: Evolution Go often emits the same incoming message twice within milliseconds
     const messageId = info.ID || key.id || messageData.id || messageData.ID || '';
@@ -1160,7 +1235,7 @@ app.patch('/api/orders/:id/status', async (req, res) => {
   try {
     const storeId = getStoreId(req);
     const { id } = req.params;
-    const { status, rejectionReason } = req.body;
+    const { status, rejectionReason, courierPhone, courierName, saveCourier } = req.body;
 
     const orderRef = db.collection('establishments').doc(storeId).collection('orders').doc(id);
     const orderDoc = await orderRef.get();
@@ -1175,30 +1250,62 @@ app.patch('/api/orders/:id/status', async (req, res) => {
       updatedAt: new Date().toISOString()
     };
     if (rejectionReason) updateData.rejectionReason = rejectionReason;
+    if (courierPhone) {
+      updateData.courierPhone = courierPhone.replace(/\D/g, '');
+      if (courierName) updateData.courierName = courierName;
+      updateData.dispatchedAt = new Date().toISOString();
+    }
 
     await orderRef.update(updateData);
 
-    // Send automated WhatsApp notification to customer if phone exists
+    // If requested, auto-save this courier in the establishment's couriers directory
+    if (saveCourier && courierPhone) {
+      try {
+        const estRef = db.collection('establishments').doc(storeId);
+        const estDoc = await estRef.get();
+        const estData = estDoc.data() || {};
+        const existingCouriers: any[] = estData.couriers || [];
+        const cleanPhone = courierPhone.replace(/\D/g, '');
+        const alreadyExists = existingCouriers.some(c => c.phone.replace(/\D/g, '') === cleanPhone);
+
+        if (!alreadyExists) {
+          const newCourier = {
+            id: `cour_${Date.now()}`,
+            name: courierName || 'Motoboy',
+            phone: cleanPhone,
+            vehicle: 'MOTO',
+            active: true,
+            createdAt: new Date().toISOString()
+          };
+          await estRef.set({ couriers: [...existingCouriers, newCourier] }, { merge: true });
+        }
+      } catch (saveErr) {
+        console.warn('[Auto-save Courier Error]:', saveErr);
+      }
+    }
+
+    const estDoc = await db.collection('establishments').doc(storeId).get();
+    const est = estDoc.data() || {};
+    const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+    const evoKey = est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108';
+    const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 20)}`;
+    const evoInst = est.evolutionInstanceName || defaultInstName;
+
+    const customerName = orderData.customerName || 'Cliente';
     const customerPhone = orderData.customerPhone;
+    const orderNum = orderData.orderNumber || id.slice(-4);
+
+    // 1. Send automated WhatsApp notification to customer if phone exists
     if (customerPhone) {
       try {
-        const estDoc = await db.collection('establishments').doc(storeId).get();
-        const est = estDoc.data() || {};
-        const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
-        const evoKey = est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108';
-        const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 20)}`;
-        const evoInst = est.evolutionInstanceName || defaultInstName;
-
-        const customerName = orderData.customerName || 'Cliente';
-        const orderNum = orderData.orderNumber || id.slice(-4);
         let notifyText = '';
-
         console.log(`[Order Status Update] Loja: ${storeId}, Pedido #${orderNum}, Status: ${status}, Telefone: ${customerPhone}`);
 
         if (status === 'CONFIRMADO' || status === 'EM_PREPARO' || status === 'PREPARANDO') {
           notifyText = `Olá, *${customerName}*! Seu pedido *#${orderNum}* foi confirmado pelo restaurante e já está sendo preparado com muito carinho! 👨‍🍳🔥\n\n⏱️ *Tempo estimado:* ${est.estimatedDeliveryTime || '35 a 50 minutos'}.`;
         } else if (status === 'A_CAMINHO' || status === 'ENTREGA') {
-          notifyText = `Oba, *${customerName}*! 🛵 Seu pedido *#${orderNum}* acabou de sair para entrega!\n\n📍 *Endereço:* ${orderData.customerAddress || 'Endereço informado'}\n\nFique atento(a), o entregador chegará em instantes. Bom apetite! 😋`;
+          const courierGreeting = courierName ? ` com o entregador *${courierName}*` : '';
+          notifyText = `Oba, *${customerName}*! 🛵 Seu pedido *#${orderNum}* acabou de sair para entrega${courierGreeting}!\n\n📍 *Endereço:* ${orderData.customerAddress || 'Endereço informado'}\n\nFique atento(a), o entregador chegará em instantes. Bom apetite! 😋`;
         } else if (status === 'PRONTO') {
           notifyText = `Olá, *${customerName}*! 🛍️ Seu pedido *#${orderNum}* já está *PRONTO* para retirada no balcão!\n\nPode vir retirar quando quiser. Bom apetite! ✨`;
         } else if (status === 'CONCLUIDO' || status === 'FINALIZADO') {
@@ -1221,15 +1328,137 @@ app.patch('/api/orders/:id/status', async (req, res) => {
               timestamp: new Date().toISOString(),
               orderId: id
             }).catch(() => {});
-        } else {
-          console.log(`[Order Status Update] Nenhum texto de notificação definido para status: ${status}`);
         }
       } catch (notifyErr) {
         console.warn('[Status Notification Error]:', notifyErr);
       }
     }
 
+    // 2. Send automated WhatsApp notification to Motoboy / Entregador if courierPhone is provided
+    if ((status === 'A_CAMINHO' || status === 'ENTREGA') && courierPhone) {
+      try {
+        const cleanCourierPhone = courierPhone.replace(/\D/g, '');
+        if (cleanCourierPhone.length >= 10) {
+          const deliveryAddress = orderData.customerAddress || 'Endereço a combinar';
+          const encodedAddress = encodeURIComponent(deliveryAddress);
+          const hasGps = !isNaN(Number(orderData.latitude)) && !isNaN(Number(orderData.longitude)) && Number(orderData.latitude) !== 0;
+          const wazeUrl = hasGps 
+            ? `https://waze.com/ul?ll=${orderData.latitude},${orderData.longitude}&navigate=yes`
+            : `https://waze.com/ul?q=${encodedAddress}`;
+          const mapsUrl = hasGps
+            ? `https://www.google.com/maps?q=${orderData.latitude},${orderData.longitude}`
+            : `https://www.google.com/maps/search/?api=1&query=${encodedAddress}`;
+          const gpsNotice = hasGps ? `\n📍 *Ponto GPS Exato (Enviado pelo cliente via WhatsApp)!*` : '';
+
+          const itemsText = (orderData.items || [])
+            .map((it: any) => `• ${it.quantity}x ${it.name}${it.notes ? ` (${it.notes})` : ''}`)
+            .join('\n');
+
+          const totalNum = Number(orderData.total ?? orderData.totalAmount ?? 0);
+          const totalFormatted = totalNum.toFixed(2).replace('.', ',');
+          const changeInfo = orderData.changeFor ? ` (Troco para R$ ${Number(orderData.changeFor).toFixed(2).replace('.', ',')})` : '';
+
+          const motoboyGreeting = courierName ? `Olá, *${courierName}*! ` : '';
+          const courierMessage = 
+`${motoboyGreeting}🛵 *NOVA ENTREGA DISPONÍVEL - ${est.name || 'iaPedido'}*
+━━━━━━━━━━━━━━━━━━━━
+📦 *Pedido:* #${orderNum}
+👤 *Cliente:* ${customerName}
+📞 *Tel do Cliente:* ${customerPhone || 'Não informado'}
+
+📍 *Endereço de Entrega:*
+${deliveryAddress}${gpsNotice}
+
+🗺️ *Abrir GPS com 1 Clique:*
+🚗 *Waze:* ${wazeUrl}
+📍 *Google Maps:* ${mapsUrl}
+
+🛍️ *Itens:*
+${itemsText || 'Itens diversos'}
+
+💰 *Valor do Pedido:* R$ ${totalFormatted}
+💳 *Forma de Pagamento:* ${orderData.paymentMethod || 'A combinar'}${changeInfo}
+${orderData.notes ? `\n📝 *Observações:* ${orderData.notes}` : ''}
+━━━━━━━━━━━━━━━━━━━━
+_Bom trabalho e dirija com segurança! 🚀_`;
+
+          const cleanCourierMsg = formatWhatsAppText(courierMessage);
+          const courierSendRes = await sendWhatsAppMessage(evoUrl, evoKey, evoInst, cleanCourierPhone, cleanCourierMsg);
+          console.log(`[Order Dispatch Motoboy] WhatsApp enviado para motoboy ${cleanCourierPhone}:`, JSON.stringify(courierSendRes));
+        }
+      } catch (courierErr) {
+        console.warn('[Courier Dispatch Error]:', courierErr);
+      }
+    }
+
     res.json({ success: true, orderId: id, status });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------------------------------------------
+// Couriers / Motoboys Management API
+// ----------------------------------------------------
+app.get('/api/couriers', async (req, res) => {
+  try {
+    const storeId = getStoreId(req);
+    const estDoc = await db.collection('establishments').doc(storeId).get();
+    const est = estDoc.data() || {};
+    res.json(est.couriers || []);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/couriers', async (req, res) => {
+  try {
+    const storeId = getStoreId(req);
+    const { name, phone, vehicle, active } = req.body;
+    if (!name || !phone) {
+      return res.status(400).json({ error: 'Nome e telefone do entregador são obrigatórios' });
+    }
+
+    const cleanPhone = phone.replace(/\D/g, '');
+    const estRef = db.collection('establishments').doc(storeId);
+    const estDoc = await estRef.get();
+    const est = estDoc.data() || {};
+    const couriers: any[] = est.couriers || [];
+
+    const existingIndex = couriers.findIndex(c => c.phone.replace(/\D/g, '') === cleanPhone);
+    const courierData = {
+      id: req.body.id || (existingIndex >= 0 ? couriers[existingIndex].id : `cour_${Date.now()}`),
+      name: name.trim(),
+      phone: cleanPhone,
+      vehicle: vehicle || 'MOTO',
+      active: active !== undefined ? active : true,
+      updatedAt: new Date().toISOString()
+    };
+
+    if (existingIndex >= 0) {
+      couriers[existingIndex] = { ...couriers[existingIndex], ...courierData };
+    } else {
+      couriers.push({ ...courierData, createdAt: new Date().toISOString() });
+    }
+
+    await estRef.set({ couriers }, { merge: true });
+    res.json({ success: true, courier: courierData, couriers });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/couriers/:id', async (req, res) => {
+  try {
+    const storeId = getStoreId(req);
+    const { id } = req.params;
+    const estRef = db.collection('establishments').doc(storeId);
+    const estDoc = await estRef.get();
+    const est = estDoc.data() || {};
+    const couriers: any[] = (est.couriers || []).filter((c: any) => c.id !== id && c.phone !== id);
+
+    await estRef.set({ couriers }, { merge: true });
+    res.json({ success: true, couriers });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1519,7 +1748,468 @@ app.post('/api/evolution/test-send', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+// ----------------------------------------------------
+// Campaigns & Scheduled Broadcasts
+// ----------------------------------------------------
 
+// Helper to get unique past customers from delivered/completed orders, excluding blocked contacts
+async function getAudienceCustomers(establishmentId: string): Promise<Array<{ phone: string; name: string }>> {
+  const customersMap = new Map<string, string>(); // phone -> name
+
+  try {
+    // 0. Fetch Blocked / Opt-out Contacts
+    const blockedSnap = await db.collection('establishments').doc(establishmentId).collection('blocked_contacts').get();
+    const blockedSet = new Set(blockedSnap.docs.map(d => d.id));
+
+    // 1. Fetch from Orders collection (customers who actually placed valid orders)
+    const ordersSnap = await db.collection('establishments').doc(establishmentId).collection('orders').get();
+    for (const doc of ordersSnap.docs) {
+      const o = doc.data();
+      // Only include valid orders (exclude cancelled)
+      if (o.status === 'CANCELADO') continue;
+
+      const phone = (o.customerPhone || '').replace(/\D/g, '');
+      if (phone && phone.length >= 10 && !blockedSet.has(phone)) {
+        const existingName = customersMap.get(phone);
+        const newName = (o.customerName || '').trim();
+        if (!existingName || (newName && newName.toLowerCase() !== 'cliente')) {
+          customersMap.set(phone, newName || 'Cliente');
+        }
+      }
+    }
+  } catch (err: any) {
+    console.error(`[Audience Fetch Error for ${establishmentId}]:`, err.message);
+  }
+
+  return Array.from(customersMap.entries()).map(([phone, name]) => ({ phone, name }));
+}
+
+// Helper to execute campaign broadcast to customer list
+async function executeCampaignBroadcast(
+  establishmentId: string,
+  campaign: any,
+  customers: Array<{ phone: string; name: string }>
+): Promise<{ sentCount: number; errorsCount: number }> {
+  const estDoc = await db.collection('establishments').doc(establishmentId).get();
+  const establishment = estDoc.data() || {};
+  const evoUrl = (establishment.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+  const evoKey = establishment.evolutionApiKey || 'minha_chave_secreta_7108';
+  const defaultInstName = establishmentId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${establishmentId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 20)}`;
+  const evoInst = (establishment.evolutionInstanceName || defaultInstName).trim();
+
+  let sentCount = 0;
+  let errorsCount = 0;
+
+  console.log(`[Broadcast Campaign] Iniciando disparo da campanha "${campaign.title}" para ${customers.length} cliente(s) de ${establishment.name || establishmentId}`);
+
+  for (let i = 0; i < customers.length; i++) {
+    const client = customers[i];
+    try {
+      // Extract clean first name
+      let firstName = (client.name || '').trim().split(' ')[0];
+      if (!firstName || firstName.toLowerCase() === 'cliente') {
+        firstName = 'Amigo(a)';
+      }
+
+      // Replace template variables
+      let personalizedMsg = (campaign.message || '')
+        .replace(/\{cliente\}/gi, firstName)
+        .replace(/\{loja\}/gi, establishment.name || 'Nosso Restaurante')
+        .replace(/\{horario\}/gi, establishment.operatingHours || 'Aberto agora');
+
+      personalizedMsg = formatWhatsAppText(personalizedMsg);
+
+      if (campaign.imageUrl && campaign.imageUrl.trim()) {
+        await sendWhatsAppMedia(
+          evoUrl,
+          evoKey,
+          evoInst,
+          client.phone,
+          campaign.imageUrl.trim(),
+          personalizedMsg,
+          'image'
+        );
+      } else {
+        await sendWhatsAppMessage(
+          evoUrl,
+          evoKey,
+          evoInst,
+          client.phone,
+          personalizedMsg
+        );
+      }
+
+      sentCount++;
+      console.log(`[Broadcast Campaign] (${i + 1}/${customers.length}) Enviado com sucesso para ${client.phone} (${firstName})`);
+
+      // Security delay between customers to protect WhatsApp instance from spam detection
+      if (i < customers.length - 1) {
+        await new Promise(r => setTimeout(r, 1200));
+      }
+    } catch (err: any) {
+      console.error(`[Broadcast Campaign Error] Falha ao enviar para ${client.phone}:`, err.message);
+      errorsCount++;
+    }
+  }
+
+  // Update campaign execution stats in Firestore
+  await db.collection('establishments').doc(establishmentId).collection('campaigns').doc(campaign.id).set({
+    lastRunAt: new Date().toISOString(),
+    stats: {
+      totalSent: ((campaign.stats && campaign.stats.totalSent) || 0) + sentCount,
+      lastBatchCount: sentCount
+    },
+    updatedAt: new Date().toISOString()
+  }, { merge: true }).catch(() => {});
+
+  return { sentCount, errorsCount };
+}
+
+// 1. List Campaigns
+app.get('/api/campaigns', async (req, res) => {
+  try {
+    const storeId = getStoreId(req);
+    const snap = await db.collection('establishments').doc(storeId).collection('campaigns').orderBy('createdAt', 'desc').get();
+    const campaigns = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    res.json(campaigns);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 2. Audience count & stats
+app.get('/api/campaigns/audience', async (req, res) => {
+  try {
+    const storeId = getStoreId(req);
+    const customers = await getAudienceCustomers(storeId);
+    res.json({
+      totalCount: customers.length,
+      sample: customers.slice(0, 5)
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 3. Create or Update Campaign
+app.post('/api/campaigns', async (req, res) => {
+  try {
+    const storeId = getStoreId(req);
+    const { 
+      id, 
+      title, 
+      description, 
+      message, 
+      imageUrl, 
+      scheduledTime, 
+      daysOfWeek, 
+      active, 
+      targetAudience 
+    } = req.body;
+
+    if (!title || !message) {
+      return res.status(400).json({ error: 'Título e mensagem são obrigatórios.' });
+    }
+
+    const campaignData = {
+      establishmentId: storeId,
+      title: title.trim(),
+      description: (description || '').trim(),
+      message: message.trim(),
+      imageUrl: (imageUrl || '').trim(),
+      scheduledTime: scheduledTime || '18:00',
+      daysOfWeek: Array.isArray(daysOfWeek) ? daysOfWeek : [0, 1, 2, 3, 4, 5, 6],
+      active: active !== undefined ? Boolean(active) : true,
+      targetAudience: targetAudience || 'ALL_CUSTOMERS',
+      updatedAt: new Date().toISOString()
+    };
+
+    const campaignsCol = db.collection('establishments').doc(storeId).collection('campaigns');
+
+    if (id) {
+      await campaignsCol.doc(id).set({
+        ...campaignData,
+        lastRunAt: null // Reset lastRunAt so new time tests can run on the same day
+      }, { merge: true });
+      res.json({ id, ...campaignData });
+    } else {
+      const newDoc = await campaignsCol.add({
+        ...campaignData,
+        createdAt: new Date().toISOString(),
+        stats: { totalSent: 0, lastBatchCount: 0 }
+      });
+      res.json({ id: newDoc.id, ...campaignData });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 4. Delete Campaign
+app.delete('/api/campaigns/:id', async (req, res) => {
+  try {
+    const storeId = getStoreId(req);
+    const { id } = req.params;
+    await db.collection('establishments').doc(storeId).collection('campaigns').doc(id).delete();
+    res.json({ success: true, message: 'Campanha removida com sucesso' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 5. Toggle Campaign Active Status
+app.post('/api/campaigns/:id/toggle', async (req, res) => {
+  try {
+    const storeId = getStoreId(req);
+    const { id } = req.params;
+    const docRef = db.collection('establishments').doc(storeId).collection('campaigns').doc(id);
+    const docSnap = await docRef.get();
+    if (!docSnap.exists) {
+      return res.status(404).json({ error: 'Campanha não encontrada.' });
+    }
+    const currentActive = docSnap.data()?.active ?? true;
+    const nextActive = !currentActive;
+    await docRef.update({
+      active: nextActive,
+      ...(nextActive ? { lastRunAt: null } : {}),
+      updatedAt: new Date().toISOString()
+    });
+    res.json({ success: true, active: nextActive });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 6. Execute Immediate Broadcast ("Disparar Agora")
+app.post('/api/campaigns/:id/send-now', async (req, res) => {
+  try {
+    const storeId = getStoreId(req);
+    const { id } = req.params;
+    const docRef = db.collection('establishments').doc(storeId).collection('campaigns').doc(id);
+    const docSnap = await docRef.get();
+    if (!docSnap.exists) {
+      return res.status(404).json({ error: 'Campanha não encontrada.' });
+    }
+
+    const campaign = { id: docSnap.id, ...docSnap.data() };
+    const customers = await getAudienceCustomers(storeId);
+
+    if (customers.length === 0) {
+      return res.json({ 
+        success: true, 
+        message: 'Nenhum cliente na base ainda para receber este disparo.', 
+        sentCount: 0 
+      });
+    }
+
+    // Trigger broadcast asynchronously and respond
+    const result = await executeCampaignBroadcast(storeId, campaign, customers);
+    res.json({
+      success: true,
+      message: `Disparo concluído com sucesso para ${result.sentCount} cliente(s)!`,
+      sentCount: result.sentCount,
+      errorsCount: result.errorsCount
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------------------------------------------
+// Customer Contacts Management (WhatsApp Audience)
+// ----------------------------------------------------
+
+// List all customers who actually ordered and received with their stats and block status
+app.get('/api/customers', async (req, res) => {
+  try {
+    const storeId = getStoreId(req);
+
+    // Fetch blocked phones set
+    const blockedSnap = await db.collection('establishments').doc(storeId).collection('blocked_contacts').get();
+    const blockedMap = new Map<string, any>();
+    blockedSnap.docs.forEach(doc => {
+      blockedMap.set(doc.id, doc.data());
+    });
+
+    // Fetch orders to aggregate customer data
+    const ordersSnap = await db.collection('establishments').doc(storeId).collection('orders').get();
+    const map = new Map<string, {
+      phone: string;
+      name: string;
+      ordersCount: number;
+      completedOrdersCount: number;
+      totalSpent: number;
+      lastOrderDate: string;
+      isBlocked: boolean;
+      blockedAt?: string;
+    }>();
+
+    ordersSnap.docs.forEach(doc => {
+      const o = doc.data();
+      const phone = (o.customerPhone || '').replace(/\D/g, '');
+      if (!phone || phone.length < 10) return;
+
+      const existing = map.get(phone);
+      const isCompleted = o.status === 'CONCLUIDO' || o.status === 'PRONTO' || o.status === 'CONFIRMADO';
+      const orderTotal = Number(o.total) || 0;
+      const orderDate = o.createdAt || new Date().toISOString();
+
+      if (!existing) {
+        map.set(phone, {
+          phone,
+          name: o.customerName || 'Cliente',
+          ordersCount: 1,
+          completedOrdersCount: isCompleted ? 1 : 0,
+          totalSpent: o.status !== 'CANCELADO' ? orderTotal : 0,
+          lastOrderDate: orderDate,
+          isBlocked: blockedMap.has(phone),
+          blockedAt: blockedMap.get(phone)?.blockedAt
+        });
+      } else {
+        existing.ordersCount += 1;
+        if (isCompleted) existing.completedOrdersCount += 1;
+        if (o.status !== 'CANCELADO') existing.totalSpent += orderTotal;
+        if (new Date(orderDate) > new Date(existing.lastOrderDate)) {
+          existing.lastOrderDate = orderDate;
+          if (o.customerName && o.customerName !== 'Cliente') {
+            existing.name = o.customerName;
+          }
+        }
+      }
+    });
+
+    // Sort by last order descending
+    const customersList = Array.from(map.values())
+      .filter(c => c.completedOrdersCount > 0 || c.ordersCount > 0)
+      .sort((a, b) => new Date(b.lastOrderDate).getTime() - new Date(a.lastOrderDate).getTime());
+
+    res.json(customersList);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Toggle block/opt-out for a contact from marketing broadcasts
+app.post('/api/customers/toggle-block', async (req, res) => {
+  try {
+    const storeId = getStoreId(req);
+    const { phone, reason } = req.body;
+    if (!phone) return res.status(400).json({ error: 'Telefone é obrigatório.' });
+
+    const cleanPhone = phone.replace(/\D/g, '');
+    const docRef = db.collection('establishments').doc(storeId).collection('blocked_contacts').doc(cleanPhone);
+    const docSnap = await docRef.get();
+
+    if (docSnap.exists) {
+      // Unblock
+      await docRef.delete();
+      res.json({ success: true, isBlocked: false, message: 'Contato reativado para receber disparos.' });
+    } else {
+      // Block / Opt-out
+      await docRef.set({
+        phone: cleanPhone,
+        blockedAt: new Date().toISOString(),
+        reason: reason || 'Removido pelo estabelecimento'
+      });
+      res.json({ success: true, isBlocked: true, message: 'Contato removido da lista de disparos.' });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete contact from broadcast audience
+app.delete('/api/customers/:phone', async (req, res) => {
+  try {
+    const storeId = getStoreId(req);
+    const cleanPhone = (req.params.phone || '').replace(/\D/g, '');
+    if (!cleanPhone) return res.status(400).json({ error: 'Telefone é obrigatório.' });
+
+    await db.collection('establishments').doc(storeId).collection('blocked_contacts').doc(cleanPhone).set({
+      phone: cleanPhone,
+      blockedAt: new Date().toISOString(),
+      reason: 'Removido pelo estabelecimento'
+    });
+
+    res.json({ success: true, isBlocked: true, message: 'Contato removido dos disparos com sucesso.' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Helper function to check and execute scheduled campaigns for all active stores
+async function checkAndExecuteScheduledCampaigns(): Promise<{ triggeredCount: number; checkedTime: string }> {
+  const now = new Date();
+  // Get Brasília time (UTC-3)
+  const brTimeStr = now.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
+  const brDate = new Date(now.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+  const brDayOfWeek = brDate.getDay(); // 0 = Sunday, 1 = Monday, ...
+  const todayBR = now.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+
+  const [currH, currM] = brTimeStr.split(':').map(Number);
+  const currMinutes = currH * 60 + currM;
+
+  console.log(`[Cron Campaign Check] Verificando disparos para o horário de Brasília: ${brTimeStr} (Minutos: ${currMinutes}, Dia: ${brDayOfWeek})`);
+
+  const estSnap = await db.collection('establishments').get();
+  let triggeredCount = 0;
+
+  for (const estDoc of estSnap.docs) {
+    const storeId = estDoc.id;
+    const campaignsSnap = await db.collection('establishments').doc(storeId)
+      .collection('campaigns')
+      .where('active', '==', true)
+      .get();
+
+    for (const cDoc of campaignsSnap.docs) {
+      const camp = { id: cDoc.id, ...cDoc.data() } as any;
+      const days = camp.daysOfWeek || [];
+      const isScheduledDay = days.includes(brDayOfWeek);
+
+      const [schedH, schedM] = (camp.scheduledTime || '00:00').split(':').map(Number);
+      const schedMinutes = schedH * 60 + schedM;
+
+      // Safe time window: current time is at or after scheduled time (within a 30-minute window)
+      const timeDiff = currMinutes - schedMinutes;
+      const isTimeWindow = timeDiff >= 0 && timeDiff <= 30;
+
+      // Check if not already executed today
+      const lastRun = camp.lastRunAt ? new Date(camp.lastRunAt).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : null;
+      const alreadyRunToday = lastRun === todayBR;
+
+      if (isScheduledDay && isTimeWindow && !alreadyRunToday) {
+        console.log(`[Cron Trigger Match!] Disparando campanha "${camp.title}" para a loja ${storeId}`);
+        const customers = await getAudienceCustomers(storeId);
+        if (customers.length > 0) {
+          await executeCampaignBroadcast(storeId, camp, customers);
+          triggeredCount++;
+        }
+      }
+    }
+  }
+
+  return { triggeredCount, checkedTime: brTimeStr };
+}
+
+// 7. Check & Run Scheduled Campaigns (HTTP Endpoint)
+app.all('/api/cron/check-campaigns', async (req, res) => {
+  try {
+    const result = await checkAndExecuteScheduledCampaigns();
+    res.json({ status: 'checked', ...result });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Export Cloud Scheduler Function (runs automatically every 5 minutes in background)
+export const scheduledCampaignsRunner = onSchedule({
+  schedule: '*/5 * * * *',
+  timeZone: 'America/Sao_Paulo',
+  region: 'us-central1'
+}, async () => {
+  console.log('[Scheduler Triggered] Executando verificação de campanhas agendadas...');
+  await checkAndExecuteScheduledCampaigns();
+});
 // Export Cloud Function v2
 export const api = onRequest({
   region: 'us-central1',

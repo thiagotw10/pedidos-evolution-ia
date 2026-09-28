@@ -61,13 +61,13 @@ export const Header: React.FC<HeaderProps> = ({
           <span>{soundEnabled ? 'Som Ativo' : 'Sem Som'}</span>
         </button>
 
-        {/* WhatsApp Evolution Status */}
+        {/* WhatsApp Status */}
         <button
           onClick={onOpenWhatsApp}
           className="px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 bg-slate-800/90 border border-slate-700/80 hover:border-slate-600 transition cursor-pointer text-slate-200 shadow-sm"
         >
           <Smartphone className="w-4 h-4 text-emerald-400" />
-          <span>WhatsApp Evolution</span>
+          <span>WhatsApp</span>
           <span className={`w-2 h-2 rounded-full ${establishment?.evolutionConnected ? 'bg-emerald-400' : 'bg-amber-400 animate-ping'}`} />
         </button>
 

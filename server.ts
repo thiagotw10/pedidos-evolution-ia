@@ -487,13 +487,31 @@ async function startServer() {
 
         const senderPhone = remoteJid.replace('@s.whatsapp.net', '').replace('@c.us', '');
         
-        // Extract text message content
+        // Extract text or location message content
         const msg = messageData.message || {};
-        const textContent = 
+        let textContent = 
           msg.conversation || 
           msg.extendedTextMessage?.text || 
           msg.imageMessage?.caption || 
           '';
+
+        const locationMsg = msg.locationMessage || 
+                            msg.LocationMessage || 
+                            msg.liveLocationMessage || 
+                            messageData.locationMessage;
+
+        if (locationMsg) {
+          const lat = Number(locationMsg.degreesLatitude ?? locationMsg.latitude);
+          const lng = Number(locationMsg.degreesLongitude ?? locationMsg.longitude);
+          if (!isNaN(lat) && !isNaN(lng) && lat !== 0) {
+            const locDesc = (locationMsg.name || locationMsg.address)
+              ? `${locationMsg.name ? locationMsg.name + ' - ' : ''}${locationMsg.address}`
+              : `Coordenadas GPS: ${lat}, ${lng}`;
+            const wazeDirect = `https://waze.com/ul?ll=${lat},${lng}&navigate=yes`;
+            const mapsDirect = `https://www.google.com/maps?q=${lat},${lng}`;
+            textContent = `[LOCALIZAÇÃO GPS RECEBIDA DO WHATSAPP]:\nO cliente compartilhou a localização exata no WhatsApp!\n- Latitude: ${lat}\n- Longitude: ${lng}\n- Referência: ${locDesc}\n- Waze: ${wazeDirect}\n- Google Maps: ${mapsDirect}`;
+          }
+        }
 
         if (!textContent.trim()) {
           return res.status(200).json({ status: 'no_text' });
@@ -804,7 +822,7 @@ async function startServer() {
     try {
       const storeId = getStoreId(req);
       const { id } = req.params;
-      const { status, rejectionReason } = req.body;
+      const { status, rejectionReason, courierPhone, courierName, saveCourier } = req.body;
 
       const orderRef = db.collection('establishments').doc(storeId).collection('orders').doc(id);
       const orderSnap = await orderRef.get();
@@ -822,8 +840,39 @@ async function startServer() {
       if (rejectionReason) {
         updatePayload.rejectionReason = rejectionReason;
       }
+      if (courierPhone) {
+        updatePayload.courierPhone = courierPhone.replace(/\D/g, '');
+        if (courierName) updatePayload.courierName = courierName;
+        updatePayload.dispatchedAt = new Date().toISOString();
+      }
 
       await orderRef.update(updatePayload);
+
+      // Auto-save courier if requested
+      if (saveCourier && courierPhone) {
+        try {
+          const estRef = db.collection('establishments').doc(storeId);
+          const estSnap = await estRef.get();
+          const estData = estSnap.data() || {};
+          const existingCouriers: any[] = estData.couriers || [];
+          const cleanPhone = courierPhone.replace(/\D/g, '');
+          const alreadyExists = existingCouriers.some(c => c.phone.replace(/\D/g, '') === cleanPhone);
+
+          if (!alreadyExists) {
+            const newCourier = {
+              id: `cour_${Date.now()}`,
+              name: courierName || 'Motoboy',
+              phone: cleanPhone,
+              vehicle: 'MOTO',
+              active: true,
+              createdAt: new Date().toISOString()
+            };
+            await estRef.set({ couriers: [...existingCouriers, newCourier] }, { merge: true });
+          }
+        } catch (saveErr) {
+          console.warn('[Auto-save Courier Error in server.ts]:', saveErr);
+        }
+      }
 
       // Prepare WhatsApp message based on status change
       let statusMessage = '';
@@ -835,8 +884,9 @@ async function startServer() {
           `⏱️ *Tempo estimado:* 30 a 45 minutos.\n` +
           `Avisaremos assim que sair para você! Obrigado pela preferência!`;
       } else if (status === 'A_CAMINHO') {
+        const courierGreeting = courierName ? ` com o entregador *${courierName}*` : '';
         statusMessage = `🛵 *SEU PEDIDO #${orderNum} SAIU PARA ENTREGA!*\n\n` +
-          `Olá, *${order.customerName}*! O entregador acabou de sair com seu pedido a caminho de: \n` +
+          `Olá, *${order.customerName}*! O entregador acabou de sair${courierGreeting} a caminho de: \n` +
           `📍 *${order.customerAddress}*\n\n` +
           `Fique atento ao interfone ou campainha! Bom apetite! 😋`;
       } else if (status === 'PRONTO') {
@@ -853,19 +903,19 @@ async function startServer() {
           `Se desejar alterar algum item ou pedir em outro momento, ficamos à sua disposição!`;
       }
 
+      const estDoc = await db.collection('establishments').doc(storeId).get();
+      const est = estDoc.data() || {};
+      let evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+      if (evoUrl.includes('localhost:8080') || !evoUrl) {
+        evoUrl = (process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+      }
+      let evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
+      if (!evoKey) evoKey = 'minha_chave_secreta_7108';
+      const evoInst = (est.evolutionInstanceName || process.env.EVOLUTION_INSTANCE_NAME || 'pedidos_zap').trim();
+
       // If statusMessage exists and customer has phone, send via Evolution API
       let sentNotification = false;
       if (statusMessage && order.customerPhone) {
-        const estDoc = await db.collection('establishments').doc(storeId).get();
-        const est = estDoc.data() || {};
-        let evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
-        if (evoUrl.includes('localhost:8080') || !evoUrl) {
-          evoUrl = (process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
-        }
-        let evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
-        if (!evoKey) evoKey = 'minha_chave_secreta_7108';
-        const evoInst = (est.evolutionInstanceName || process.env.EVOLUTION_INSTANCE_NAME || 'pedidos_zap').trim();
-
         const sendResult = await sendWhatsAppMessage(evoUrl, evoKey, evoInst, order.customerPhone, statusMessage);
         sentNotification = sendResult.success;
 
@@ -877,7 +927,62 @@ async function startServer() {
             text: statusMessage,
             timestamp: new Date().toISOString(),
             orderId: id
-          });
+          }).catch(() => {});
+      }
+
+      // Notify motoboy if courierPhone provided
+      if ((status === 'A_CAMINHO' || status === 'ENTREGA') && courierPhone) {
+        try {
+          const cleanCourierPhone = courierPhone.replace(/\D/g, '');
+          if (cleanCourierPhone.length >= 10) {
+            const deliveryAddress = order.customerAddress || 'Endereço a combinar';
+            const encodedAddress = encodeURIComponent(deliveryAddress);
+            const hasGps = !isNaN(Number(order.latitude)) && !isNaN(Number(order.longitude)) && Number(order.latitude) !== 0;
+            const wazeUrl = hasGps 
+              ? `https://waze.com/ul?ll=${order.latitude},${order.longitude}&navigate=yes`
+              : `https://waze.com/ul?q=${encodedAddress}`;
+            const mapsUrl = hasGps 
+              ? `https://www.google.com/maps?q=${order.latitude},${order.longitude}`
+              : `https://www.google.com/maps/search/?api=1&query=${encodedAddress}`;
+            const gpsNotice = hasGps ? `\n📍 *Ponto GPS Exato (Enviado pelo cliente no WhatsApp)!*` : '';
+
+            const itemsText = (order.items || [])
+              .map((it: any) => `• ${it.quantity}x ${it.name}${it.notes ? ` (${it.notes})` : ''}`)
+              .join('\n');
+
+            const totalNum = Number(order.total ?? order.totalAmount ?? 0);
+            const totalFormatted = totalNum.toFixed(2).replace('.', ',');
+            const changeInfo = order.changeFor ? ` (Troco para R$ ${Number(order.changeFor).toFixed(2).replace('.', ',')})` : '';
+
+            const motoboyGreeting = courierName ? `Olá, *${courierName}*! ` : '';
+            const courierMessage = 
+`${motoboyGreeting}🛵 *NOVA ENTREGA DISPONÍVEL - ${est.name || 'iaPedido'}*
+━━━━━━━━━━━━━━━━━━━━
+📦 *Pedido:* #${orderNum}
+👤 *Cliente:* ${order.customerName || 'Cliente'}
+📞 *Tel do Cliente:* ${order.customerPhone || 'Não informado'}
+
+📍 *Endereço de Entrega:*
+${deliveryAddress}${gpsNotice}
+
+🗺️ *Abrir GPS com 1 Clique:*
+🚗 *Waze:* ${wazeUrl}
+📍 *Google Maps:* ${mapsUrl}
+
+🛍️ *Itens:*
+${itemsText || 'Itens diversos'}
+
+💰 *Valor do Pedido:* R$ ${totalFormatted}
+💳 *Forma de Pagamento:* ${order.paymentMethod || 'A combinar'}${changeInfo}
+${order.notes ? `\n📝 *Observações:* ${order.notes}` : ''}
+━━━━━━━━━━━━━━━━━━━━
+_Bom trabalho e dirija com segurança! 🚀_`;
+
+            await sendWhatsAppMessage(evoUrl, evoKey, evoInst, cleanCourierPhone, courierMessage);
+          }
+        } catch (motoboyErr) {
+          console.warn('[Motoboy Dispatch Error in server.ts]:', motoboyErr);
+        }
       }
 
       res.json({
@@ -887,6 +992,72 @@ async function startServer() {
         sentNotification,
         message: statusMessage
       });
+    } catch (err: any) {
+      console.error('Error updating order status:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Couriers CRUD in server.ts
+  app.get('/api/couriers', async (req, res) => {
+    try {
+      const storeId = getStoreId(req);
+      const estDoc = await db.collection('establishments').doc(storeId).get();
+      const est = estDoc.data() || {};
+      res.json(est.couriers || []);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/couriers', async (req, res) => {
+    try {
+      const storeId = getStoreId(req);
+      const { name, phone, vehicle, active } = req.body;
+      if (!name || !phone) {
+        return res.status(400).json({ error: 'Nome e telefone são obrigatórios' });
+      }
+
+      const cleanPhone = phone.replace(/\D/g, '');
+      const estRef = db.collection('establishments').doc(storeId);
+      const estDoc = await estRef.get();
+      const est = estDoc.data() || {};
+      const couriers: any[] = est.couriers || [];
+
+      const existingIndex = couriers.findIndex(c => c.phone.replace(/\D/g, '') === cleanPhone);
+      const courierData = {
+        id: req.body.id || (existingIndex >= 0 ? couriers[existingIndex].id : `cour_${Date.now()}`),
+        name: name.trim(),
+        phone: cleanPhone,
+        vehicle: vehicle || 'MOTO',
+        active: active !== undefined ? active : true,
+        updatedAt: new Date().toISOString()
+      };
+
+      if (existingIndex >= 0) {
+        couriers[existingIndex] = { ...couriers[existingIndex], ...courierData };
+      } else {
+        couriers.push({ ...courierData, createdAt: new Date().toISOString() });
+      }
+
+      await estRef.set({ couriers }, { merge: true });
+      res.json({ success: true, courier: courierData, couriers });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/couriers/:id', async (req, res) => {
+    try {
+      const storeId = getStoreId(req);
+      const { id } = req.params;
+      const estRef = db.collection('establishments').doc(storeId);
+      const estDoc = await estRef.get();
+      const est = estDoc.data() || {};
+      const couriers: any[] = (est.couriers || []).filter((c: any) => c.id !== id && c.phone !== id);
+
+      await estRef.set({ couriers }, { merge: true });
+      res.json({ success: true, couriers });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

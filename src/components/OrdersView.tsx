@@ -13,23 +13,35 @@ import {
   ChefHat,
   Check,
   Send,
-  Filter
+  Filter,
+  Navigation
 } from 'lucide-react';
-import { Order, OrderStatus } from '../types';
+import { Order, OrderStatus, Courier } from '../types';
+import { DispatchModal } from './DispatchModal';
 
 interface OrdersViewProps {
   orders: Order[];
-  onUpdateStatus: (orderId: string, status: OrderStatus, reason?: string) => Promise<void>;
+  onUpdateStatus: (
+    orderId: string, 
+    status: OrderStatus, 
+    reason?: string,
+    courierInfo?: { courierPhone?: string; courierName?: string; saveCourier?: boolean }
+  ) => Promise<void>;
   loading: boolean;
+  couriers?: Courier[];
+  establishmentName?: string;
 }
 
 export const OrdersView: React.FC<OrdersViewProps> = ({
   orders,
   onUpdateStatus,
-  loading
+  loading,
+  couriers = [],
+  establishmentName = 'iaPedido.com'
 }) => {
   const [activeFilter, setActiveFilter] = useState<string>('PENDENTE');
   const [rejectModalOrder, setRejectModalOrder] = useState<Order | null>(null);
+  const [dispatchModalOrder, setDispatchModalOrder] = useState<Order | null>(null);
   const [rejectReason, setRejectReason] = useState<string>('');
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
 
@@ -68,14 +80,20 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     }
   };
 
-  const handleStatusChange = async (orderId: string, status: OrderStatus, reason?: string) => {
+  const handleStatusChange = async (
+    orderId: string, 
+    status: OrderStatus, 
+    reason?: string,
+    courierInfo?: { courierPhone?: string; courierName?: string; saveCourier?: boolean }
+  ) => {
     try {
       setIsUpdating(orderId);
-      await onUpdateStatus(orderId, status, reason);
+      await onUpdateStatus(orderId, status, reason, courierInfo);
     } finally {
       setIsUpdating(null);
       setRejectModalOrder(null);
       setRejectReason('');
+      setDispatchModalOrder(null);
     }
   };
 
@@ -234,14 +252,72 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   </div>
 
                   {order.deliveryType === 'DELIVERY' && (
-                    <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 text-xs">
+                    <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 text-xs space-y-2">
                       <div className="flex items-start gap-2 text-slate-300">
                         <MapPin className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                        <div>
-                          <p className="font-semibold text-white">Endereço de Entrega:</p>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold text-white">Endereço de Entrega:</p>
+                            {order.latitude && order.longitude && (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] font-bold">
+                                <Navigation className="w-2.5 h-2.5 text-emerald-400" />
+                                GPS WhatsApp (Exato)
+                              </span>
+                            )}
+                          </div>
                           <p className="text-slate-400 mt-0.5">{order.customerAddress || 'A combinar'}</p>
                         </div>
                       </div>
+
+                      {order.customerAddress && (
+                        <div className="flex items-center gap-1.5 pt-1.5 border-t border-slate-800/60">
+                          <span className="text-[10px] text-slate-400 font-semibold mr-1">GPS:</span>
+                          <a
+                            href={order.latitude && order.longitude 
+                              ? `https://waze.com/ul?ll=${order.latitude},${order.longitude}&navigate=yes`
+                              : `https://waze.com/ul?q=${encodeURIComponent(order.customerAddress)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-2 py-0.5 rounded-md bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-[10px] font-bold flex items-center gap-1 transition"
+                            title="Abrir rota no Waze"
+                          >
+                            <Navigation className="w-2.5 h-2.5" />
+                            <span>Waze</span>
+                          </a>
+                          <a
+                            href={order.latitude && order.longitude 
+                              ? `https://www.google.com/maps?q=${order.latitude},${order.longitude}`
+                              : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.customerAddress)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-2 py-0.5 rounded-md bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold flex items-center gap-1 transition"
+                            title="Abrir rota no Google Maps"
+                          >
+                            <MapPin className="w-2.5 h-2.5" />
+                            <span>Maps</span>
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Motoboy / Courier Info Badge */}
+                  {(order.courierName || order.courierPhone) && (
+                    <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-xs text-cyan-300 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Bike className="w-4 h-4 text-cyan-400 shrink-0" />
+                        <div>
+                          <p className="font-bold text-white leading-tight">
+                            {order.courierName || 'Motoboy'}
+                          </p>
+                          <p className="text-[11px] text-cyan-300/80 font-mono">
+                            {order.courierPhone}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-bold bg-cyan-500/20 px-2 py-0.5 rounded text-cyan-300 border border-cyan-500/30">
+                        Despachado
+                      </span>
                     </div>
                   )}
 
@@ -337,8 +413,8 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       {order.deliveryType === 'DELIVERY' ? (
                         <button
                           disabled={isUpdatingCurrent}
-                          onClick={() => handleStatusChange(order.id, 'A_CAMINHO')}
-                          className="flex-1 py-2.5 px-3 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                          onClick={() => setDispatchModalOrder(order)}
+                          className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-black text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-lg shadow-cyan-600/20"
                         >
                           <Bike className="w-4 h-4" />
                           <span>Despachar Entrega</span>
@@ -357,14 +433,25 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   )}
 
                   {(order.status === 'A_CAMINHO' || order.status === 'PRONTO') && (
-                    <button
-                      disabled={isUpdatingCurrent}
-                      onClick={() => handleStatusChange(order.id, 'CONCLUIDO')}
-                      className="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
-                    >
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>Concluir & Finalizar</span>
-                    </button>
+                    <div className="space-y-2">
+                      {order.status === 'A_CAMINHO' && order.deliveryType === 'DELIVERY' && (
+                        <button
+                          onClick={() => setDispatchModalOrder(order)}
+                          className="w-full py-1.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-cyan-400 border border-cyan-500/20 text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                        >
+                          <Bike className="w-3.5 h-3.5" />
+                          <span>{order.courierPhone ? 'Reenviar para Motoboy' : 'Atribuir a um Motoboy'}</span>
+                        </button>
+                      )}
+                      <button
+                        disabled={isUpdatingCurrent}
+                        onClick={() => handleStatusChange(order.id, 'CONCLUIDO')}
+                        className="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-lg shadow-emerald-600/20"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Concluir & Finalizar</span>
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -412,6 +499,24 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Dispatch to Motoboy Modal */}
+      {dispatchModalOrder && (
+        <DispatchModal
+          order={dispatchModalOrder}
+          couriers={couriers}
+          establishmentName={establishmentName}
+          onClose={() => setDispatchModalOrder(null)}
+          onConfirmDispatch={async (courierOpts) => {
+            await handleStatusChange(
+              dispatchModalOrder.id,
+              'A_CAMINHO',
+              undefined,
+              courierOpts
+            );
+          }}
+        />
       )}
     </div>
   );

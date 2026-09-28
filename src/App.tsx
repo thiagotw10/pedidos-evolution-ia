@@ -15,7 +15,10 @@ import { ProductsView } from './components/ProductsView';
 import { SimulatorView } from './components/SimulatorView';
 import { WhatsAppView } from './components/WhatsAppView';
 import { SettingsView } from './components/SettingsView';
+import { CampaignsView } from './components/CampaignsView';
+import { FinanceView } from './components/FinanceView';
 import { AuthView } from './components/AuthView';
+import { HomeView } from './components/HomeView';
 import { Order, Product, Establishment, OrderStatus } from './types';
 import { Loader2 } from 'lucide-react';
 
@@ -31,6 +34,8 @@ export default function App() {
   });
   const [authLoading, setAuthLoading] = useState(true);
   const [demoMode, setDemoMode] = useState(false);
+  const [unauthView, setUnauthView] = useState<'home' | 'auth'>('home');
+  const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('register');
 
   const [currentTab, setCurrentTab] = useState<string>('orders');
   const [orders, setOrders] = useState<Order[]>([]);
@@ -230,11 +235,21 @@ export default function App() {
   };
 
   // Actions
-  const handleUpdateOrderStatus = async (orderId: string, status: OrderStatus, reason?: string) => {
+  const handleUpdateOrderStatus = async (
+    orderId: string, 
+    status: OrderStatus, 
+    reason?: string,
+    courierInfo?: { courierPhone?: string; courierName?: string; saveCourier?: boolean }
+  ) => {
     const res = await fetch(`/api/orders/${orderId}/status?establishmentId=${storeId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status, rejectionReason: reason, establishmentId: storeId })
+      body: JSON.stringify({ 
+        status, 
+        rejectionReason: reason, 
+        establishmentId: storeId,
+        ...courierInfo
+      })
     });
     if (!res.ok) {
       const errorData = await res.json();
@@ -289,6 +304,7 @@ export default function App() {
       localStorage.removeItem('iapedido_session');
       setSessionUser(null);
       setDemoMode(false);
+      setUnauthView('home');
     } catch (err: any) {
       console.error('Error signing out:', err);
     }
@@ -304,21 +320,37 @@ export default function App() {
     );
   }
 
-  // If user is not authenticated, render Login/Register Auth View
+  // If user is not authenticated, render Landing Page or Auth View
   if (!isAuthenticated) {
+    if (unauthView === 'auth') {
+      return (
+        <AuthView 
+          initialMode={authInitialMode}
+          onBackToHome={() => setUnauthView('home')}
+          onAuthSuccess={(uid, email) => {
+            if (uid === 'default_store') {
+              setDemoMode(true);
+            } else {
+              const userObj = { uid, email };
+              try {
+                localStorage.setItem('iapedido_session', JSON.stringify(userObj));
+              } catch {}
+              setSessionUser(userObj);
+            }
+          }} 
+        />
+      );
+    }
+
     return (
-      <AuthView 
-        onAuthSuccess={(uid, email) => {
-          if (uid === 'default_store') {
-            setDemoMode(true);
-          } else {
-            const userObj = { uid, email };
-            try {
-              localStorage.setItem('iapedido_session', JSON.stringify(userObj));
-            } catch {}
-            setSessionUser(userObj);
-          }
-        }} 
+      <HomeView 
+        onGoToAuth={(mode) => {
+          setAuthInitialMode(mode);
+          setUnauthView('auth');
+        }}
+        onTryDemo={() => {
+          setDemoMode(true);
+        }}
       />
     );
   }
@@ -353,6 +385,14 @@ export default function App() {
               orders={orders}
               onUpdateStatus={handleUpdateOrderStatus}
               loading={loadingOrders}
+              couriers={establishment?.couriers || []}
+              establishmentName={establishment?.name || 'iaPedido.com'}
+            />
+          )}
+
+          {currentTab === 'finance' && (
+            <FinanceView
+              orders={orders}
             />
           )}
 
@@ -363,6 +403,14 @@ export default function App() {
               onSaveProduct={handleSaveProduct}
               onDeleteProduct={handleDeleteProduct}
               loading={loadingProducts}
+            />
+          )}
+
+          {currentTab === 'campaigns' && (
+            <CampaignsView
+              establishmentId={storeId}
+              establishment={establishment}
+              onNavigateToWhatsApp={() => setCurrentTab('whatsapp')}
             />
           )}
 

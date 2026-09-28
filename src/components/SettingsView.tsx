@@ -9,7 +9,10 @@ import {
   Save, 
   Check, 
   Bot,
-  QrCode
+  QrCode,
+  Bike,
+  Plus,
+  Trash2
 } from 'lucide-react';
 import { Establishment } from '../types';
 
@@ -148,11 +151,140 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
+        {/* Motoboys & Couriers Management */}
+        <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-6 space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h3 className="font-bold text-base text-white flex items-center gap-2">
+                <Bike className="w-5 h-5 text-cyan-400" />
+                Equipe de Entregadores & Motoboys
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Cadastre os motoboys que fazem suas entregas para enviar o pedido com 1 clique com link do Waze e Google Maps
+              </p>
+            </div>
+            <span className="text-xs font-bold px-3 py-1 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 w-fit">
+              {(formData.couriers || []).length} Entregador(es)
+            </span>
+          </div>
+
+          {/* List of existing couriers */}
+          {(formData.couriers && formData.couriers.length > 0) ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {formData.couriers.map((courier, index) => (
+                <div 
+                  key={courier.id || index}
+                  className="bg-slate-950/70 p-3.5 rounded-xl border border-slate-800/80 flex items-center justify-between gap-3 text-xs"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center font-bold">
+                      <Bike className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-white text-sm">{courier.name}</p>
+                      <p className="text-[11px] text-slate-400 font-mono flex items-center gap-1 mt-0.5">
+                        <Phone className="w-3 h-3 text-emerald-400" />
+                        {courier.phone}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const updated = (formData.couriers || []).filter((_, i) => i !== index);
+                        setFormData({ ...formData, couriers: updated });
+                      }}
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
+                      title="Remover entregador"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="p-4 rounded-xl bg-slate-950/40 border border-dashed border-slate-800 text-center text-xs text-slate-500">
+              Nenhum motoboy cadastrado ainda. Adicione abaixo para facilitar na hora de despachar.
+            </div>
+          )}
+
+          {/* Add new courier row */}
+          <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-3">
+            <p className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+              <Plus className="w-4 h-4 text-cyan-400" />
+              Adicionar Novo Motoboy
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div>
+                <label className="block text-slate-400 mb-1">Nome</label>
+                <input
+                  type="text"
+                  id="newCourierName"
+                  placeholder="Ex: Carlos Motoboy"
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">WhatsApp (com DDD)</label>
+                <input
+                  type="text"
+                  id="newCourierPhone"
+                  placeholder="Ex: 5511999998888"
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nameInput = document.getElementById('newCourierName') as HTMLInputElement;
+                    const phoneInput = document.getElementById('newCourierPhone') as HTMLInputElement;
+                    const name = nameInput?.value.trim();
+                    const phone = phoneInput?.value.replace(/\D/g, '');
+
+                    if (!name || !phone || phone.length < 10) {
+                      alert('Preencha o nome e um telefone WhatsApp válido (com DDD)');
+                      return;
+                    }
+
+                    const newCourier = {
+                      id: `c_${Date.now()}`,
+                      name,
+                      phone,
+                      vehicle: 'MOTO' as const,
+                      active: true,
+                      createdAt: new Date().toISOString()
+                    };
+
+                    setFormData({
+                      ...formData,
+                      couriers: [...(formData.couriers || []), newCourier]
+                    });
+
+                    if (nameInput) nameInput.value = '';
+                    if (phoneInput) phoneInput.value = '';
+                  }}
+                  className="w-full py-2 px-4 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Cadastrar Motoboy</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* AI Behavior & Personality */}
         <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-6 space-y-4">
           <h3 className="font-bold text-base text-white flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-purple-400" />
-            Personalidade & Regras do Atendente IA (Gemini)
+            <Sparkles className="w-5 h-5 text-emerald-400" />
+            Personalidade & Regras da Inteligência Artificial
           </h3>
 
           <div className="space-y-4 text-xs">

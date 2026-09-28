@@ -8,7 +8,9 @@ import {
   Smartphone, 
   CheckCheck,
   ShoppingBag,
-  ExternalLink
+  ExternalLink,
+  MapPin,
+  Navigation
 } from 'lucide-react';
 import { ChatMessage } from '../types';
 
@@ -152,10 +154,63 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
     ]);
   };
 
+  const handleSendLocation = async () => {
+    if (isTyping) return;
+    const lat = -23.561684;
+    const lng = -46.655981;
+    const payloadText = `[LOCALIZAÇÃO GPS RECEBIDA DO WHATSAPP]:\nO cliente compartilhou a localização exata no WhatsApp!\n- Latitude: ${lat}\n- Longitude: ${lng}\n- Referência/Endereço: Av. Paulista, 1578 - Bela Vista, São Paulo - SP\n- Waze: https://waze.com/ul?ll=${lat},${lng}&navigate=yes\n- Google Maps: https://www.google.com/maps?q=${lat},${lng}`;
+
+    const visualMsg: ChatMessage = {
+      id: `user_loc_${Date.now()}`,
+      sender: 'user',
+      text: '📍 [Localização WhatsApp]: Av. Paulista, 1578 - Bela Vista (Ponto GPS Exato)',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    setMessages(prev => [...prev, visualMsg]);
+    setIsTyping(true);
+
+    try {
+      const response = await fetch('/api/simulator/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: payloadText,
+          phone: customerPhone,
+          name: customerName,
+          establishmentId: establishmentId || 'default_store'
+        })
+      });
+
+      const data = await response.json();
+      const newMsgs: ChatMessage[] = [];
+
+      if (data.replyText) {
+        newMsgs.push({
+          id: `ai_${Date.now()}`,
+          sender: 'assistant',
+          text: data.replyText,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          orderId: data.orderCreated?.id
+        });
+      }
+
+      setMessages(prev => [...prev, ...newMsgs]);
+
+      if (data.orderCreated && onOrderCreatedNotification) {
+        onOrderCreatedNotification();
+      }
+    } catch (err) {
+      console.error('Error sending simulated location:', err);
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
   const samplePrompts = [
     'Quais são os hambúrgueres disponíveis e quanto custam?',
-    'Tem alguma sobremesa boa aí?',
-    'Vou querer 1 Smash Bacon e 1 Coca Zero para entregar na Av. Paulista 1000 ap 42, vou pagar no PIX, meu nome é Thiago.'
+    'Vou querer 1 Hamburguer Artesanal e 1 Batata Frita para entrega, pago no PIX.',
+    'Pode me mandar o cardápio com as fotos?'
   ];
 
   return (
@@ -241,6 +296,18 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
                   "{prompt}"
                 </button>
               ))}
+            </div>
+
+            <div className="pt-2 border-t border-slate-800/80">
+              <button
+                type="button"
+                onClick={handleSendLocation}
+                disabled={isTyping}
+                className="w-full p-2.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer"
+              >
+                <MapPin className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Simular Envio de Localização (GPS)</span>
+              </button>
             </div>
           </div>
         </div>
@@ -347,6 +414,16 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
 
             {/* Chat Input Bar */}
             <form onSubmit={handleSendMessage} className="p-3 bg-slate-900 border-t border-slate-800 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleSendLocation}
+                disabled={isTyping}
+                className="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-400 border border-slate-700 flex items-center justify-center transition cursor-pointer shrink-0"
+                title="Simular Compartilhar Localização no WhatsApp"
+              >
+                <MapPin className="w-4 h-4" />
+              </button>
+
               <input
                 type="text"
                 value={inputText}
@@ -357,7 +434,7 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
               <button
                 type="submit"
                 disabled={!inputText.trim() || isTyping}
-                className="w-10 h-10 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-slate-950 flex items-center justify-center transition cursor-pointer shadow-md shadow-emerald-500/20"
+                className="w-10 h-10 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-slate-950 flex items-center justify-center transition cursor-pointer shadow-md shadow-emerald-500/20 shrink-0"
               >
                 <Send className="w-4 h-4 stroke-[2.5]" />
               </button>

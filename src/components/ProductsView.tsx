@@ -431,7 +431,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                     {uploadingImage ? (
                       <div className="py-2 flex flex-col items-center gap-2 text-emerald-400">
                         <Loader2 className="w-6 h-6 animate-spin" />
-                        <span className="text-xs font-semibold">Fazendo upload para o Firebase Storage...</span>
+                        <span className="text-xs font-semibold">Salvando foto na nuvem...</span>
                       </div>
                     ) : (
                       <>
@@ -443,7 +443,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                             Clique para selecionar uma foto do produto
                           </p>
                           <p className="text-[10px] text-slate-500 mt-0.5">
-                            JPG, PNG ou WebP até 6MB • Salvo automaticamente no Firebase Storage
+                            JPG, PNG ou WebP até 6MB • Otimização automática para WhatsApp
                           </p>
                         </div>
                       </>

@@ -6,7 +6,9 @@ import {
   Smartphone, 
   Settings, 
   Sparkles,
-  Bot
+  Bot,
+  Megaphone,
+  TrendingUp
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -31,10 +33,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badgeColor: 'bg-emerald-500 text-black font-bold animate-pulse'
     },
     {
+      id: 'finance',
+      label: 'Painel Financeiro',
+      icon: TrendingUp,
+      badge: null
+    },
+    {
       id: 'products',
       label: 'Cardápio & Produtos',
       icon: UtensilsCrossed,
       badge: null
+    },
+    {
+      id: 'campaigns',
+      label: 'Disparos & Campanhas',
+      icon: Megaphone,
+      badge: 'Novo',
+      badgeColor: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
     },
     {
       id: 'simulator',
@@ -45,7 +60,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'whatsapp',
-      label: 'WhatsApp Evolution',
+      label: 'Conexão WhatsApp',
       icon: Smartphone,
       badge: isWhatsAppConnected ? 'Online' : 'Desconectado',
       badgeColor: isWhatsAppConnected 
@@ -114,13 +129,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="p-4 border-t border-slate-800/60 m-3 rounded-2xl bg-slate-950/60 border border-slate-800/80">
         <div className="flex items-center gap-2 mb-2">
           <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
-          <span className="text-xs font-semibold text-slate-300">Firebase Firestore</span>
-          <span className="ml-auto text-[10px] text-emerald-400 font-mono">LIVE</span>
+          <span className="text-xs font-semibold text-slate-300">Atendimento WhatsApp</span>
+          <span className="ml-auto text-[10px] text-emerald-400 font-mono font-bold">ATIVO</span>
         </div>
         <div className="flex items-center justify-between text-[11px] text-slate-400">
-          <span>Motor de IA</span>
-          <span className="font-semibold text-purple-400 flex items-center gap-1">
-            <Sparkles className="w-3 h-3" /> Gemini 2.5
+          <span>Inteligência Artificial</span>
+          <span className="font-semibold text-emerald-400 flex items-center gap-1">
+            <Sparkles className="w-3 h-3" /> Conectada
           </span>
         </div>
       </div>
