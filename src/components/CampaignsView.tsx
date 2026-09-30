@@ -53,6 +53,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
   establishment,
   onNavigateToWhatsApp
 }) => {
+  const segConfig = getSegmentConfig(establishment?.segment);
   const [campaigns, setCampaigns] = useState<CampaignTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [audienceCount, setAudienceCount] = useState<number>(0);
@@ -912,7 +913,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                     required
                     value={editingCampaign.title || ''}
                     onChange={e => setEditingCampaign({ ...editingCampaign, title: e.target.value })}
-                    placeholder="Ex: Abertura da Cozinha - 18h com Promoção de Hambúrguer"
+                    placeholder={`Ex: Novidades & Ofertas de ${segConfig.itemPluralNoun}`}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white text-xs focus:outline-none focus:border-emerald-500"
                   />
                 </div>

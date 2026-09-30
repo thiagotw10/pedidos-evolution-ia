@@ -15,7 +15,7 @@ import {
   Package
 } from 'lucide-react';
 import { Establishment } from '../types';
-import { getSegmentConfig } from '../utils/segments';
+import { getSegmentConfig, getSegmentCatalogIcon, getSegmentOrdersIcon } from '../utils/segments';
 
 interface SidebarProps {
   currentTab: string;
@@ -33,23 +33,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   establishment
 }) => {
   const segConfig = getSegmentConfig(establishment?.segment);
-
-  const getCatalogIcon = () => {
-    switch (segConfig.id) {
-      case 'VEHICLES': return Car;
-      case 'REAL_ESTATE': return Home;
-      case 'FASHION': return Shirt;
-      case 'ELECTRONICS': return Smartphone;
-      case 'GENERAL': return Package;
-      default: return UtensilsCrossed;
-    }
-  };
+  const CatalogIcon = getSegmentCatalogIcon(establishment?.segment);
+  const OrdersIcon = getSegmentOrdersIcon(establishment?.segment);
 
   const menuItems = [
     {
       id: 'orders',
       label: segConfig.ordersTitle,
-      icon: ShoppingBag,
+      icon: OrdersIcon,
       badge: pendingOrdersCount > 0 ? pendingOrdersCount : null,
       badgeColor: 'bg-emerald-500 text-black font-bold animate-pulse'
     },
@@ -62,7 +53,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     {
       id: 'products',
       label: segConfig.catalogTitle,
-      icon: getCatalogIcon(),
+      icon: CatalogIcon,
       badge: null
     },
     {

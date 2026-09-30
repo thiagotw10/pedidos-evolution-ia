@@ -105,6 +105,7 @@ export interface Establishment {
   id: string;
   name: string;
   phone: string;
+  whatsappNumber?: string;
   address: string;
   segment?: BusinessSegment | string;
   deliveryFee: number;
@@ -121,6 +122,9 @@ export interface Establishment {
   // AI Settings
   aiPromptCustom?: string;
   aiWelcomeMessage?: string;
+  // AI Voice Mirror (Espelho de Voz WhatsApp)
+  aiVoiceMirrorEnabled?: boolean;
+  aiVoiceId?: string;
   // AI Operating Hours & Schedule
   aiScheduleEnabled?: boolean;
   aiOperatingSchedule?: OperatingSchedule;
@@ -171,4 +175,34 @@ export interface CampaignTemplate {
   };
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CatalogRadarInsight {
+  score: number; // 0 a 100
+  summary: string;
+  unmetDemands: Array<{
+    title: string;
+    reason: string;
+    suggestedCategory: string;
+    suggestedPrice: number;
+    demandLevel: 'ALTA' | 'MÉDIA' | 'EMERGENTE';
+  }>;
+  topOpportunities: Array<{
+    productName: string;
+    insight: string;
+    badge: string;
+  }>;
+  crossSellAction: {
+    title: string;
+    suggestion: string;
+    ticketImpact: string;
+  };
+  health: {
+    totalItems: number;
+    withPhoto: number;
+    withoutPhoto: number;
+    photoPercentage: number;
+    alertMessage?: string;
+  };
+  analyzedAt: string;
 }

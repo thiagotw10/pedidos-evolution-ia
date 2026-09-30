@@ -11,7 +11,7 @@ import {
   Package
 } from 'lucide-react';
 import { Establishment } from '../types';
-import { getSegmentConfig } from '../utils/segments';
+import { getSegmentConfig, getSegmentCatalogIcon, getSegmentOrdersIcon } from '../utils/segments';
 
 interface MobileBottomNavProps {
   currentTab: string;
@@ -31,25 +31,14 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   establishment
 }) => {
   const segConfig = getSegmentConfig(establishment?.segment);
-
-  const getCatalogIconAndLabel = () => {
-    switch (segConfig.id) {
-      case 'VEHICLES': return { label: 'Veículos', icon: Car };
-      case 'REAL_ESTATE': return { label: 'Imóveis', icon: Home };
-      case 'FASHION': return { label: 'Coleção', icon: Shirt };
-      case 'ELECTRONICS': return { label: 'Aparelhos', icon: Smartphone };
-      case 'GENERAL': return { label: 'Produtos', icon: Package };
-      default: return { label: 'Cardápio', icon: UtensilsCrossed };
-    }
-  };
-
-  const catalogMeta = getCatalogIconAndLabel();
+  const CatalogIcon = getSegmentCatalogIcon(establishment?.segment);
+  const OrdersIcon = getSegmentOrdersIcon(establishment?.segment);
 
   const tabs = [
     {
       id: 'orders',
       label: segConfig.id === 'VEHICLES' ? 'Propostas' : segConfig.id === 'REAL_ESTATE' ? 'Leads' : 'Pedidos',
-      icon: ShoppingBag,
+      icon: OrdersIcon,
       badge: pendingOrdersCount > 0 ? pendingOrdersCount : null
     },
     {
@@ -60,8 +49,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
     },
     {
       id: 'products',
-      label: catalogMeta.label,
-      icon: catalogMeta.icon,
+      label: segConfig.shortLabel ? segConfig.shortLabel.split(' ')[0] : 'Catálogo',
+      icon: CatalogIcon,
       badge: null
     },
     {

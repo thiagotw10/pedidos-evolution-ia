@@ -18,15 +18,19 @@ import {
   Filter,
   BarChart3
 } from 'lucide-react';
-import { Order, OrderStatus } from '../types';
+import { Order, OrderStatus, Establishment } from '../types';
+import { getSegmentConfig, getSegmentCatalogIcon } from '../utils/segments';
 
 interface FinanceViewProps {
   orders: Order[];
+  establishment?: Establishment | null;
 }
 
 type PeriodFilter = 'TODAY' | 'WEEK' | 'MONTH' | 'LAST_MONTH' | 'ALL';
 
-export const FinanceView: React.FC<FinanceViewProps> = ({ orders }) => {
+export const FinanceView: React.FC<FinanceViewProps> = ({ orders, establishment }) => {
+  const segConfig = getSegmentConfig(establishment?.segment);
+  const CatalogIcon = getSegmentCatalogIcon(establishment?.segment);
   const [period, setPeriod] = useState<PeriodFilter>('MONTH');
 
   // Filter orders by period and validity
@@ -230,7 +234,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ orders }) => {
             </h2>
           </div>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Visão consolidada de faturamento, ticket médio, métodos de pagamento e projeções de receita da sua loja.
+            Visão consolidada de faturamento, ticket médio, métodos de pagamento e métricas de receita de {segConfig.catalogTitle.toLowerCase()}.
           </p>
         </div>
 
@@ -481,11 +485,11 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ orders }) => {
         <div className="lg:col-span-5 bg-slate-900/80 border border-slate-800/80 rounded-3xl p-4 sm:p-6 lg:p-7 space-y-5 backdrop-blur-md">
           <div className="space-y-1">
             <h3 className="font-bold text-base text-white flex items-center gap-2">
-              <Award className="w-4 h-4 text-amber-400" />
-              Produtos Mais Faturados
+              <CatalogIcon className="w-4 h-4 text-emerald-400" />
+              {segConfig.itemPluralNoun} Mais Faturados
             </h3>
             <p className="text-xs text-slate-400">
-              Os campeões de receita do seu cardápio
+              Os campeões de receita do seu {segConfig.catalogTitle.toLowerCase()}
             </p>
           </div>
 

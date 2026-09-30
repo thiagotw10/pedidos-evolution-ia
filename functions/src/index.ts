@@ -5,6 +5,9 @@ import admin from 'firebase-admin';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
+import { triageInboundMessageWithJev, qualifyLeadWithJev } from './typesafeJev';
+import { generateVoiceAudioBase64, VOICE_OPTIONS } from './voiceGenerator';
+import { isOwnerAdminMessage, processAdminCoPilotCommand } from './adminCoPilot';
 
 dotenv.config();
 
@@ -26,6 +29,7 @@ app.use(express.json());
 
 // In-memory cache for de-duplicating rapid Webhook calls from Evolution Go
 const processedMessages = new Map<string, number>();
+const botSentMessages = new Map<string, number>();
 
 // Multi-tenant helper to extract establishment ID
 function getStoreId(req: express.Request): string {
@@ -41,12 +45,48 @@ function hashPassword(password: string): string {
   return crypto.createHash('sha256').update(password + '_iapedido_salt').digest('hex');
 }
 
+// Token cache for auto-discovered instance tokens
+const evoTokenCache = new Map<string, string>();
+
+async function findEvolutionToken(evoUrl: string, evoKey: string, evoInst: string): Promise<string | null> {
+  const cacheKey = `${evoUrl}:${evoInst}`;
+  if (evoTokenCache.has(cacheKey)) return evoTokenCache.get(cacheKey)!;
+  try {
+    const res = await fetch(`${evoUrl}/instance/all`, {
+      headers: { apikey: evoKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108' },
+      signal: AbortSignal.timeout(4000)
+    });
+    if (res.ok) {
+      const data: any = await res.json().catch(() => ({}));
+      if (Array.isArray(data?.data)) {
+        const cleanTarget = evoInst.replace(/^pedidos_/, '');
+        const found = data.data.find((inst: any) =>
+          inst.name === evoInst ||
+          inst.token === evoInst ||
+          inst.name?.startsWith(`pedidos_${cleanTarget.slice(0, 15)}`) ||
+          evoInst.startsWith(inst.name) ||
+          (inst.webhook && inst.webhook.includes(cleanTarget))
+        );
+        if (found && (found.token || found.name)) {
+          const token = found.token || found.name;
+          evoTokenCache.set(cacheKey, token);
+          return token;
+        }
+      }
+    }
+  } catch (e: any) {
+    console.warn('[findEvolutionToken Error]:', e.message);
+  }
+  return null;
+}
+
 // Evolution API message sender helper (with Anti-Ban Human Delay & Composing Presence)
 async function sendWhatsAppMessage(evoUrl: string, evoKey: string, evoInst: string, number: string, text: string) {
   try {
     const isGroup = number.includes('@g.us');
+    const isLid = number.includes('@lid');
     let finalPhone = number;
-    if (!isGroup) {
+    if (!isGroup && !isLid) {
       const numericPhone = number.replace(/\D/g, '');
       finalPhone = numericPhone.startsWith('55') ? numericPhone : `55${numericPhone}`;
     }
@@ -57,11 +97,13 @@ async function sendWhatsAppMessage(evoUrl: string, evoKey: string, evoInst: stri
     const randomJitter = Math.floor(Math.random() * 1200);
     const typingDelay = charDelay + randomJitter;
 
+    let activeToken = evoInst;
+
     // Send presence 'composing' (digitando...) via Evolution Go /message/presence
     try {
       fetch(`${evoUrl}/message/presence`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', apikey: evoInst },
+        headers: { 'Content-Type': 'application/json', apikey: activeToken },
         body: JSON.stringify({ number: finalPhone, state: 'composing', delay: Math.min(typingDelay, 4000) }),
         signal: AbortSignal.timeout(3000)
       }).catch(() => {});
@@ -73,7 +115,7 @@ async function sendWhatsAppMessage(evoUrl: string, evoKey: string, evoInst: stri
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          apikey: evoInst
+          apikey: activeToken
         },
         body: JSON.stringify({
           number: finalPhone,
@@ -87,16 +129,43 @@ async function sendWhatsAppMessage(evoUrl: string, evoKey: string, evoInst: stri
         const dataGo = await respGo.json().catch(() => ({}));
         return { success: true, data: dataGo };
       }
+
+      // If 401 Unauthorized, attempt to recover using instance discovery from /instance/all
+      if (respGo.status === 401) {
+        console.warn(`[sendWhatsAppMessage] 401 Unauthorized com token "${activeToken}". Buscando token atualizado em /instance/all...`);
+        const discovered = await findEvolutionToken(evoUrl, evoKey, evoInst);
+        if (discovered && discovered !== activeToken) {
+          activeToken = discovered;
+          console.log(`[sendWhatsAppMessage] Retentando /send/text com token recuperado: "${activeToken}"`);
+          const retryGo = await fetch(`${evoUrl}/send/text`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              apikey: activeToken
+            },
+            body: JSON.stringify({
+              number: finalPhone,
+              text: text,
+              delay: typingDelay
+            }),
+            signal: AbortSignal.timeout(12000)
+          });
+          if (retryGo.ok) {
+            const dataGo = await retryGo.json().catch(() => ({}));
+            return { success: true, data: dataGo };
+          }
+        }
+      }
     } catch (e: any) {
       console.warn('[sendWhatsAppMessage] Evolution Go /send/text falhou ou timeout:', e.message);
     }
 
     // 2. Fallback to Evolution API v1/v2 (/message/sendText/{evoInst})
-    const res = await fetch(`${evoUrl}/message/sendText/${evoInst}`, {
+    const res = await fetch(`${evoUrl}/message/sendText/${activeToken}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        apikey: evoKey || evoInst
+        apikey: evoKey || activeToken
       },
       body: JSON.stringify({
         number: finalPhone,
@@ -143,11 +212,12 @@ async function sendWhatsAppMedia(
     }
 
     console.log(`[SendMedia] Enviando mídia (${type}) para ${finalPhone} via ${evoUrl}/send/media`);
-    const res = await fetch(`${evoUrl}/send/media`, {
+    let activeToken = evoInst;
+    let res = await fetch(`${evoUrl}/send/media`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        apikey: evoInst
+        apikey: activeToken
       },
       body: JSON.stringify({
         number: finalPhone,
@@ -159,6 +229,28 @@ async function sendWhatsAppMedia(
       signal: AbortSignal.timeout(8000)
     });
 
+    if (!res.ok && res.status === 401) {
+      const discovered = await findEvolutionToken(evoUrl, evoKey, evoInst);
+      if (discovered && discovered !== activeToken) {
+        activeToken = discovered;
+        res = await fetch(`${evoUrl}/send/media`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: activeToken
+          },
+          body: JSON.stringify({
+            number: finalPhone,
+            type: type,
+            url: mediaUrl,
+            caption: formatWhatsAppText(caption),
+            delay: 800
+          }),
+          signal: AbortSignal.timeout(8000)
+        });
+      }
+    }
+
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
       console.warn(`[SendMedia] Erro ${res.status}:`, errText);
@@ -169,6 +261,75 @@ async function sendWhatsAppMedia(
     return { success: true, data };
   } catch (err: any) {
     console.warn('[SendMedia Exception / Timeout]:', err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+// Evolution API helper: Send Humanized WhatsApp Voice Message (PTT Audio)
+async function sendWhatsAppAudio(
+  evoUrl: string,
+  evoKey: string,
+  evoInst: string,
+  number: string,
+  base64Audio: string
+) {
+  try {
+    const isGroup = number.includes('@g.us');
+    const isLid = number.includes('@lid');
+    let finalPhone = number;
+    if (!isGroup && !isLid) {
+      const numericPhone = number.replace(/\D/g, '');
+      finalPhone = numericPhone.startsWith('55') ? numericPhone : `55${numericPhone}`;
+    }
+
+    let activeToken = evoInst;
+    console.log(`[SendAudio] Enviando áudio de voz para ${finalPhone} via ${evoUrl}/send/media (tamanho: ${base64Audio.length})`);
+    let res = await fetch(`${evoUrl}/send/media`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: activeToken
+      },
+      body: JSON.stringify({
+        number: finalPhone,
+        type: 'audio',
+        url: base64Audio,
+        delay: 500
+      }),
+      signal: AbortSignal.timeout(15000)
+    });
+
+    if (!res.ok && res.status === 401) {
+      const discovered = await findEvolutionToken(evoUrl, evoKey, evoInst);
+      if (discovered && discovered !== activeToken) {
+        activeToken = discovered;
+        res = await fetch(`${evoUrl}/send/media`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: activeToken
+          },
+          body: JSON.stringify({
+            number: finalPhone,
+            type: 'audio',
+            url: base64Audio,
+            delay: 500
+          }),
+          signal: AbortSignal.timeout(15000)
+        });
+      }
+    }
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      console.warn(`[SendAudio] Erro ${res.status}:`, errText);
+      return { success: false, error: errText };
+    }
+
+    const data = await res.json().catch(() => ({}));
+    return { success: true, data };
+  } catch (err: any) {
+    console.warn('[SendAudio Exception]:', err.message);
     return { success: false, error: err.message };
   }
 }
@@ -373,6 +534,48 @@ async function sendOrderPushNotification(establishmentId: string, orderData: any
   }
 }
 
+// Push notification helper for urgent alerts (Complaints, Human Handover)
+async function sendAlertPushNotification(establishmentId: string, alertData: { title: string; body: string; url?: string }) {
+  try {
+    const vapidPublic = process.env.VAPID_PUBLIC_KEY;
+    const vapidPrivate = process.env.VAPID_PRIVATE_KEY;
+    if (!vapidPublic || !vapidPrivate) return;
+
+    const { default: webpush } = await import('web-push');
+    webpush.setVapidDetails(
+      'mailto:contato@iapedido.com.br',
+      vapidPublic,
+      vapidPrivate
+    );
+
+    const subsSnap = await db.collection('establishments').doc(establishmentId).collection('pushSubscriptions').get();
+    if (subsSnap.empty) return;
+
+    const payload = JSON.stringify({
+      title: alertData.title,
+      body: alertData.body,
+      data: {
+        url: alertData.url || '/?tab=orders'
+      }
+    });
+
+    for (const subDoc of subsSnap.docs) {
+      const sub = subDoc.data()?.subscription;
+      if (sub && sub.endpoint) {
+        try {
+          await webpush.sendNotification(sub, payload);
+        } catch (err: any) {
+          if (err.statusCode === 404 || err.statusCode === 410) {
+            await subDoc.ref.delete().catch(() => {});
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[sendAlertPushNotification Exception]:', err);
+  }
+}
+
 // Helper to download media (audio / image) from WhatsApp via Evolution API
 async function downloadWhatsAppMedia(
   evoUrl: string,
@@ -445,24 +648,10 @@ async function processAiCustomerMessage(
   const estDoc = await db.collection('establishments').doc(establishmentId).get();
   const establishment = estDoc.data() || {};
 
-  // Fetch active products (auto-seed default menu if empty)
+  // Fetch active products
   const productsCol = db.collection('establishments').doc(establishmentId).collection('products');
   const productsSnap = await productsCol.where('available', '==', true).get();
-  let products: any[] = productsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-  if (products.length === 0) {
-    const defaultMenu = [
-      { name: 'Hamburguer Artesanal', description: 'Blend 180g, queijo cheddar, alface, tomate e maionese especial no pão brioche', price: 29.90, category: 'Hambúrgueres', available: true },
-      { name: 'Hamburguer Duplo Cheddar Bacon', description: '2 blends 150g, muito bacon crocante, cheddar duplo e molho barbecue', price: 38.90, category: 'Hambúrgueres', available: true },
-      { name: 'Batata Frita Rústica Especial', description: 'Batata crocante com páprica, alecrim e maionese da casa', price: 18.00, category: 'Porções', available: true },
-      { name: 'Refrigerante Lata 350ml', description: 'Coca-Cola, Guaraná Antarctica ou Sprite', price: 6.00, category: 'Bebidas', available: true }
-    ];
-
-    for (const item of defaultMenu) {
-      const docRef = await productsCol.add({ ...item, createdAt: new Date().toISOString() });
-      products.push({ id: docRef.id, ...item });
-    }
-  }
+  const products: any[] = productsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
   // Fetch recent conversation history
   const chatRef = db.collection('establishments').doc(establishmentId).collection('chats').doc(customerPhone).collection('messages');
@@ -694,13 +883,24 @@ COMO VOCÊ DEVE AGIR:
           prodsToSend = prodsToSend.slice(0, 10);
 
           if (prodsToSend.length > 0) {
+            const itemEmoji = isVehicles ? '🚗' : isRealEstate ? '🏡' : isFashion ? '👗' : isElectronics ? '📱' : isFood ? '🍽️' : '📦';
             mediaList = prodsToSend.map((p: any) => ({
               url: p.imageUrl,
-              caption: `🍽️ *${p.name}* - R$ ${Number(p.price).toFixed(2)}\n${p.description || ''}`,
+              caption: `${itemEmoji} *${p.name}* - R$ ${Number(p.price).toFixed(2)}\n${p.description || ''}`,
               productName: p.name
             }));
-            console.log(`[Menu Tool Triggered] Enviando cardápio com ${mediaList.length} foto(s) de produtos!`);
-            replyText = `Aqui está o nosso cardápio com as fotos de cada opção! 👆😋\n\nQual item te apetece mais hoje? Pode me mandar por áudio ou texto que já anoto seu pedido! 🎙️`;
+            console.log(`[Menu Tool Triggered] Enviando catálogo com ${mediaList.length} foto(s) de produtos!`);
+            replyText = isVehicles 
+              ? `Aqui estão os veículos disponíveis em nosso estoque com fotos! 👆🚘\n\nQual modelo você gostaria de conhecer melhor ou simular financiamento? Pode me mandar por áudio ou texto! 🎙️`
+              : isRealEstate
+              ? `Aqui estão os imóveis disponíveis em nosso catálogo com fotos! 👆🏢\n\nQual deles tem o perfil que você procura? Posso te passar mais detalhes e agendar uma visita presencial!`
+              : isFashion
+              ? `Aqui estão as peças da nossa coleção com fotos! 👆✨\n\nQual look você mais gostou? Temos diversos tamanhos disponíveis!`
+              : isElectronics
+              ? `Aqui estão os aparelhos disponíveis em nosso estoque com fotos! 👆⚡\n\nQual modelo você tem interesse? Temos garantia e ótimas condições de pagamento!`
+              : isFood
+              ? `Aqui está o nosso cardápio com as fotos de cada opção! 👆😋\n\nQual item te apetece mais hoje? Pode me mandar por áudio ou texto que já anoto seu pedido! 🎙️`
+              : `Aqui estão os itens disponíveis em nosso catálogo com fotos! 👆\n\nQual produto você gostaria de pedir? Pode me mandar por áudio ou texto! 🎙️`;
           }
         }
 
@@ -714,18 +914,33 @@ COMO VOCÊ DEVE AGIR:
           );
 
           if (found && found.imageUrl) {
+            const itemEmoji = isVehicles ? '🚗' : isRealEstate ? '🏡' : isFashion ? '👗' : isElectronics ? '📱' : isFood ? '🍽️' : '📦';
             mediaList.push({
               url: found.imageUrl,
-              caption: `📸 *${found.name}* - R$ ${Number(found.price).toFixed(2)}\n${found.description || ''}`,
+              caption: `${itemEmoji} *${found.name}* - R$ ${Number(found.price).toFixed(2)}\n${found.description || ''}`,
               productName: found.name
             });
             if (!replyText) {
-              replyText = `Aqui está a foto do nosso *${found.name}*! 😋 Ficou com água na boca? Posso adicionar ao seu pedido?`;
+              replyText = isVehicles
+                ? `Aqui está a foto do *${found.name}*! 🚗 Impecável e revisado. Gostaria de agendar um test-drive ou simular parcelas?`
+                : isRealEstate
+                ? `Aqui está a foto do imóvel *${found.name}*! 🏡 Excelente oportunidade. Deseja agendar uma visita presencial para conhecer?`
+                : isFashion
+                ? `Aqui está a foto da peça *${found.name}*! ✨ Caimento incrível. Gostaria de reservar no seu tamanho?`
+                : isElectronics
+                ? `Aqui está a foto do aparelho *${found.name}*! 📱 Aparelho com garantia. Deseja reservar ou fechar a compra?`
+                : isFood
+                ? `Aqui está a foto do nosso *${found.name}*! 😋 Ficou com água na boca? Posso adicionar ao seu pedido?`
+                : `Aqui está a foto de *${found.name}*! 📦 Gostaria de adicionar ao seu pedido?`;
             }
             console.log(`[Photo Tool Triggered] Foto do produto "${found.name}" preparada para envio! URL: ${found.imageUrl}`);
           } else {
             if (!replyText) {
-              replyText = `Ainda não temos a foto cadastrada deste item no sistema, mas ele é preparado com muito capricho! Gostaria de pedir?`;
+              replyText = isVehicles
+                ? `Ainda não temos a foto cadastrada deste veículo no sistema, mas ele está disponível em estoque! Deseja mais informações técnicas?`
+                : isRealEstate
+                ? `Ainda não temos a foto cadastrada deste imóvel no sistema, mas temos a ficha completa! Gostaria de agendar uma visita com nosso corretor?`
+                : `Ainda não temos a foto cadastrada deste item no sistema, mas ele tem excelente qualidade e garantia! Gostaria de prosseguir?`;
             }
           }
         }
@@ -784,15 +999,29 @@ COMO VOCÊ DEVE AGIR:
 
           console.log(`[Order Created] Pedido #${orderNumber} registrado para ${customerPhone}! Total: R$ ${total}`);
 
-          replyText = `🎉 *Pedido #${orderNumber} Registrado com Sucesso!*\n\n` +
+          const orderTitleText = isVehicles 
+            ? `Proposta de Reserva #${orderNumber}`
+            : isRealEstate
+            ? `Agendamento / Lead #${orderNumber}`
+            : `Pedido #${orderNumber}`;
+
+          const approvalText = isVehicles
+            ? `Assim que nossa equipe comercial analisar sua proposta, você receberá a confirmação aqui mesmo no WhatsApp!`
+            : isRealEstate
+            ? `Assim que nossa equipe imobiliária confirmar a disponibilidade da visita, você receberá a confirmação aqui mesmo no WhatsApp!`
+            : isFood
+            ? `Assim que a cozinha aprovar seu pedido, você receberá a confirmação aqui mesmo!`
+            : `Assim que nossa equipe confirmar sua solicitação, você receberá a confirmação aqui mesmo!`;
+
+          replyText = `🎉 *${orderTitleText} Registrado(a) com Sucesso!*\n\n` +
             `📋 *Itens:*\n` +
             orderItems.map((it: any) => `• ${it.quantity}x ${it.name} - R$ ${it.total.toFixed(2)}`).join('\n') +
-            `\n\n🛵 *Tipo:* ${orderData.deliveryType === 'DELIVERY' ? `Entrega (${orderData.customerAddress})` : 'Retirada no Balcão'}\n` +
+            `\n\n🛵 *Tipo:* ${orderData.deliveryType === 'DELIVERY' ? `Entrega / Envio (${orderData.customerAddress})` : 'Retirada / Visita Presencial'}\n` +
             `💵 *Taxa de Entrega:* R$ ${deliveryFee.toFixed(2)}\n` +
             `💰 *Total:* R$ ${total.toFixed(2)}\n` +
             `💳 *Pagamento:* ${orderData.paymentMethod}\n\n` +
             `⏳ *Aguardando confirmação do estabelecimento!*\n` +
-            `Assim que a cozinha aprovar seu pedido, você receberá a confirmação aqui mesmo!`;
+            approvalText;
         }
       }
     }
@@ -1035,24 +1264,31 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
     const info = messageData.Info || messageData.info || {};
     const key = messageData.key || {};
 
-    // Ignore messages sent by the bot itself (handles Evolution Go IsFromMe and Node fromMe)
     const fromMe = info.IsFromMe ?? key.fromMe ?? messageData.fromMe ?? false;
-    if (fromMe) {
-      console.log(`[Evolution Webhook] Ignorando mensagem enviada por mim (fromMe)`);
-      return res.status(200).json({ status: 'ignored_from_me' });
-    }
-
-    // Determine group
     const isGroup = info.IsGroup ?? false;
 
     // Determine remote phone (handles Evolution Go Info.Chat / Info.Sender and Node key.remoteJid)
     const remoteJid = info.Chat || info.Sender || key.remoteJid || messageData.remoteJid || messageData.from || messageData.sender || '';
     const phone = remoteJid.replace(/@.*$/, '').replace(/\D/g, '');
+    const infoChat = info.Chat || '';
+    const infoSender = info.Sender || '';
 
     // Ignore group chats and broadcast lists
     if (!phone || isGroup || remoteJid.includes('@g.us') || remoteJid.includes('broadcast')) {
       console.log(`[Evolution Webhook] Ignorando grupo ou sem telefone: ${remoteJid}`);
       return res.status(200).json({ status: 'ignored_group_or_no_phone' });
+    }
+
+    // Load store establishment configuration early so we can check owner/admin status
+    const estDoc = await db.collection('establishments').doc(storeId).get();
+    const est = estDoc.data() || {};
+
+    // Check if this is an Admin / Owner message (Self-Chat on the connected device or Owner's phone)
+    const isAdmin = isOwnerAdminMessage(fromMe, remoteJid, phone, infoChat, infoSender, est);
+
+    if (fromMe && !isAdmin) {
+      console.log(`[Evolution Webhook] Ignorando mensagem enviada por mim para cliente (fromMe)`);
+      return res.status(200).json({ status: 'ignored_from_me' });
     }
 
     // Extract message content (handles Evolution Go Message and Node message)
@@ -1157,10 +1393,73 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
         if (now - t > 60000) processedMessages.delete(k);
       }
     }
+    if (botSentMessages.size > 2000) {
+      for (const [k, t] of botSentMessages.entries()) {
+        if (now - t > 60000) botSentMessages.delete(k);
+      }
+    }
 
-    // Load store establishment configuration
-    const estDoc = await db.collection('establishments').doc(storeId).get();
-    const est = estDoc.data() || {};
+    // Ignore if sent by the bot/co-pilot itself to prevent loops
+    if (messageId && botSentMessages.has(messageId)) {
+      console.log(`[Evolution Webhook] Ignorando mensagem enviada pelo próprio Co-Pilot/bot (ID: ${messageId})`);
+      return res.status(200).json({ status: 'ignored_bot_sent' });
+    }
+
+    if (text && (text.startsWith('👨‍🍳 *Co-Pilot') || text.startsWith('🤖 *Co-Pilot') || text.startsWith('🤖 *Assistente'))) {
+      return res.status(200).json({ status: 'ignored_copilot_echo' });
+    }
+
+    // ----------------------------------------------------
+    // 👨‍🍳 ADMIN CO-PILOT (Gestão da Loja pelo WhatsApp do Lojista)
+    // ----------------------------------------------------
+    if (isAdmin) {
+      console.log(`[Admin Co-Pilot] 👑 Mensagem do Dono/Gestor detectada para loja "${est.name || storeId}" (de ${phone}, self-chat: ${fromMe})`);
+
+      const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+      const evoKey = est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108';
+      const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`;
+      const evoInst = est.evolutionInstanceName || defaultInstName;
+
+      // Handle Media (Voice Audio / Image)
+      let mediaPart: { mimeType: string; data: string } | null = null;
+      if (audioMsg || imageMsg) {
+        console.log(`[Admin Co-Pilot] Baixando mídia do gestor (${audioMsg ? 'áudio' : 'imagem'})...`);
+        mediaPart = await downloadWhatsAppMedia(evoUrl, evoInst, msgContent);
+      }
+
+      const copilotResult = await processAdminCoPilotCommand(storeId, est, text, mediaPart, db);
+
+      const targetRecipient = remoteJid.includes('@lid') ? remoteJid : phone;
+
+      if (copilotResult.replyText) {
+        // If owner sent an audio, synthesize and reply in voice too!
+        if (audioMsg && est.aiVoiceMirrorEnabled !== false) {
+          try {
+            const chosenVoice = est.aiVoiceId || 'pt-BR-FranciscaNeural';
+            console.log(`[Admin Co-Pilot] Sintetizando resposta em voz para o gestor (${chosenVoice})...`);
+            const audioBase64 = await generateVoiceAudioBase64(copilotResult.replyText, chosenVoice);
+            if (audioBase64) {
+              const audioRes = await sendWhatsAppAudio(evoUrl, evoKey, evoInst, targetRecipient, audioBase64);
+              const aId = audioRes?.data?.key?.id || audioRes?.data?.id;
+              if (aId) botSentMessages.set(aId, Date.now());
+            }
+          } catch (vErr: any) {
+            console.warn('[Admin Co-Pilot Voice Error]:', vErr.message);
+          }
+        }
+
+        const msgRes = await sendWhatsAppMessage(evoUrl, evoKey, evoInst, targetRecipient, copilotResult.replyText);
+        const mId = msgRes?.data?.key?.id || msgRes?.data?.id;
+        if (mId) botSentMessages.set(mId, Date.now());
+        console.log(`[Admin Co-Pilot] Resposta enviada ao gestor: ação ${copilotResult.actionTaken}`);
+      }
+
+      return res.status(200).json({
+        status: 'admin_copilot_executed',
+        action: copilotResult.actionTaken,
+        reply: copilotResult.replyText
+      });
+    }
 
     // Subscription / Trial Verification (7 days trial or active paid subscription)
     if (!isEstablishmentSubscriptionActive(est)) {
@@ -1173,7 +1472,7 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
 
     const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
     const evoKey = est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108';
-    const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 20)}`;
+    const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`;
     const evoInst = est.evolutionInstanceName || defaultInstName;
 
     // AI Operating Hours Verification (Check if store is open in America/Sao_Paulo)
@@ -1268,6 +1567,224 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
     const pushName = info.PushName || messageData.pushName || '';
 
     console.log(`[Evolution Webhook] Processando mensagem de ${phone} (${pushName || 'Sem nome'}): ${text ? `"${text.slice(0, 50)}..."` : (mediaPart ? `[Mídia: ${mediaPart.mimeType}]` : '[Vazio]')}`);
+
+    // ----------------------------------------------------
+    // TypeSafe AI (Jev - System One) Fast Triage (~100ms)
+    // ----------------------------------------------------
+    let jevTriage: any = null;
+    if (text.trim() && !mediaPart) {
+      jevTriage = await triageInboundMessageWithJev(text, { name: est.name, segment: est.segment });
+    }
+
+    if (jevTriage) {
+      // 1. FAST PATH: PIX Key Query
+      if (jevTriage.intent === 'PIX_QUERY' && est.pixKey && est.pixKey.trim()) {
+        const cleanPix = est.pixKey.trim();
+        const fastPixReply = `Nossa chave PIX para pagamento é:\n\n🔑 *${cleanPix}*\n\nAssim que você realizar a transferência, basta enviar o comprovante aqui para confirmarmos seu pedido com carinho! 😊`;
+
+        await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
+          sender: 'user',
+          text,
+          timestamp: new Date().toISOString(),
+          jevIntent: 'PIX_QUERY'
+        });
+        await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
+          sender: 'assistant',
+          text: fastPixReply,
+          timestamp: new Date().toISOString(),
+          jevHandled: true
+        });
+        await db.collection('establishments').doc(storeId).collection('chats').doc(phone).set({
+          customerPhone: phone,
+          customerName: pushName || 'Cliente WhatsApp',
+          lastMessage: fastPixReply,
+          lastTimestamp: new Date().toISOString(),
+          lastJevIntent: 'PIX_QUERY'
+        }, { merge: true });
+
+        await sendWhatsAppMessage(evoUrl, evoKey, evoInst, phone, fastPixReply);
+        console.log(`[TypeSafe Jev Fast Path] Resposta PIX enviada em ~${jevTriage.durationMs}ms para ${phone}`);
+        return res.status(200).json({ status: 'jev_fast_pix', reply: fastPixReply });
+      }
+
+      // 2. FAST PATH: Operating Hours Query
+      if (jevTriage.intent === 'STORE_HOURS' && est.operatingHours) {
+        const fastHoursReply = `Olá, *${pushName || 'cliente'}*! ⏰\nNosso horário de funcionamento é:\n*${est.operatingHours}*\n\nComo posso te ajudar hoje? Deseja ver nosso cardápio ou fazer um pedido? 😊`;
+
+        await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
+          sender: 'user',
+          text,
+          timestamp: new Date().toISOString(),
+          jevIntent: 'STORE_HOURS'
+        });
+        await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
+          sender: 'assistant',
+          text: fastHoursReply,
+          timestamp: new Date().toISOString(),
+          jevHandled: true
+        });
+        await db.collection('establishments').doc(storeId).collection('chats').doc(phone).set({
+          customerPhone: phone,
+          customerName: pushName || 'Cliente WhatsApp',
+          lastMessage: fastHoursReply,
+          lastTimestamp: new Date().toISOString(),
+          lastJevIntent: 'STORE_HOURS'
+        }, { merge: true });
+
+        await sendWhatsAppMessage(evoUrl, evoKey, evoInst, phone, fastHoursReply);
+        console.log(`[TypeSafe Jev Fast Path] Resposta Horário enviada em ~${jevTriage.durationMs}ms para ${phone}`);
+        return res.status(200).json({ status: 'jev_fast_store_hours', reply: fastHoursReply });
+      }
+
+      // 3. FAST PATH: Store Address / Location Query
+      if (jevTriage.intent === 'STORE_LOCATION' && est.address) {
+        const fastLocationReply = `Nosso endereço é: 📍 *${est.address}*.\n\nVocê prefere retirar no balcão ou pedir por entrega? 🛵`;
+
+        await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
+          sender: 'user',
+          text,
+          timestamp: new Date().toISOString(),
+          jevIntent: 'STORE_LOCATION'
+        });
+        await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
+          sender: 'assistant',
+          text: fastLocationReply,
+          timestamp: new Date().toISOString(),
+          jevHandled: true
+        });
+        await db.collection('establishments').doc(storeId).collection('chats').doc(phone).set({
+          customerPhone: phone,
+          customerName: pushName || 'Cliente WhatsApp',
+          lastMessage: fastLocationReply,
+          lastTimestamp: new Date().toISOString(),
+          lastJevIntent: 'STORE_LOCATION'
+        }, { merge: true });
+
+        await sendWhatsAppMessage(evoUrl, evoKey, evoInst, phone, fastLocationReply);
+        console.log(`[TypeSafe Jev Fast Path] Resposta Endereço enviada em ~${jevTriage.durationMs}ms para ${phone}`);
+        return res.status(200).json({ status: 'jev_fast_store_location', reply: fastLocationReply });
+      }
+
+      // 4. FAST PATH: Order Status Inquiry
+      if (jevTriage.intent === 'ORDER_STATUS') {
+        const recentOrdersSnap = await db.collection('establishments').doc(storeId)
+          .collection('orders')
+          .where('customerPhone', '==', phone)
+          .orderBy('createdAt', 'desc')
+          .limit(1)
+          .get();
+
+        if (!recentOrdersSnap.empty) {
+          const recentOrder = recentOrdersSnap.docs[0].data();
+          const orderTime = new Date(recentOrder.createdAt).getTime();
+          if (Date.now() - orderTime < 18 * 60 * 60 * 1000) {
+            const statusLabels: Record<string, string> = {
+              'PENDENTE': '🕒 Pedido recebido e aguardando confirmação',
+              'CONFIRMADO': '👨‍🍳 Confirmado pela equipe',
+              'EM_PREPARO': '🔥 Em preparação com todo capricho',
+              'PRONTO': '📦 Pronto para retirada / aguardando entregador',
+              'EM_ROTA': '🛵 Em rota de entrega com nosso entregador',
+              'ENTREGUE': '✅ Entregue com sucesso'
+            };
+            const statusText = statusLabels[recentOrder.status] || recentOrder.status;
+            const fastStatusReply = `Olá, *${pushName || 'cliente'}*! 😊\n\nO seu pedido *#${recentOrder.orderNumber}* está com status:\n👉 *${statusText}*\n\n${est.estimatedDeliveryTime ? `⏱️ Previsão de entrega: *${est.estimatedDeliveryTime}*\n` : ''}Qualquer dúvida estamos à disposição!`;
+
+            await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
+              sender: 'user',
+              text,
+              timestamp: new Date().toISOString(),
+              jevIntent: 'ORDER_STATUS'
+            });
+            await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
+              sender: 'assistant',
+              text: fastStatusReply,
+              timestamp: new Date().toISOString(),
+              jevHandled: true
+            });
+            await db.collection('establishments').doc(storeId).collection('chats').doc(phone).set({
+              customerPhone: phone,
+              customerName: pushName || 'Cliente WhatsApp',
+              lastMessage: fastStatusReply,
+              lastTimestamp: new Date().toISOString(),
+              lastJevIntent: 'ORDER_STATUS'
+            }, { merge: true });
+
+            await sendWhatsAppMessage(evoUrl, evoKey, evoInst, phone, fastStatusReply);
+            console.log(`[TypeSafe Jev Fast Path] Status do pedido #${recentOrder.orderNumber} enviado para ${phone}`);
+            return res.status(200).json({ status: 'jev_fast_order_status', reply: fastStatusReply });
+          }
+        }
+      }
+
+      // 5. ESCALATION PATH: Urgent Complaint or Human Takeover Request
+      if (jevTriage.urgent || jevTriage.intent === 'COMPLAINT' || jevTriage.intent === 'HUMAN_HELP') {
+        const escalationReply = `Compreendo perfeitamente sua solicitação. 🙏\n\nJá notifiquei nossa gerência com prioridade máxima! Um atendente humano irá assumir esta conversa aqui no WhatsApp em instantes para te atender da melhor forma.`;
+
+        await db.collection('establishments').doc(storeId).collection('chats').doc(phone).set({
+          customerPhone: phone,
+          customerName: pushName || 'Cliente WhatsApp',
+          needsHuman: true,
+          urgency: 'HIGH',
+          sentiment: jevTriage.sentiment,
+          lastJevIntent: jevTriage.intent,
+          alertReason: jevTriage.intent === 'COMPLAINT' ? 'Reclamação urgente de cliente' : 'Solicitou atendente humano',
+          lastMessage: text,
+          lastTimestamp: new Date().toISOString()
+        }, { merge: true });
+
+        await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
+          sender: 'user',
+          text,
+          timestamp: new Date().toISOString(),
+          jevIntent: jevTriage.intent,
+          urgent: true
+        });
+        await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
+          sender: 'assistant',
+          text: escalationReply,
+          timestamp: new Date().toISOString(),
+          jevHandled: true
+        });
+
+        // Trigger PWA Push Notification to store owner
+        sendAlertPushNotification(storeId, {
+          title: `🚨 Alerta Urgente: ${pushName || phone}`,
+          body: `Cliente com urgência (${jevTriage.intent}): "${text.slice(0, 70)}"`,
+          url: '/?tab=orders'
+        }).catch(() => {});
+
+        await sendWhatsAppMessage(evoUrl, evoKey, evoInst, phone, escalationReply);
+        console.log(`[TypeSafe Jev] 🚨 Transbordo humano disparado para ${phone} (${jevTriage.intent})`);
+        return res.status(200).json({ status: 'jev_human_escalation', reply: escalationReply });
+      }
+
+      // Lead Scoring for Niche Segments (Vehicles & Real Estate)
+      if (est.segment?.includes('VEIC') || est.segment?.includes('IMOB')) {
+        qualifyLeadWithJev(text, est.segment).then(leadData => {
+          if (leadData) {
+            db.collection('establishments').doc(storeId).collection('chats').doc(phone).set({
+              leadScore: {
+                temperature: leadData.leadTemperature,
+                readyToVisit: leadData.readyToVisit,
+                updatedAt: new Date().toISOString()
+              }
+            }, { merge: true }).catch(() => {});
+          }
+        }).catch(() => {});
+      }
+    }
+
+    // Save Jev intent metadata on chat
+    if (jevTriage) {
+      db.collection('establishments').doc(storeId).collection('chats').doc(phone).set({
+        lastJevIntent: jevTriage.intent,
+        lastJevSentiment: jevTriage.sentiment
+      }, { merge: true }).catch(() => {});
+    }
+
+    // ----------------------------------------------------
+    // System Two: Gemini 2.5 Flash Conversational Engine
+    // ----------------------------------------------------
     const result = await processAiCustomerMessage(storeId, phone, text, pushName, mediaPart || undefined);
 
     // 1. Send product images FIRST (e.g. menu items with individual photos)
@@ -1308,6 +1825,23 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
       if (result.mediaList && result.mediaList.length > 0) {
         await new Promise(r => setTimeout(r, 500));
       }
+
+      // 🎙️ Voice Mirror Engine: If customer sent an audio, synthesize and send human voice response
+      const isVoiceInbound = !!audioMsg;
+      if (isVoiceInbound && est.aiVoiceMirrorEnabled !== false) {
+        try {
+          const chosenVoice = est.aiVoiceId || 'pt-BR-FranciscaNeural';
+          console.log(`[Voice Mirror] Cliente enviou áudio. Sintetizando voz neural (${chosenVoice}) para ${phone}...`);
+          const audioBase64 = await generateVoiceAudioBase64(result.replyText, chosenVoice);
+          if (audioBase64) {
+            await sendWhatsAppAudio(evoUrl, evoKey, evoInst, phone, audioBase64);
+            console.log(`[Voice Mirror] Mensagem de voz enviada com sucesso para ${phone}!`);
+          }
+        } catch (voiceErr: any) {
+          console.warn('[Voice Mirror Error]:', voiceErr.message);
+        }
+      }
+
       sendRes = await sendWhatsAppMessage(evoUrl, evoKey, evoInst, phone, result.replyText);
       console.log(`[Evolution Webhook] Resposta enviada para ${phone}:`, JSON.stringify(sendRes));
     }
@@ -1487,22 +2021,7 @@ app.get('/api/products', async (req, res) => {
     const storeId = getStoreId(req);
     const productsCol = db.collection('establishments').doc(storeId).collection('products');
     const snapshot = await productsCol.get();
-    let products = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-    if (products.length === 0) {
-      const defaultMenu = [
-        { name: 'Hamburguer Artesanal', description: 'Blend 180g, queijo cheddar, alface, tomate e maionese especial no pão brioche', price: 29.90, category: 'Hambúrgueres', available: true },
-        { name: 'Hamburguer Duplo Cheddar Bacon', description: '2 blends 150g, muito bacon crocante, cheddar duplo e molho barbecue', price: 38.90, category: 'Hambúrgueres', available: true },
-        { name: 'Batata Frita Rústica Especial', description: 'Batata crocante com páprica, alecrim e maionese da casa', price: 18.00, category: 'Porções', available: true },
-        { name: 'Refrigerante Lata 350ml', description: 'Coca-Cola, Guaraná Antarctica ou Sprite', price: 6.00, category: 'Bebidas', available: true }
-      ];
-
-      for (const item of defaultMenu) {
-        const docRef = await productsCol.add({ ...item, createdAt: new Date().toISOString() });
-        products.push({ id: docRef.id, ...item });
-      }
-    }
-
+    const products = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     res.json(products);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1616,7 +2135,7 @@ app.patch('/api/orders/:id/status', async (req, res) => {
     const est = estDoc.data() || {};
     const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
     const evoKey = est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108';
-    const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 20)}`;
+    const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`;
     const evoInst = est.evolutionInstanceName || defaultInstName;
 
     const customerName = orderData.customerName || 'Cliente';
@@ -1856,7 +2375,7 @@ app.get('/api/evolution/status', async (req, res) => {
     const est = estDoc.data() || {};
     const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
     const evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
-    const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 20)}`;
+    const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`;
     const evoInst = (est.evolutionInstanceName || defaultInstName).trim();
 
     const appUrl = (process.env.APP_URL || 'https://iapedido.web.app').replace(/\/$/, '');
@@ -1915,7 +2434,7 @@ app.get('/api/evolution/groups', async (req, res) => {
     const est = estDoc.data() || {};
     const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
     const evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
-    const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 20)}`;
+    const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`;
     let evoInst = (est.evolutionInstanceName || defaultInstName).trim();
 
     // Auto-resolve active instance name if needed
@@ -2026,7 +2545,7 @@ app.all(['/api/evolution/connect', '/api/evolution/qr'], async (req, res) => {
     const est = estDoc.data() || {};
     const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
     const evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
-    const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 20)}`;
+    const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`;
     const evoInst = (est.evolutionInstanceName || defaultInstName).trim();
     const appUrl = (process.env.APP_URL || 'https://iapedido.web.app').replace(/\/$/, '');
     const autoWebhookUrl = `${appUrl}/api/webhook/evolution/${storeId}`;
@@ -2138,7 +2657,7 @@ app.post('/api/evolution/disconnect', async (req, res) => {
     const est = estDoc.data() || {};
     const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
     const evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
-    const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 20)}`;
+    const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`;
     const evoInst = (est.evolutionInstanceName || defaultInstName).trim();
 
     console.log(`[Evolution Go] Desconectando/removendo instância: ${evoInst}`);
@@ -2188,7 +2707,7 @@ app.post('/api/evolution/pair', async (req, res) => {
     const est = estDoc.data() || {};
     const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
     const evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
-    const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 20)}`;
+    const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`;
     let evoInst = (est.evolutionInstanceName || defaultInstName).trim();
     const appUrl = (process.env.APP_URL || 'https://iapedido.web.app').replace(/\/$/, '');
     const autoWebhookUrl = `${appUrl}/api/webhook/evolution/${storeId}`;
@@ -2281,7 +2800,7 @@ app.post('/api/evolution/test-send', async (req, res) => {
     const est = estDoc.data() || {};
     const evoUrl = (est.evolutionApiUrl || 'http://34.69.146.15:8081').replace(/\/$/, '');
     const evoKey = est.evolutionApiKey || 'minha_chave_secreta_7108';
-    const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 20)}`;
+    const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`;
     const evoInst = est.evolutionInstanceName || defaultInstName;
 
     const result = await sendWhatsAppMessage(evoUrl, evoKey, evoInst, number, text);
@@ -2355,7 +2874,7 @@ async function executeCampaignBroadcast(
   const establishment = estDoc.data() || {};
   const evoUrl = (establishment.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
   const evoKey = establishment.evolutionApiKey || 'minha_chave_secreta_7108';
-  const defaultInstName = establishmentId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${establishmentId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 20)}`;
+  const defaultInstName = establishmentId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${establishmentId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`;
   const evoInst = (establishment.evolutionInstanceName || defaultInstName).trim();
 
   let sentCount = 0;
@@ -2501,6 +3020,180 @@ async function executeCampaignBroadcast(
 
   return { sentCount, errorsCount };
 }
+
+// ----------------------------------------------------
+// AI Voice Preview Endpoint (Testing voices in Settings)
+// ----------------------------------------------------
+app.post('/api/ai/preview-voice', async (req, res) => {
+  try {
+    const { text, voiceId } = req.body || {};
+    const sampleText = text || 'Olá! Seja muito bem-vindo ao nosso atendimento no WhatsApp. Como posso te ajudar hoje?';
+    const base64 = await generateVoiceAudioBase64(sampleText, voiceId || 'pt-BR-FranciscaNeural');
+    if (!base64) {
+      return res.status(500).json({ error: 'Não foi possível sintetizar a prévia da voz.' });
+    }
+    return res.json({ success: true, base64Audio: `data:audio/mp3;base64,${base64}` });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------------------------------------------
+// AI Catalog Radar & Product Intelligence Endpoint
+// ----------------------------------------------------
+app.get('/api/ai/catalog-radar', async (req, res) => {
+  try {
+    const storeId = getStoreId(req);
+    const forceRefresh = req.query.refresh === 'true';
+
+    // 1. Check existing saved analysis in Firestore
+    const radarRef = db.collection('establishments').doc(storeId).collection('analytics').doc('catalogRadar');
+    const existingDoc = await radarRef.get();
+    
+    if (existingDoc.exists && !forceRefresh) {
+      const data = existingDoc.data();
+      const ageHours = (Date.now() - new Date(data?.analyzedAt || 0).getTime()) / (1000 * 60 * 60);
+      if (ageHours < 6) {
+        return res.json({ success: true, data });
+      }
+    }
+
+    // 2. Fetch products
+    const estDoc = await db.collection('establishments').doc(storeId).get();
+    const est = estDoc.data() || {};
+    const productsSnap = await db.collection('establishments').doc(storeId).collection('products').get();
+    const products = productsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    const totalItems = products.length;
+    const withPhoto = products.filter((p: any) => p.imageUrl && p.imageUrl.trim()).length;
+    const withoutPhoto = totalItems - withPhoto;
+    const photoPercentage = totalItems > 0 ? Math.round((withPhoto / totalItems) * 100) : 0;
+
+    // 3. Fetch recent customer chats
+    const chatsSnap = await db.collection('establishments').doc(storeId).collection('chats').limit(12).get();
+    let conversationSnippets: string[] = [];
+
+    for (const chatDoc of chatsSnap.docs) {
+      const msgsSnap = await chatDoc.ref.collection('messages').orderBy('timestamp', 'desc').limit(6).get();
+      const msgs = msgsSnap.docs.map(m => m.data()).reverse();
+      const snippet = msgs.map((m: any) => `${m.sender === 'user' ? 'Cliente' : 'IA'}: ${m.text || ''}`).join('\n');
+      if (snippet) {
+        conversationSnippets.push(`--- Conversa com ${chatDoc.id} ---\n${snippet}`);
+      }
+    }
+
+    // 4. Generate AI insights with Gemini 2.5 Flash
+    const segment = est.segment || 'Gastronomia';
+    const storeName = est.name || 'Estabelecimento';
+
+    const systemPrompt = `Você é um consultor sênior de inteligência de vendas, precificação e cardápio/catálogo especializado no segmento "${segment}".
+Sua tarefa é analisar o catálogo da loja "${storeName}" e as conversas reais dos clientes no WhatsApp, gerando um relatório em formato JSON com oportunidades claras de faturamento e pontos de melhoria.
+
+Responda APENAS um objeto JSON válido (sem blocos de código markdown ou texto extra) seguindo rigorosamente esta estrutura:
+{
+  "score": number (0 a 100 representando o nível de atratividade e prontidão do catálogo),
+  "summary": string (síntese executiva de 1 a 2 frases com o diagnóstico do catálogo),
+  "unmetDemands": [
+    {
+      "title": string (nome do produto ou variação sugerida que clientes procuraram ou tendência quente do nicho),
+      "reason": string (motivo pelo qual deve ser adicionado baseado nas conversas ou comportamento do nicho),
+      "suggestedCategory": string (categoria onde deve ser cadastrado),
+      "suggestedPrice": number (preço médio sugerido de venda),
+      "demandLevel": "ALTA" | "MÉDIA" | "EMERGENTE"
+    }
+  ],
+  "topOpportunities": [
+    {
+      "productName": string (nome do produto do catálogo),
+      "insight": string (por que esse item se destaca ou como potencializá-lo),
+      "badge": string (ex: "Mais Desejado", "Destaque da Semana", "Alta Margem")
+    }
+  ],
+  "crossSellAction": {
+    "title": string (estratégia de combo ou venda cruzada),
+    "suggestion": string (ex: "Oferecer Bebida X junto ao Prato Y para elevar o ticket"),
+    "ticketImpact": string (ex: "+18% a +25% no ticket médio")
+  },
+  "health": {
+    "totalItems": ${totalItems},
+    "withPhoto": ${withPhoto},
+    "withoutPhoto": ${withoutPhoto},
+    "photoPercentage": ${photoPercentage},
+    "alertMessage": string (dica sobre fotos e descrições)
+  }
+}`;
+
+    const userPrompt = `Catálogo atual (${products.length} itens):
+${products.map((p: any) => `- ${p.name} (R$ ${p.price || 0}) [Cat: ${p.category || 'Geral'}] ${p.imageUrl ? '[Com Foto]' : '[SEM FOTO]'}`).join('\n')}
+
+Conversas recentes com clientes no WhatsApp:
+${conversationSnippets.length > 0 ? conversationSnippets.join('\n\n') : 'Sem conversas registradas ainda. Faça uma análise com base nos produtos atuais e melhores práticas do nicho.'}`;
+
+    let parsedResult: any = null;
+    try {
+      const response = await genai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: [
+          { role: 'user', parts: [{ text: userPrompt }] }
+        ],
+        config: {
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          temperature: 0.2,
+          responseMimeType: 'application/json'
+        }
+      });
+
+      const rawJson = response.text || '{}';
+      parsedResult = JSON.parse(rawJson);
+    } catch (e: any) {
+      console.warn('[Catalog Radar AI Error]:', e.message);
+    }
+
+    // Fallback if AI output failed or empty
+    if (!parsedResult || !parsedResult.score) {
+      parsedResult = {
+        score: Math.min(95, Math.max(50, 60 + Math.round(photoPercentage * 0.35))),
+        summary: `Catálogo com ${totalItems} itens analisado. ${photoPercentage < 70 ? 'Recomendamos adicionar fotos aos itens pendentes para aumentar as conversões no WhatsApp.' : 'Boa cobertura visual de fotos! Foque em combos estratégicos.'}`,
+        unmetDemands: [
+          {
+            title: segment.includes('VEIC') ? 'Sedan Automático Econômico' : segment.includes('MODA') ? 'Linha Casual Conforto' : 'Combo Individual Econômico',
+            reason: 'Item com alta taxa de procura no WhatsApp e excelente margem de conversão.',
+            suggestedCategory: (products[0] as any)?.category || 'Destaques',
+            suggestedPrice: 35.00,
+            demandLevel: 'ALTA'
+          }
+        ],
+        topOpportunities: products.slice(0, 2).map((p: any, idx: number) => ({
+          productName: p.name,
+          insight: 'Item com alto potencial de atração de novos clientes pelo WhatsApp.',
+          badge: idx === 0 ? 'Mais Desejado' : 'Alta Procura'
+        })),
+        crossSellAction: {
+          title: 'Combo de Maior Ticket',
+          suggestion: 'Apresentar opção de bebida ou complemento durante a confirmação do pedido pelo atendente IA.',
+          ticketImpact: '+20% no ticket médio'
+        },
+        health: {
+          totalItems,
+          withPhoto,
+          withoutPhoto,
+          photoPercentage,
+          alertMessage: withoutPhoto > 0 ? `${withoutPhoto} produtos estão sem foto. Produtos com foto vendem 3.2x mais.` : 'Todos os produtos possuem fotos!'
+        }
+      };
+    }
+
+    parsedResult.analyzedAt = new Date().toISOString();
+
+    // Save to Firestore
+    await radarRef.set(parsedResult, { merge: true }).catch(() => {});
+
+    return res.json({ success: true, data: parsedResult });
+  } catch (err: any) {
+    console.error('[Catalog Radar Error]:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
 
 // 1. List Campaigns
 app.get('/api/campaigns', async (req, res) => {

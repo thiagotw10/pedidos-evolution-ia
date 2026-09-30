@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { Order, OrderStatus, Courier, Establishment } from '../types';
 import { DispatchModal } from './DispatchModal';
-import { getSegmentConfig } from '../utils/segments';
+import { getSegmentConfig, getSegmentOrdersIcon, getSegmentCatalogIcon } from '../utils/segments';
 
 interface OrdersViewProps {
   orders: Order[];
@@ -43,7 +43,8 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   establishment
 }) => {
   const segConfig = getSegmentConfig(establishment?.segment);
-  const isFood = segConfig.id === 'FOOD';
+  const OrdersIcon = getSegmentOrdersIcon(establishment?.segment);
+  const CatalogIcon = getSegmentCatalogIcon(establishment?.segment);
 
   const [activeFilter, setActiveFilter] = useState<string>('PENDENTE');
   const [rejectModalOrder, setRejectModalOrder] = useState<Order | null>(null);
@@ -52,13 +53,13 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
 
   const filterTabs = [
-    { id: 'PENDENTE', label: 'Novos / Pendentes', color: 'emerald' },
-    { id: 'EM_PREPARO', label: isFood ? 'Em Preparo' : 'Em Atendimento', color: 'amber' },
-    { id: 'A_CAMINHO', label: isFood ? 'Saiu p/ Entrega' : 'Saiu p/ Envio', color: 'blue' },
-    { id: 'PRONTO', label: isFood ? 'Pronto p/ Retirada' : 'Pronto p/ Visita/Retirada', color: 'purple' },
-    { id: 'CONCLUIDO', label: 'Concluídos', color: 'slate' },
-    { id: 'CANCELADO', label: 'Cancelados', color: 'rose' },
-    { id: 'ALL', label: `Todos (${segConfig.ordersTitle})`, color: 'slate' },
+    { id: 'PENDENTE', label: `Novos (${segConfig.ordersPluralNoun})`, color: 'emerald' },
+    { id: 'EM_PREPARO', label: segConfig.statusLabels.inProgress, color: 'amber' },
+    { id: 'A_CAMINHO', label: segConfig.statusLabels.dispatched, color: 'blue' },
+    { id: 'PRONTO', label: segConfig.statusLabels.ready, color: 'purple' },
+    { id: 'CONCLUIDO', label: segConfig.statusLabels.completed, color: 'slate' },
+    { id: 'CANCELADO', label: segConfig.statusLabels.cancelled, color: 'rose' },
+    { id: 'ALL', label: `Todos (${segConfig.ordersPluralNoun})`, color: 'slate' },
   ];
 
   const filteredOrders = orders.filter(order => {
@@ -69,18 +70,18 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const getStatusBadge = (status: OrderStatus) => {
     switch (status) {
       case 'PENDENTE':
-        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse">Aguardando Confirmação</span>;
+        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse">{segConfig.statusLabels.pending}</span>;
       case 'CONFIRMADO':
       case 'EM_PREPARO':
-        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-300 border border-blue-500/40">{isFood ? 'Em Preparo na Cozinha' : 'Em Separação / Atendimento'}</span>;
+        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-300 border border-blue-500/40">{segConfig.statusLabels.inProgress}</span>;
       case 'A_CAMINHO':
-        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">{isFood ? '🛵 Saiu para Entrega' : '📦 Saiu para Envio/Entrega'}</span>;
+        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">{segConfig.statusLabels.dispatched}</span>;
       case 'PRONTO':
-        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">{isFood ? '🛍️ Pronto p/ Retirada' : '📍 Pronto p/ Retirada ou Visita'}</span>;
+        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">{segConfig.statusLabels.ready}</span>;
       case 'CONCLUIDO':
-        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">Concluído & Finalizado</span>;
+        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">{segConfig.statusLabels.completed}</span>;
       case 'CANCELADO':
-        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500/20 text-rose-400 border border-rose-500/40">Cancelado</span>;
+        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500/20 text-rose-400 border border-rose-500/40">{segConfig.statusLabels.cancelled}</span>;
       default:
         return null;
     }
@@ -110,7 +111,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     printWindow.document.write(`
       <html>
         <head>
-          <title>Comanda #${order.orderNumber || order.id.slice(-4)}</title>
+          <title>${segConfig.receiptTitle} #${order.orderNumber || order.id.slice(-4)}</title>
           <style>
             body { font-family: monospace; font-size: 13px; padding: 10px; line-height: 1.4; }
             .center { text-align: center; }
@@ -120,16 +121,16 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           </style>
         </head>
         <body>
-          <div class="center bold">=== IAPEDIDO ===</div>
-          <div class="center bold" style="font-size: 16px;">PEDIDO #${order.orderNumber || order.id.slice(-4)}</div>
+          <div class="center bold">=== ${establishmentName.toUpperCase()} ===</div>
+          <div class="center bold" style="font-size: 16px;">${segConfig.ordersNoun.toUpperCase()} #${order.orderNumber || order.id.slice(-4)}</div>
           <div class="center">${new Date(order.createdAt).toLocaleString('pt-BR')}</div>
           <div class="line"></div>
           <div><span class="bold">Cliente:</span> ${order.customerName}</div>
           <div><span class="bold">Telefone:</span> ${order.customerPhone}</div>
-          <div><span class="bold">Tipo:</span> ${order.deliveryType}</div>
+          <div><span class="bold">Tipo:</span> ${order.deliveryType === 'DELIVERY' ? segConfig.deliveryTypeLabels.delivery : segConfig.deliveryTypeLabels.pickup}</div>
           ${order.deliveryType === 'DELIVERY' ? `<div><span class="bold">Endereço:</span> ${order.customerAddress || 'Não informado'}</div>` : ''}
           <div class="line"></div>
-          <div class="bold">ITENS:</div>
+          <div class="bold">${segConfig.itemPluralNoun.toUpperCase()}:</div>
           ${order.items.map(it => `
             <div class="item">
               <span>${it.quantity}x ${it.name} ${it.notes ? `(${it.notes})` : ''}</span>
@@ -161,11 +162,11 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div>
           <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2.5">
-            Gestão de Pedidos em Tempo Real
+            Gestão de {segConfig.ordersPluralNoun} em Tempo Real
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
           </h2>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Pedidos recebidos via WhatsApp pela Inteligência Artificial. Ao confirmar ou alterar status, a IA avisa o cliente automaticamente!
+            {segConfig.ordersPluralNoun} recebidos via WhatsApp pela Inteligência Artificial. Ao confirmar ou alterar status, a IA avisa o cliente automaticamente!
           </p>
         </div>
       </div>
@@ -204,10 +205,10 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         </div>
       ) : filteredOrders.length === 0 ? (
         <div className="bg-slate-900/40 rounded-2xl border border-slate-800/60 p-12 text-center text-slate-400">
-          <ShoppingBag className="w-12 h-12 mx-auto mb-3 text-slate-600" />
-          <h3 className="text-lg font-bold text-slate-200">Nenhum pedido encontrado nesta aba</h3>
+          <OrdersIcon className="w-12 h-12 mx-auto mb-3 text-slate-600" />
+          <h3 className="text-lg font-bold text-slate-200">Nenhum(a) {segConfig.ordersNoun.toLowerCase()} encontrado(a) nesta aba</h3>
           <p className="text-sm mt-1 max-w-md mx-auto text-slate-400">
-            Quando um cliente finalizar um pedido pelo WhatsApp com a IA, ele aparecerá instantaneamente aqui!
+            Quando um cliente solicitar um(a) {segConfig.ordersNoun.toLowerCase()} pelo WhatsApp com a IA, ele aparecerá instantaneamente aqui!
           </p>
         </div>
       ) : (
@@ -417,22 +418,33 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   {order.status === 'EM_PREPARO' && (
                     <div className="flex gap-2">
                       {order.deliveryType === 'DELIVERY' ? (
-                        <button
-                          disabled={isUpdatingCurrent}
-                          onClick={() => setDispatchModalOrder(order)}
-                          className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-black text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-lg shadow-cyan-600/20"
-                        >
-                          <Bike className="w-4 h-4" />
-                          <span>Despachar Entrega</span>
-                        </button>
+                        segConfig.hasDeliveryTeam !== false ? (
+                          <button
+                            disabled={isUpdatingCurrent}
+                            onClick={() => setDispatchModalOrder(order)}
+                            className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-black text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-lg shadow-cyan-600/20"
+                          >
+                            <Bike className="w-4 h-4" />
+                            <span>Despachar Entrega (Motoboy)</span>
+                          </button>
+                        ) : (
+                          <button
+                            disabled={isUpdatingCurrent}
+                            onClick={() => handleStatusChange(order.id, 'A_CAMINHO')}
+                            className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-lg shadow-blue-600/20"
+                          >
+                            <Send className="w-4 h-4" />
+                            <span>Confirmar Despacho / Envio</span>
+                          </button>
+                        )
                       ) : (
                         <button
                           disabled={isUpdatingCurrent}
                           onClick={() => handleStatusChange(order.id, 'PRONTO')}
                           className="flex-1 py-2.5 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
                         >
-                          <ShoppingBag className="w-4 h-4" />
-                          <span>Pronto p/ Retirada</span>
+                          <OrdersIcon className="w-4 h-4" />
+                          <span>{segConfig.statusLabels.ready}</span>
                         </button>
                       )}
                     </div>

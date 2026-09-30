@@ -18,7 +18,7 @@ import {
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../lib/firebase';
 import { Product, Establishment } from '../types';
-import { getSegmentConfig } from '../utils/segments';
+import { getSegmentConfig, getSegmentCatalogIcon } from '../utils/segments';
 
 interface ProductsViewProps {
   products: Product[];
@@ -38,6 +38,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
   establishment
 }) => {
   const segConfig = getSegmentConfig(establishment?.segment);
+  const CatalogIcon = getSegmentCatalogIcon(establishment?.segment);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -55,6 +56,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
     const matchesCategory = selectedCategory === 'ALL' || p.category === selectedCategory;
     return matchesSearch && matchesCategory;
   });
+
 
   const handleOpenAddModal = () => {
     setEditingProduct({
@@ -152,6 +154,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
         </button>
       </div>
 
+
       {/* Search & Category Filter Bar */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4 bg-slate-900/60 p-3 sm:p-4 rounded-2xl border border-slate-800/80">
         <div className="relative w-full sm:w-96">
@@ -166,6 +169,8 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto -mx-1 px-1 scrollbar-none pb-1 sm:pb-0">
+
+
           <button
             onClick={() => setSelectedCategory('ALL')}
             className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer whitespace-nowrap shrink-0 ${
@@ -199,15 +204,15 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
       {/* Products Grid */}
       {loading ? (
         <div className="text-center py-20 text-slate-400">
-          <Utensils className="w-8 h-8 mx-auto mb-2 animate-bounce text-emerald-400" />
+          <CatalogIcon className="w-8 h-8 mx-auto mb-2 animate-bounce text-emerald-400" />
           <p>Carregando {segConfig.catalogTitle.toLowerCase()}...</p>
         </div>
       ) : filteredProducts.length === 0 ? (
         <div className="bg-slate-900/40 rounded-2xl border border-slate-800/60 p-12 text-center text-slate-400">
-          <Utensils className="w-12 h-12 mx-auto mb-3 text-slate-600" />
-          <h3 className="text-lg font-bold text-slate-200">Nenhum item cadastrado</h3>
+          <CatalogIcon className="w-12 h-12 mx-auto mb-3 text-slate-600" />
+          <h3 className="text-lg font-bold text-slate-200">Nenhum(a) {segConfig.itemNoun.toLowerCase()} cadastrado(a)</h3>
           <p className="text-sm mt-1 max-w-md mx-auto text-slate-400">
-            Clique em "{segConfig.itemAddLabel}" para adicionar ao catálogo da sua loja.
+            Clique em "{segConfig.itemAddLabel}" para adicionar ao catálogo da sua empresa.
           </p>
         </div>
       ) : (
@@ -354,7 +359,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Categoria *</label>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">{segConfig.categoryNoun} *</label>
                   <input
                     type="text"
                     required
@@ -501,7 +506,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                   disabled={saving}
                   className="px-5 py-2.5 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition cursor-pointer shadow-lg shadow-emerald-500/20"
                 >
-                  {saving ? 'Salvando...' : 'Salvar Produto'}
+                  {saving ? 'Salvando...' : `Salvar ${segConfig.itemNoun}`}
                 </button>
               </div>
             </form>

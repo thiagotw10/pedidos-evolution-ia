@@ -21,7 +21,13 @@ import {
   AlertCircle,
   CheckCircle2,
   Power,
-  Loader2
+  Loader2,
+  Zap,
+  Mic,
+  Volume2,
+  Play,
+  Square,
+  Headphones
 } from 'lucide-react';
 import { Establishment, OperatingSchedule, DaySchedule, OutOfHoursAction } from '../types';
 import { 
@@ -35,6 +41,7 @@ import {
   getSegmentConfig, 
   BusinessSegment 
 } from '../utils/segments';
+import { VOICE_OPTIONS } from '../utils/voiceGenerator';
 
 interface SettingsViewProps {
   establishment: Establishment | null;
@@ -49,6 +56,77 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const initializedStoreIdRef = useRef<string | null>(null);
+
+  // Audio Voice Mirror Demo Player State
+  const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
+  const [loadingVoiceId, setLoadingVoiceId] = useState<string | null>(null);
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+
+  // Cleanup audio player on unmount
+  useEffect(() => {
+    return () => {
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.pause();
+        audioPlayerRef.current = null;
+      }
+    };
+  }, []);
+
+  const handlePlayVoicePreview = async (voiceId: string) => {
+    if (playingVoiceId === voiceId) {
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.pause();
+        audioPlayerRef.current = null;
+      }
+      setPlayingVoiceId(null);
+      return;
+    }
+
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+      audioPlayerRef.current = null;
+    }
+
+    try {
+      setLoadingVoiceId(voiceId);
+      const res = await fetch('/api/ai/preview-voice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          voiceId,
+          text: `Olá! Seja muito bem-vindo ao atendimento da ${formData.name || 'nossa loja'}. Como posso te ajudar hoje?`
+        })
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || 'Erro ao sintetizar voz');
+      }
+
+      const data = await res.json();
+      if (data.base64Audio) {
+        const audio = new Audio(data.base64Audio);
+        audioPlayerRef.current = audio;
+        setPlayingVoiceId(voiceId);
+
+        audio.onended = () => {
+          setPlayingVoiceId(null);
+          audioPlayerRef.current = null;
+        };
+        audio.onerror = () => {
+          setPlayingVoiceId(null);
+          audioPlayerRef.current = null;
+        };
+
+        await audio.play();
+      }
+    } catch (err: any) {
+      alert(err.message || 'Não foi possível reproduzir a voz de demonstração.');
+      setPlayingVoiceId(null);
+    } finally {
+      setLoadingVoiceId(null);
+    }
+  };
 
   // Initialize form data only once per establishment ID so background pollings don't overwrite user edits
   useEffect(() => {
@@ -232,14 +310,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   key={seg.id}
                   type="button"
                   onClick={() => {
-                    const storeName = formData.name || 'Nossa Empresa';
-                    const newWelcome = seg.defaultWelcome.replace(/\{loja\}/g, storeName);
-                    const newPrompt = seg.defaultPrompt.replace(/\{loja\}/g, storeName);
                     setFormData(prev => ({
                       ...prev,
-                      segment: seg.id,
-                      aiWelcomeMessage: newWelcome,
-                      aiPromptCustom: newPrompt
+                      segment: seg.id
                     }));
                   }}
                   className={`p-3 rounded-xl border text-left transition flex flex-col justify-between gap-2 cursor-pointer ${
@@ -263,14 +336,37 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             })}
           </div>
 
-          <div className="p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-xl flex items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2 text-slate-300">
-              <Sparkles className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>
-                Ao trocar o segmento, as respostas da IA, sugestões de fotos e termos da plataforma se adaptam automaticamente!
-              </span>
-            </div>
-          </div>
+          {(() => {
+            const selectedSeg = getSegmentConfig(formData.segment);
+            return (
+              <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <div className="flex items-start sm:items-center gap-2.5 text-slate-300">
+                  <Sparkles className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5 sm:mt-0" />
+                  <div>
+                    <p className="font-bold text-white text-sm">Nicho Ativo: {selectedSeg.emoji} {selectedSeg.label}</p>
+                    <p className="text-slate-400 text-xs mt-0.5">
+                      Todo o fluxo do sistema ({selectedSeg.itemPluralNoun}, {selectedSeg.ordersTitle}) e catálogo se adaptam a este nicho.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFormData(prev => ({
+                      ...prev,
+                      aiWelcomeMessage: selectedSeg.defaultWelcome.replace(/\{loja\}/g, formData.name || 'Nossa Empresa'),
+                      aiPromptCustom: selectedSeg.defaultPrompt.replace(/\{loja\}/g, formData.name || 'Nossa Empresa')
+                    }));
+                    alert(`Mensagem de boas-vindas e prompt da IA atualizados para o nicho "${selectedSeg.label}" com sucesso! Clique em "Salvar Alterações" no topo para gravar.`);
+                  }}
+                  className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 transition cursor-pointer shrink-0 shadow-lg shadow-emerald-500/20"
+                >
+                  <Bot className="w-4 h-4" />
+                  <span>Aplicar Boas-Vindas & Prompt Deste Nicho</span>
+                </button>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Basic Store Info */}
@@ -315,38 +411,36 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               />
             </div>
 
-            <div>
-              <label className="block text-slate-300 font-semibold mb-1">
-                {getSegmentConfig(formData.segment).id === 'VEHICLES' 
-                  ? 'Taxa Padrão de Despacho / Guincho (R$)'
-                  : getSegmentConfig(formData.segment).id === 'REAL_ESTATE'
-                  ? 'Taxa / Deslocamento de Visita (R$)'
-                  : 'Taxa Padrão de Entrega (R$)'}
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.deliveryFee !== undefined ? formData.deliveryFee : ''}
-                onChange={e => setFormData({ ...formData, deliveryFee: parseFloat(e.target.value) || 0 })}
-                placeholder="0.00"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white font-mono focus:outline-none focus:border-emerald-500/60"
-              />
-            </div>
+            {getSegmentConfig(formData.segment).hasDeliveryFee !== false && (
+              <>
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1">
+                    Taxa Padrão de Entrega (R$)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formData.deliveryFee !== undefined ? formData.deliveryFee : ''}
+                    onChange={e => setFormData({ ...formData, deliveryFee: parseFloat(e.target.value) || 0 })}
+                    placeholder="0.00"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white font-mono focus:outline-none focus:border-emerald-500/60"
+                  />
+                </div>
 
-            <div>
-              <label className="block text-slate-300 font-semibold mb-1">
-                {getSegmentConfig(formData.segment).id === 'VEHICLES' || getSegmentConfig(formData.segment).id === 'REAL_ESTATE'
-                  ? 'Prazo / Tempo Estimado de Atendimento ou Visita'
-                  : 'Tempo Estimado de Entrega'}
-              </label>
-              <input
-                type="text"
-                value={formData.estimatedDeliveryTime || ''}
-                onChange={e => setFormData({ ...formData, estimatedDeliveryTime: e.target.value })}
-                placeholder={getSegmentConfig(formData.segment).id === 'VEHICLES' ? 'Visitas imediatas ou agendadas' : '35 a 50 minutos'}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-emerald-500/60"
-              />
-            </div>
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1">
+                    Tempo Estimado de Entrega
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.estimatedDeliveryTime || ''}
+                    onChange={e => setFormData({ ...formData, estimatedDeliveryTime: e.target.value })}
+                    placeholder="35 a 50 minutos"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-emerald-500/60"
+                  />
+                </div>
+              </>
+            )}
 
             <div>
               <label className="block text-slate-300 font-semibold mb-1">Horário de Funcionamento</label>
@@ -372,134 +466,136 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
-        {/* Motoboys & Couriers Management */}
-        <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-4 sm:p-6 space-y-4 sm:space-y-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div>
-              <h3 className="font-bold text-base text-white flex items-center gap-2">
-                <Bike className="w-5 h-5 text-cyan-400" />
-                Equipe de Entregadores & Motoboys
-              </h3>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Cadastre os motoboys que fazem suas entregas para enviar o pedido com 1 clique com link do Waze e Google Maps
+        {/* Motoboys & Couriers Management (Only for delivery segments) */}
+        {getSegmentConfig(formData.segment).hasDeliveryTeam !== false && (
+          <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-4 sm:p-6 space-y-4 sm:space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h3 className="font-bold text-base text-white flex items-center gap-2">
+                  <Bike className="w-5 h-5 text-cyan-400" />
+                  Equipe de Entregadores & Motoboys
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Cadastre os motoboys que fazem suas entregas para enviar o pedido com 1 clique com link do Waze e Google Maps
+                </p>
+              </div>
+              <span className="text-xs font-bold px-3 py-1 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 w-fit">
+                {(formData.couriers || []).length} Entregador(es)
+              </span>
+            </div>
+
+            {/* List of existing couriers */}
+            {(formData.couriers && formData.couriers.length > 0) ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {formData.couriers.map((courier, index) => (
+                  <div 
+                    key={courier.id || index}
+                    className="bg-slate-950/70 p-3.5 rounded-xl border border-slate-800/80 flex items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center font-bold">
+                        <Bike className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-white text-sm">{courier.name}</p>
+                        <p className="text-[11px] text-slate-400 font-mono flex items-center gap-1 mt-0.5">
+                          <Phone className="w-3 h-3 text-emerald-400" />
+                          {courier.phone}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = (formData.couriers || []).filter((_, i) => i !== index);
+                          setFormData({ ...formData, couriers: updated });
+                        }}
+                        className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
+                        title="Remover entregador"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="p-4 rounded-xl bg-slate-950/40 border border-dashed border-slate-800 text-center text-xs text-slate-500">
+                Nenhum motoboy cadastrado ainda. Adicione abaixo para facilitar na hora de despachar.
+              </div>
+            )}
+
+            {/* Add new courier row */}
+            <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-3">
+              <p className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                <Plus className="w-4 h-4 text-cyan-400" />
+                Adicionar Novo Motoboy
               </p>
-            </div>
-            <span className="text-xs font-bold px-3 py-1 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 w-fit">
-              {(formData.couriers || []).length} Entregador(es)
-            </span>
-          </div>
 
-          {/* List of existing couriers */}
-          {(formData.couriers && formData.couriers.length > 0) ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {formData.couriers.map((courier, index) => (
-                <div 
-                  key={courier.id || index}
-                  className="bg-slate-950/70 p-3.5 rounded-xl border border-slate-800/80 flex items-center justify-between gap-3 text-xs"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center font-bold">
-                      <Bike className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <p className="font-bold text-white text-sm">{courier.name}</p>
-                      <p className="text-[11px] text-slate-400 font-mono flex items-center gap-1 mt-0.5">
-                        <Phone className="w-3 h-3 text-emerald-400" />
-                        {courier.phone}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const updated = (formData.couriers || []).filter((_, i) => i !== index);
-                        setFormData({ ...formData, couriers: updated });
-                      }}
-                      className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
-                      title="Remover entregador"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div>
+                  <label className="block text-slate-400 mb-1">Nome</label>
+                  <input
+                    type="text"
+                    id="newCourierName"
+                    placeholder="Ex: Carlos Motoboy"
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-500"
+                  />
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="p-4 rounded-xl bg-slate-950/40 border border-dashed border-slate-800 text-center text-xs text-slate-500">
-              Nenhum motoboy cadastrado ainda. Adicione abaixo para facilitar na hora de despachar.
-            </div>
-          )}
 
-          {/* Add new courier row */}
-          <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-3">
-            <p className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-              <Plus className="w-4 h-4 text-cyan-400" />
-              Adicionar Novo Motoboy
-            </p>
+                <div>
+                  <label className="block text-slate-400 mb-1">WhatsApp (com DDD)</label>
+                  <input
+                    type="text"
+                    id="newCourierPhone"
+                    placeholder="Ex: 5511999998888"
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-              <div>
-                <label className="block text-slate-400 mb-1">Nome</label>
-                <input
-                  type="text"
-                  id="newCourierName"
-                  placeholder="Ex: Carlos Motoboy"
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-500"
-                />
-              </div>
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nameInput = document.getElementById('newCourierName') as HTMLInputElement;
+                      const phoneInput = document.getElementById('newCourierPhone') as HTMLInputElement;
+                      const name = nameInput?.value.trim();
+                      const phone = phoneInput?.value.replace(/\D/g, '');
 
-              <div>
-                <label className="block text-slate-400 mb-1">WhatsApp (com DDD)</label>
-                <input
-                  type="text"
-                  id="newCourierPhone"
-                  placeholder="Ex: 5511999998888"
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-cyan-500"
-                />
-              </div>
+                      if (!name || !phone || phone.length < 10) {
+                        alert('Preencha o nome e um telefone WhatsApp válido (com DDD)');
+                        return;
+                      }
 
-              <div className="flex items-end">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const nameInput = document.getElementById('newCourierName') as HTMLInputElement;
-                    const phoneInput = document.getElementById('newCourierPhone') as HTMLInputElement;
-                    const name = nameInput?.value.trim();
-                    const phone = phoneInput?.value.replace(/\D/g, '');
+                      const newCourier = {
+                        id: `c_${Date.now()}`,
+                        name,
+                        phone,
+                        vehicle: 'MOTO' as const,
+                        active: true,
+                        createdAt: new Date().toISOString()
+                      };
 
-                    if (!name || !phone || phone.length < 10) {
-                      alert('Preencha o nome e um telefone WhatsApp válido (com DDD)');
-                      return;
-                    }
+                      setFormData({
+                        ...formData,
+                        couriers: [...(formData.couriers || []), newCourier]
+                      });
 
-                    const newCourier = {
-                      id: `c_${Date.now()}`,
-                      name,
-                      phone,
-                      vehicle: 'MOTO' as const,
-                      active: true,
-                      createdAt: new Date().toISOString()
-                    };
-
-                    setFormData({
-                      ...formData,
-                      couriers: [...(formData.couriers || []), newCourier]
-                    });
-
-                    if (nameInput) nameInput.value = '';
-                    if (phoneInput) phoneInput.value = '';
-                  }}
-                  className="w-full py-2 px-4 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Cadastrar Motoboy</span>
-                </button>
+                      if (nameInput) nameInput.value = '';
+                      if (phoneInput) phoneInput.value = '';
+                    }}
+                    className="w-full py-2 px-4 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Cadastrar Motoboy</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* AI Operating Hours & Business Schedule */}
         <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-4 sm:p-6 space-y-5">
@@ -775,10 +871,66 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
         {/* AI Behavior & Personality */}
         <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-4 sm:p-6 space-y-4">
-          <h3 className="font-bold text-base text-white flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-emerald-400" />
-            Personalidade & Regras da Inteligência Artificial
-          </h3>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="font-bold text-base text-white flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-emerald-400" />
+                Personalidade & Regras da Inteligência Artificial
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Defina o tom de voz e como o atendente virtual deve negociar no WhatsApp.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                const seg = getSegmentConfig(formData.segment);
+                const hasCustom = Boolean(
+                  (formData.aiPromptCustom && formData.aiPromptCustom.trim().length > 0) ||
+                  (formData.aiWelcomeMessage && formData.aiWelcomeMessage.trim().length > 0)
+                );
+                if (hasCustom) {
+                  const confirm = window.confirm(
+                    `Deseja carregar o modelo de prompt sugerido para "${seg.label}"? As instruções e mensagem de boas-vindas atuais serão substituídas.`
+                  );
+                  if (!confirm) return;
+                }
+                const storeName = formData.name || 'Nossa Empresa';
+                setFormData(prev => ({
+                  ...prev,
+                  aiWelcomeMessage: seg.defaultWelcome.replace(/\{loja\}/g, storeName),
+                  aiPromptCustom: seg.defaultPrompt.replace(/\{loja\}/g, storeName)
+                }));
+              }}
+              className="px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer w-fit shrink-0"
+              title="Carregar as instruções recomendadas para o nicho selecionado"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Carregar Modelo de {getSegmentConfig(formData.segment).label}</span>
+            </button>
+          </div>
+
+          {/* Dual-Engine Architecture Info Card (Jev + Gemini) */}
+          <div className="p-3.5 rounded-xl bg-gradient-to-r from-blue-950/40 via-purple-950/30 to-emerald-950/40 border border-blue-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/30 flex items-center justify-center shrink-0 text-blue-400">
+                <Zap className="w-4 h-4 fill-blue-400/20" />
+              </div>
+              <div>
+                <p className="font-bold text-white flex items-center gap-1.5">
+                  Motor Híbrido Ativo: TypeSafe AI (Jev) + Gemini 2.5 Flash
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
+                </p>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Triagem ultra-rápida de intenções (~100ms), resposta instantânea de PIX/horários e detecção de urgência/reclamações com transbordo humano.
+                </p>
+              </div>
+            </div>
+            <span className="px-2.5 py-1 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 text-[10px] font-bold tracking-wider shrink-0 uppercase">
+              ⚡ Sistema 1 Conectado
+            </span>
+          </div>
 
           <div className="space-y-4 text-xs">
             <div>
@@ -806,6 +958,138 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:outline-none focus:border-emerald-500/60 leading-relaxed font-sans"
               />
             </div>
+          </div>
+
+          {/* 🎙️ Voice Mirror Engine (Respostas por Áudio no WhatsApp) */}
+          <div className="pt-4 border-t border-slate-800/80 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-purple-950/30 via-indigo-950/20 to-slate-950 p-4 rounded-2xl border border-purple-500/20">
+              <div className="flex items-start sm:items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center shrink-0 text-purple-400">
+                  <Mic className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                      Espelho de Voz Humanizado (Respostas por Áudio)
+                    </h4>
+                    <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-[10px] font-bold border border-purple-500/30 uppercase tracking-wider">
+                      ✨ Inovação
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Quando o cliente envia uma mensagem de áudio, a IA responde também com um áudio natural falado em português brasileiro.
+                  </p>
+                </div>
+              </div>
+
+              {/* Toggle Switch */}
+              <button
+                type="button"
+                onClick={() => {
+                  const currentVal = formData.aiVoiceMirrorEnabled !== false;
+                  setFormData(prev => ({ ...prev, aiVoiceMirrorEnabled: !currentVal }));
+                }}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  (formData.aiVoiceMirrorEnabled !== false) ? 'bg-purple-600' : 'bg-slate-800'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                    (formData.aiVoiceMirrorEnabled !== false) ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {(formData.aiVoiceMirrorEnabled !== false) && (
+              <div className="space-y-3 pl-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                    <Headphones className="w-3.5 h-3.5 text-purple-400" />
+                    Voz do Atendente no WhatsApp:
+                  </label>
+                  <span className="text-[11px] text-slate-400">
+                    Clique em um modelo para selecionar ou teste a voz abaixo:
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {VOICE_OPTIONS.map((voice) => {
+                    const isSelected = (formData.aiVoiceId || 'pt-BR-FranciscaNeural') === voice.id;
+                    const isPlaying = playingVoiceId === voice.id;
+                    const isLoading = loadingVoiceId === voice.id;
+
+                    return (
+                      <div
+                        key={voice.id}
+                        onClick={() => setFormData(prev => ({ ...prev, aiVoiceId: voice.id }))}
+                        className={`p-3.5 rounded-xl border text-left transition relative cursor-pointer flex flex-col justify-between gap-3 ${
+                          isSelected
+                            ? 'bg-purple-950/25 border-purple-500/70 shadow-sm ring-1 ring-purple-500/40 text-white'
+                            : 'bg-slate-950/60 border-slate-800 text-slate-300 hover:border-slate-700 hover:bg-slate-950'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-sm text-white">{voice.name}</span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-300 font-medium">
+                                {voice.gender}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-1 line-clamp-2 leading-relaxed">
+                              {voice.tone}
+                            </p>
+                          </div>
+
+                          <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 mt-0.5 ${
+                            isSelected ? 'border-purple-400 bg-purple-500/20' : 'border-slate-700'
+                          }`}>
+                            {isSelected && <div className="w-2 h-2 rounded-full bg-purple-400" />}
+                          </div>
+                        </div>
+
+                        {/* Test Audio Button */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePlayVoicePreview(voice.id);
+                          }}
+                          className={`w-full py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition cursor-pointer border ${
+                            isPlaying
+                              ? 'bg-purple-600 text-white border-purple-500 shadow-md shadow-purple-600/30'
+                              : 'bg-slate-900/80 hover:bg-slate-800 text-purple-300 border-purple-500/30'
+                          }`}
+                        >
+                          {isLoading ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span>Sintetizando...</span>
+                            </>
+                          ) : isPlaying ? (
+                            <>
+                              <Square className="w-3 h-3 fill-current" />
+                              <span>Pausar Demonstração</span>
+                              <span className="flex items-center gap-0.5 ml-1">
+                                <span className="w-1 h-3 bg-white rounded-full animate-pulse" />
+                                <span className="w-1 h-4 bg-white rounded-full animate-pulse delay-75" />
+                                <span className="w-1 h-2 bg-white rounded-full animate-pulse delay-150" />
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <Play className="w-3.5 h-3.5 fill-current" />
+                              <span>Ouvir Demonstração</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

@@ -13,7 +13,7 @@ import {
   Navigation
 } from 'lucide-react';
 import { ChatMessage, Establishment } from '../types';
-import { getSegmentConfig } from '../utils/segments';
+import { getSegmentConfig, getSegmentOrdersIcon } from '../utils/segments';
 
 interface SimulatorViewProps {
   onOrderCreatedNotification?: () => void;
@@ -29,6 +29,7 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
   establishment
 }) => {
   const segConfig = getSegmentConfig(establishment?.segment);
+  const OrdersIcon = getSegmentOrdersIcon(establishment?.segment);
   const initialGreeting = establishment?.aiWelcomeMessage || 
     segConfig.defaultWelcome.replace(/\{loja\}/g, establishment?.name || 'Nossa Empresa');
 
@@ -155,7 +156,7 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
       {
         id: `welcome_${Date.now()}`,
         sender: 'assistant',
-        text: 'Olá! Conversa reiniciada. O que você gostaria de pedir hoje?',
+        text: initialGreeting,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }
     ]);
@@ -281,8 +282,8 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
             onClick={onNavigateToOrders}
             className="flex-1 sm:flex-initial px-4 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer whitespace-nowrap"
           >
-            <ShoppingBag className="w-3.5 h-3.5" />
-            <span>Ver Pedidos no Gestor</span>
+            <OrdersIcon className="w-3.5 h-3.5" />
+            <span>Ver {segConfig.ordersPluralNoun} no Gestor</span>
           </button>
         </div>
       </div>
@@ -421,7 +422,7 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
                       {msg.orderId && (
                         <div className="mt-3 pt-2.5 border-t border-slate-700/80 flex items-center justify-between gap-2">
                           <span className="text-[11px] font-bold text-emerald-300 flex items-center gap-1">
-                            <ShoppingBag className="w-3.5 h-3.5" /> Pedido Registrado no Painel!
+                            <OrdersIcon className="w-3.5 h-3.5" /> {segConfig.ordersNoun} Registrado(a) no Painel!
                           </span>
                           <button
                             onClick={onNavigateToOrders}

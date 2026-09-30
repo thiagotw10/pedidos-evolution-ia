@@ -22,6 +22,7 @@
     "firebase-functions": "^7.4.0",
     "lucide-react": "^0.546.0",
     "mercadopago": "^3.6.1",
+    "msedge-tts": "^2.0.8",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^3.5.0",

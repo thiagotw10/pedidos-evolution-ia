@@ -447,6 +447,7 @@ export default function App() {
             {currentTab === 'finance' && (
               <FinanceView
                 orders={orders}
+                establishment={establishment}
               />
             )}
 
