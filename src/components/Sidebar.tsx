@@ -60,8 +60,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'campaigns',
       label: 'Disparos & Campanhas',
       icon: Megaphone,
-      badge: 'Novo',
-      badgeColor: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+      badge: null
     },
     {
       id: 'simulator',
@@ -88,9 +87,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <aside className="hidden md:flex w-68 bg-slate-900/90 border-r border-slate-800/80 flex-col h-screen select-none backdrop-blur-md flex-shrink-0">
+    <aside className="hidden md:flex w-72 bg-slate-900/90 border-r border-slate-800/80 flex-col h-screen select-none backdrop-blur-md flex-shrink-0">
       {/* Brand Header */}
-      <div className="p-6 border-b border-slate-800/60">
+      <div className="h-24 px-6 border-b border-slate-800/60 flex items-center">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 via-teal-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-emerald-500/20 ring-1 ring-white/20">
             <Bot className="w-6 h-6 text-white" />
@@ -105,8 +104,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-4 space-y-1.5 overflow-y-auto">
-        <div className="px-3 py-2 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
+      <nav className="flex-1 px-3 py-5 space-y-1.5 overflow-y-auto">
+        <div className="px-3 pb-3 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
           Menu Principal
         </div>
         {menuItems.map((item) => {
@@ -116,7 +115,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               key={item.id}
               onClick={() => setCurrentTab(item.id)}
-              className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl font-medium text-sm transition-all duration-200 cursor-pointer ${
+              className={`w-full min-h-12 flex items-center justify-between px-4 py-3 rounded-xl font-medium text-sm transition-all duration-200 cursor-pointer ${
                 isActive
                   ? 'bg-gradient-to-r from-emerald-500/20 to-teal-500/10 text-emerald-300 border border-emerald-500/30 shadow-md shadow-emerald-950/40'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'

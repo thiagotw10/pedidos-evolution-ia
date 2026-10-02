@@ -9,7 +9,7 @@ import {
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { auth, db, googleProvider } from '../lib/firebase';
 import { 
-  UtensilsCrossed, 
+  Bot, 
   Lock, 
   Mail, 
   Store, 
@@ -65,7 +65,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
         operatingHours: 'Segunda a Sábado das 08:00 às 18:00',
         description: segConf.categoryDesc,
         pixKey: storeEmail || email || '',
-        evolutionApiUrl: 'http://34.69.146.15:8081',
+        evolutionApiUrl: 'http://86.48.23.152:8081',
         evolutionApiKey: 'minha_chave_secreta_7108',
         evolutionInstanceName: cleanInstName,
         evolutionConnected: false,
@@ -262,14 +262,14 @@ export const AuthView: React.FC<AuthViewProps> = ({
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-400 p-0.5 shadow-lg shadow-emerald-500/20 mb-4">
             <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center">
-              <UtensilsCrossed className="w-8 h-8 text-emerald-400" />
+              <Bot className="w-8 h-8 text-emerald-400" />
             </div>
           </div>
           <h1 className="text-2xl font-bold text-white tracking-tight">
-            ia<span className="text-emerald-400">Pedido</span><span className="text-slate-400 font-normal text-lg">.com</span>
+            ia<span className="text-emerald-400">Pedido</span>
           </h1>
           <p className="text-sm text-slate-400 mt-1">
-            Plataforma Multi-Estabelecimento de Atendimento no WhatsApp
+            Plataforma de Atendimento e Vendas no WhatsApp para qualquer segmento
           </p>
         </div>
 
@@ -385,7 +385,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                 <input
                   type="email"
                   required
-                  placeholder="seu@restaurante.com"
+                      placeholder="seu@email.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"

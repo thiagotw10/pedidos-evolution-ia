@@ -369,7 +369,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
   const totalSentAll = campaigns.reduce((acc, c) => acc + (c.stats?.totalSent || 0), 0);
 
   return (
-    <div className="p-3 sm:p-6 md:p-8 space-y-5 sm:space-y-8 max-w-7xl mx-auto">
+    <div className="px-4 py-6 sm:px-6 sm:py-8 lg:px-8 space-y-6 sm:space-y-8 max-w-[1480px] mx-auto w-full">
       {/* Top Banner & Header */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4">
         <div>
@@ -395,13 +395,6 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
             <RefreshCw className="w-4 h-4" />
           </button>
 
-          <button
-            onClick={handleOpenNewModal}
-            className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-slate-950 font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 transition cursor-pointer whitespace-nowrap"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Novo Template de Disparo</span>
-          </button>
         </div>
       </div>
 
@@ -923,7 +916,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                   <label className="block text-xs font-bold text-slate-200">
                     Destino do Disparo (Para onde enviar?):
                   </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
                     <button
                       type="button"
                       onClick={() => setEditingCampaign({ ...editingCampaign, targetAudience: 'ALL_CUSTOMERS' })}
@@ -971,6 +964,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                         </div>
                       </div>
                     </button>
+
                   </div>
 
                   {/* Groups checklist and safety warning */}

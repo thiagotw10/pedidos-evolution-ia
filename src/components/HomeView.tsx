@@ -71,17 +71,17 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth }) => {
 
       {/* 1. Header / Navbar */}
       <header className="sticky top-0 z-50 backdrop-blur-xl bg-slate-950/80 border-b border-slate-800/80">
-        <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 sm:h-20 flex items-center justify-between gap-2">
           {/* Logo */}
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 via-teal-400 to-cyan-400 flex items-center justify-center shadow-lg shadow-emerald-500/25 ring-1 ring-white/20">
-              <Bot className="w-6 h-6 text-slate-950" />
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-emerald-500 via-teal-400 to-cyan-400 flex items-center justify-center shadow-lg shadow-emerald-500/25 ring-1 ring-white/20 shrink-0">
+              <Bot className="w-5 h-5 sm:w-6 sm:h-6 text-slate-950" />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="font-black text-xl text-white tracking-tight">ia<span className="text-emerald-400">Pedido</span></span>
+                <span className="font-black text-lg sm:text-xl text-white tracking-tight">ia<span className="text-emerald-400">Pedido</span></span>
               </div>
-              <p className="text-[10px] text-slate-400 font-medium tracking-wide">WhatsApp & Inteligência Artificial</p>
+              <p className="hidden sm:block text-[10px] text-slate-400 font-medium tracking-wide">WhatsApp & Inteligência Artificial</p>
             </div>
           </div>
 
@@ -95,19 +95,20 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth }) => {
           </nav>
 
           {/* Action CTAs */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1 sm:gap-3 shrink-0">
             <button
               onClick={() => onGoToAuth('login')}
-              className="px-4 py-2 rounded-xl text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-900 border border-transparent hover:border-slate-800 transition cursor-pointer"
+              className="px-2 sm:px-4 py-2 rounded-xl text-[11px] sm:text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-900 border border-transparent hover:border-slate-800 transition cursor-pointer whitespace-nowrap"
             >
               Entrar
             </button>
 
             <button
               onClick={() => onGoToAuth('register')}
-              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-xs flex items-center gap-2 shadow-lg shadow-emerald-500/20 transition cursor-pointer transform hover:-translate-y-0.5 active:translate-y-0"
+              className="px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-[11px] sm:text-xs flex items-center gap-1.5 sm:gap-2 shadow-lg shadow-emerald-500/20 transition cursor-pointer transform hover:-translate-y-0.5 active:translate-y-0 whitespace-nowrap"
             >
-              <span>Criar Conta Grátis</span>
+              <span className="sm:hidden">Criar grátis</span>
+              <span className="hidden sm:inline">Criar Conta Grátis</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>

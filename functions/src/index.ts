@@ -5,7 +5,7 @@ import admin from 'firebase-admin';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
-import { triageInboundMessageWithJev, qualifyLeadWithJev } from './typesafeJev';
+import { triageInboundMessageWithJev, qualifyLeadWithJev, screenPromptInjectionWithJev } from './typesafeJev';
 import { generateVoiceAudioBase64, VOICE_OPTIONS } from './voiceGenerator';
 import { isOwnerAdminMessage, processAdminCoPilotCommand } from './adminCoPilot';
 
@@ -632,6 +632,61 @@ async function downloadWhatsAppMedia(
   }
 }
 
+// Memória individual do cliente: preferências úteis para personalizar o atendimento.
+// O telefone é usado como chave, mas nunca armazenamos o conteúdo integral da conversa aqui.
+function customerMemoryRef(establishmentId: string, customerPhone: string) {
+  const safePhone = customerPhone.replace(/\//g, '_');
+  return db.collection('establishments').doc(establishmentId).collection('customers').doc(safePhone);
+}
+
+async function updateCustomerMemory(
+  establishmentId: string,
+  customerPhone: string,
+  data: { name?: string; order?: any; incomingText?: string }
+) {
+  try {
+    const ref = customerMemoryRef(establishmentId, customerPhone);
+    const existingSnap = await ref.get();
+    const existing = existingSnap.data() || {};
+    const order = data.order;
+    const favoriteProducts = new Set<string>(existing.favoriteProducts || []);
+
+    for (const item of order?.items || []) {
+      if (item.name) favoriteProducts.add(String(item.name));
+    }
+
+    const memory: any = {
+      customerPhone,
+      lastInteractionAt: new Date().toISOString(),
+      interactionCount: Number(existing.interactionCount || 0) + 1,
+      favoriteProducts: Array.from(favoriteProducts).slice(-20),
+      updatedAt: new Date().toISOString()
+    };
+
+    const name = (data.name || order?.customerName || '').trim();
+    if (name && name.toLowerCase() !== 'cliente' && name.toLowerCase() !== 'cliente whatsapp') {
+      memory.name = name;
+    }
+    if (order?.customerAddress && order.customerAddress !== 'A confirmar' && order.customerAddress !== 'Retirada no Balcão') {
+      memory.lastAddress = order.customerAddress;
+    }
+    if (order?.paymentMethod && order.paymentMethod !== 'A combinar') {
+      memory.preferredPaymentMethod = order.paymentMethod;
+    }
+    if (order?.deliveryType) memory.lastDeliveryType = order.deliveryType;
+    if (order?.notes) memory.lastOrderNotes = order.notes;
+    if (order?.items?.length) memory.lastOrderItems = order.items.map((item: any) => ({
+      name: item.name,
+      quantity: item.quantity,
+      notes: item.notes || ''
+    }));
+
+    await ref.set(memory, { merge: true });
+  } catch (err: any) {
+    console.warn('[Customer Memory] Não foi possível atualizar a memória:', err.message);
+  }
+}
+
 // Process conversation with Google Gemini (Multi-Turn History + Function Calling + Audio / Image Multimodal + Product Photo Sending)
 async function processAiCustomerMessage(
   establishmentId: string,
@@ -647,6 +702,9 @@ async function processAiCustomerMessage(
 }> {
   const estDoc = await db.collection('establishments').doc(establishmentId).get();
   const establishment = estDoc.data() || {};
+
+  const customerMemorySnap = await customerMemoryRef(establishmentId, customerPhone).get().catch(() => null);
+  const customerMemory = customerMemorySnap?.data() || {};
 
   // Fetch active products
   const productsCol = db.collection('establishments').doc(establishmentId).collection('products');
@@ -711,6 +769,14 @@ DADOS DO ESTABELECIMENTO:
 - Chave PIX: ${establishment.pixKey || 'Chave cadastrada no caixa'}
 - Formas de Pagamento Aceitas: PIX, Cartão (Crédito/Débito), Dinheiro/Financiamento.
 ${establishment.aiPromptCustom ? `\nINSTRUÇÕES PERSONALIZADAS DO ESTABELECIMENTO:\n${establishment.aiPromptCustom}` : ''}
+
+MEMÓRIA DO CLIENTE (use com naturalidade, sem mencionar que existe um banco de dados):
+- Nome: ${customerMemory.name || customerNameParam || 'Ainda não informado'}
+- Produtos pedidos anteriormente: ${(customerMemory.favoriteProducts || []).join(', ') || 'Ainda não identificado'}
+- Último endereço: ${customerMemory.lastAddress || 'Ainda não informado'}
+- Forma de pagamento mais recente: ${customerMemory.preferredPaymentMethod || 'Ainda não informado'}
+- Últimas observações: ${customerMemory.lastOrderNotes || 'Nenhuma'}
+Regras da memória: use esses dados apenas para facilitar o atendimento; confirme endereço, pagamento e itens antes de registrar um novo pedido. Nunca diga ao cliente que está consultando memória ou banco de dados.
 
 ${catalogHeader}:
 ${menuText || 'Nenhum item cadastrado no momento.'}
@@ -1213,6 +1279,13 @@ COMO VOCÊ DEVE AGIR:
       mediaUrl: mediaList.length > 0 ? mediaList[0].url : null
     });
 
+    // Atualiza a memória após concluir a resposta, sem bloquear o atendimento caso o Firestore falhe.
+    await updateCustomerMemory(establishmentId, customerPhone, {
+      name: customerNameParam,
+      order: createdOrder,
+      incomingText
+    });
+
     return { 
       replyText, 
       orderCreated: createdOrder, 
@@ -1415,7 +1488,7 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
     if (isAdmin) {
       console.log(`[Admin Co-Pilot] 👑 Mensagem do Dono/Gestor detectada para loja "${est.name || storeId}" (de ${phone}, self-chat: ${fromMe})`);
 
-      const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+      const evoUrl = (process.env.EVOLUTION_API_URL || est.evolutionApiUrl || 'http://86.48.23.152:8081').replace(/\/$/, '');
       const evoKey = est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108';
       const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`;
       const evoInst = est.evolutionInstanceName || defaultInstName;
@@ -1470,7 +1543,7 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
       });
     }
 
-    const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+    const evoUrl = (process.env.EVOLUTION_API_URL || est.evolutionApiUrl || 'http://86.48.23.152:8081').replace(/\/$/, '');
     const evoKey = est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108';
     const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`;
     const evoInst = est.evolutionInstanceName || defaultInstName;
@@ -1567,6 +1640,22 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
     const pushName = info.PushName || messageData.pushName || '';
 
     console.log(`[Evolution Webhook] Processando mensagem de ${phone} (${pushName || 'Sem nome'}): ${text ? `"${text.slice(0, 50)}..."` : (mediaPart ? `[Mídia: ${mediaPart.mimeType}]` : '[Vazio]')}`);
+
+    // Jev Security Gate: customer text is untrusted and must be screened before Gemini.
+    if (text.trim() && !mediaPart) {
+      const security = await screenPromptInjectionWithJev(text);
+      if (security.blocked) {
+        const safeReply = 'Posso ajudar com produtos, serviços, preços, disponibilidade, pedidos e informações da loja. Como posso ajudar? 😊';
+        console.warn(`[TypeSafe Jev Security] 🚫 Mensagem bloqueada (${security.category}, confiança ${security.confidence}) de ${phone}`);
+        await db.collection('establishments').doc(storeId).collection('chats').doc(phone).set({
+          lastSecurityEvent: security.category,
+          lastSecurityConfidence: security.confidence,
+          lastSecurityAt: new Date().toISOString()
+        }, { merge: true });
+        await sendWhatsAppMessage(evoUrl, evoKey, evoInst, phone, safeReply);
+        return res.status(200).json({ status: 'jev_security_blocked' });
+      }
+    }
 
     // ----------------------------------------------------
     // TypeSafe AI (Jev - System One) Fast Triage (~100ms)
@@ -1910,7 +1999,7 @@ app.post('/api/auth/register', async (req, res) => {
       pixKey: cleanEmail,
       evolutionConnected: false,
       evolutionApiKey: 'minha_chave_secreta_7108',
-      evolutionApiUrl: 'http://34.69.146.15:8081',
+      evolutionApiUrl: 'http://86.48.23.152:8081',
       evolutionInstanceName: `pedidos_${uid.slice(0, 15)}`,
       createdAt: admin.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
@@ -1984,7 +2073,7 @@ app.get('/api/establishment', async (req, res) => {
         operatingHours: 'Todos os dias das 18:00 às 23:30',
         description: 'Atendimento inteligente no WhatsApp',
         pixKey: '',
-        evolutionApiUrl: 'http://34.69.146.15:8081',
+        evolutionApiUrl: 'http://86.48.23.152:8081',
         evolutionApiKey: 'minha_chave_secreta_7108',
         evolutionInstanceName: cleanInstName,
         evolutionConnected: false,
@@ -2133,7 +2222,7 @@ app.patch('/api/orders/:id/status', async (req, res) => {
 
     const estDoc = await db.collection('establishments').doc(storeId).get();
     const est = estDoc.data() || {};
-    const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+    const evoUrl = (process.env.EVOLUTION_API_URL || est.evolutionApiUrl || 'http://86.48.23.152:8081').replace(/\/$/, '');
     const evoKey = est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108';
     const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`;
     const evoInst = est.evolutionInstanceName || defaultInstName;
@@ -2373,7 +2462,7 @@ app.get('/api/evolution/status', async (req, res) => {
     const storeId = getStoreId(req);
     const estDoc = await db.collection('establishments').doc(storeId).get();
     const est = estDoc.data() || {};
-    const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+    const evoUrl = (process.env.EVOLUTION_API_URL || est.evolutionApiUrl || 'http://86.48.23.152:8081').replace(/\/$/, '');
     const evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
     const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`;
     const evoInst = (est.evolutionInstanceName || defaultInstName).trim();
@@ -2432,7 +2521,7 @@ app.get('/api/evolution/groups', async (req, res) => {
     const storeId = getStoreId(req);
     const estDoc = await db.collection('establishments').doc(storeId).get();
     const est = estDoc.data() || {};
-    const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+    const evoUrl = (process.env.EVOLUTION_API_URL || est.evolutionApiUrl || 'http://86.48.23.152:8081').replace(/\/$/, '');
     const evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
     const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`;
     let evoInst = (est.evolutionInstanceName || defaultInstName).trim();
@@ -2543,7 +2632,7 @@ app.all(['/api/evolution/connect', '/api/evolution/qr'], async (req, res) => {
     const storeId = getStoreId(req);
     const estDoc = await db.collection('establishments').doc(storeId).get();
     const est = estDoc.data() || {};
-    const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+    const evoUrl = (process.env.EVOLUTION_API_URL || est.evolutionApiUrl || 'http://86.48.23.152:8081').replace(/\/$/, '');
     const evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
     const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`;
     const evoInst = (est.evolutionInstanceName || defaultInstName).trim();
@@ -2655,7 +2744,7 @@ app.post('/api/evolution/disconnect', async (req, res) => {
     const storeId = getStoreId(req);
     const estDoc = await db.collection('establishments').doc(storeId).get();
     const est = estDoc.data() || {};
-    const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+    const evoUrl = (process.env.EVOLUTION_API_URL || est.evolutionApiUrl || 'http://86.48.23.152:8081').replace(/\/$/, '');
     const evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
     const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`;
     const evoInst = (est.evolutionInstanceName || defaultInstName).trim();
@@ -2705,7 +2794,7 @@ app.post('/api/evolution/pair', async (req, res) => {
 
     const estDoc = await db.collection('establishments').doc(storeId).get();
     const est = estDoc.data() || {};
-    const evoUrl = (est.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+    const evoUrl = (process.env.EVOLUTION_API_URL || est.evolutionApiUrl || 'http://86.48.23.152:8081').replace(/\/$/, '');
     const evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
     const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`;
     let evoInst = (est.evolutionInstanceName || defaultInstName).trim();
@@ -2798,7 +2887,7 @@ app.post('/api/evolution/test-send', async (req, res) => {
     const { number, text } = req.body;
     const estDoc = await db.collection('establishments').doc(storeId).get();
     const est = estDoc.data() || {};
-    const evoUrl = (est.evolutionApiUrl || 'http://34.69.146.15:8081').replace(/\/$/, '');
+    const evoUrl = (process.env.EVOLUTION_API_URL || est.evolutionApiUrl || 'http://86.48.23.152:8081').replace(/\/$/, '');
     const evoKey = est.evolutionApiKey || 'minha_chave_secreta_7108';
     const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`;
     const evoInst = est.evolutionInstanceName || defaultInstName;
@@ -2872,7 +2961,7 @@ async function executeCampaignBroadcast(
 ): Promise<{ sentCount: number; errorsCount: number }> {
   const estDoc = await db.collection('establishments').doc(establishmentId).get();
   const establishment = estDoc.data() || {};
-  const evoUrl = (establishment.evolutionApiUrl || process.env.EVOLUTION_API_URL || 'http://34.69.146.15:8081').replace(/\/$/, '');
+  const evoUrl = (process.env.EVOLUTION_API_URL || establishment.evolutionApiUrl || 'http://86.48.23.152:8081').replace(/\/$/, '');
   const evoKey = establishment.evolutionApiKey || 'minha_chave_secreta_7108';
   const defaultInstName = establishmentId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${establishmentId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`;
   const evoInst = (establishment.evolutionInstanceName || defaultInstName).trim();

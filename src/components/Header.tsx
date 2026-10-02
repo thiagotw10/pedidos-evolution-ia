@@ -31,7 +31,7 @@ export const Header: React.FC<HeaderProps> = ({
   const subStatus = getSubscriptionStatus(establishment);
 
   return (
-    <header className="h-16 sm:h-20 bg-slate-900/80 border-b border-slate-800/80 px-3 sm:px-8 flex items-center justify-between backdrop-blur-md sticky top-0 z-30">
+    <header className="h-16 sm:h-[72px] bg-slate-900/80 border-b border-slate-800/80 px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4 backdrop-blur-md sticky top-0 z-30">
       {/* Store Info */}
       <div className="flex items-center gap-2.5 sm:gap-4 min-w-0 flex-1 sm:flex-initial mr-2">
         <button 
@@ -55,7 +55,7 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Right Controls */}
-      <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
+      <div className="flex items-center gap-2 sm:gap-2.5 flex-shrink-0">
         {/* Subscription Status Badge */}
         {onOpenSubscription && (
           <button
@@ -157,4 +157,3 @@ export const Header: React.FC<HeaderProps> = ({
     </header>
   );
 };
-

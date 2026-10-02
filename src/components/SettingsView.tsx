@@ -459,7 +459,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 type="text"
                 value={formData.pixKey || ''}
                 onChange={e => setFormData({ ...formData, pixKey: e.target.value })}
-                placeholder="contato@restaurante.com ou CNPJ"
+                placeholder="contato@email.com ou CNPJ"
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white font-mono focus:outline-none focus:border-emerald-500/60"
               />
             </div>

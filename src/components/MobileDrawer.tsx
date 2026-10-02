@@ -64,7 +64,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
     { id: 'orders', label: segConfig.ordersTitle, icon: OrdersIcon },
     { id: 'finance', label: 'Painel Financeiro', icon: TrendingUp },
     { id: 'products', label: segConfig.catalogTitle, icon: CatalogIcon },
-    { id: 'campaigns', label: 'Disparos & Campanhas', icon: Megaphone, badge: 'Novo' },
+    { id: 'campaigns', label: 'Disparos & Campanhas', icon: Megaphone },
     { id: 'simulator', label: 'Simulador da IA', icon: MessageSquareCode, badge: 'Testar' },
     { id: 'whatsapp', label: 'Conexão WhatsApp', icon: Smartphone },
     { id: 'settings', label: 'Configurações & IA', icon: Settings },
