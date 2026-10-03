@@ -411,7 +411,8 @@ function formatWhatsAppText(text) {
     formatted = formatted.replace(/•\s*\n/g, '\n');
     return formatted.trim();
 }
-// Helper to verify if an establishment has active access (7-day free trial or active paid subscription)
+// Legacy helper kept for compatibility with existing account data. Billing is
+// now prepaid credits; the 7-day trial is handled inside reserveAiCredit.
 function isEstablishmentSubscriptionActive(est) {
     if (!est)
         return true;
@@ -457,8 +458,6 @@ async function reserveAiCredit(establishmentId, text, model) {
     const est = snap.data() || {};
     if (isEstablishmentTrialActive({ ...est, id: establishmentId }))
         return { allowed: true, trial: true, cost: 0 };
-    if (!isEstablishmentSubscriptionActive({ ...est, id: establishmentId }))
-        return { allowed: false, reason: 'subscription_expired', cost: 0 };
     const cost = estimateAiUsageBrl(text, model);
     const usageRef = ref.collection('aiUsage').doc();
     const result = await db.runTransaction(async (transaction) => {
@@ -3618,8 +3617,8 @@ app.post('/api/billing/credits/pix', async (req, res) => {
     try {
         const storeId = req.body.establishmentId || getStoreId(req);
         const amount = Number(req.body.amount);
-        if (!Number.isFinite(amount) || amount < 10 || amount > 5000)
-            return res.status(400).json({ error: 'Escolha uma recarga entre R$10 e R$5.000.' });
+        if (!Number.isFinite(amount) || amount < 60 || amount > 5000)
+            return res.status(400).json({ error: 'A recarga mínima é de R$60 e a máxima é de R$5.000.' });
         const mpToken = process.env.MP_ACCESS_TOKEN;
         if (!mpToken)
             return res.status(500).json({ error: 'Mercado Pago não configurado.' });

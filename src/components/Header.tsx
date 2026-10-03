@@ -1,7 +1,6 @@
 import React from 'react';
-import { Volume2, VolumeX, Smartphone, Store, Clock, LogOut, User, Sparkles, Menu, Download } from 'lucide-react';
+import { Volume2, VolumeX, Smartphone, Store, Clock, LogOut, User, Menu, Download } from 'lucide-react';
 import { Establishment } from '../types';
-import { getSubscriptionStatus } from '../utils/subscription';
 
 interface HeaderProps {
   establishment: Establishment | null;
@@ -28,8 +27,6 @@ export const Header: React.FC<HeaderProps> = ({
   userEmail,
   onSignOut
 }) => {
-  const subStatus = getSubscriptionStatus(establishment);
-
   return (
     <header className="h-16 sm:h-[72px] bg-slate-900/80 border-b border-slate-800/80 px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4 backdrop-blur-md sticky top-0 z-30">
       {/* Store Info */}
@@ -56,37 +53,6 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Right Controls */}
       <div className="flex items-center gap-2 sm:gap-2.5 flex-shrink-0">
-        {/* Subscription Status Badge */}
-        {onOpenSubscription && (
-          <button
-            onClick={onOpenSubscription}
-            title="Ver detalhes da assinatura"
-            className={`px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 sm:gap-1.5 border transition cursor-pointer ${
-              subStatus.isActivePaid
-                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20'
-                : (subStatus.isTrial
-                    ? 'bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20'
-                    : 'bg-rose-500/10 text-rose-300 border-rose-500/30 hover:bg-rose-500/20 animate-pulse')
-            }`}
-          >
-            <Sparkles className="w-3.5 h-3.5 flex-shrink-0" />
-            <span className="hidden sm:inline">
-              {subStatus.isActivePaid
-                ? `Plano Ativo (${subStatus.daysRemaining}d)`
-                : (subStatus.isTrial
-                    ? `7 Dias Grátis (${subStatus.daysRemaining}d)`
-                    : 'Assinar R$ 50/mês')}
-            </span>
-            <span className="sm:hidden text-[11px] font-bold">
-              {subStatus.isActivePaid
-                ? `${subStatus.daysRemaining}d`
-                : (subStatus.isTrial
-                    ? `${subStatus.daysRemaining}d grátis`
-                    : 'Assinar')}
-            </span>
-          </button>
-        )}
-
         {/* PWA Download / Install App Button (Desktop only in header, mobile has dedicated banner and drawer) */}
         {onOpenInstallModal && (
           <button
