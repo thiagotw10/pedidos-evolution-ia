@@ -1,6 +1,7 @@
 export interface Product {
   id: string;
   name: string;
+  publicSlug?: string;
   description: string;
   price: number;
   category: string;
@@ -137,6 +138,8 @@ export interface Establishment {
   subscriptionValidUntil?: string;
   lastPaymentDate?: string;
   planPrice?: number;
+  referralCode?: string;
+  referredBy?: string;
   createdAt?: string;
 }
 

@@ -85,6 +85,10 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
       });
 
       const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || data.message || `Não foi possível processar a simulação (${response.status}).`);
+      }
       
       const newMsgs: ChatMessage[] = [];
 
@@ -123,13 +127,13 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
       if (data.orderCreated) {
         if (onOrderCreatedNotification) onOrderCreatedNotification();
       }
-    } catch (err) {
+    } catch (err: any) {
       setMessages(prev => [
         ...prev,
         {
           id: `err_${Date.now()}`,
           sender: 'system',
-          text: 'Erro ao conectar com a IA no servidor. Verifique se o server.ts está rodando.',
+          text: err?.message || 'Erro ao conectar com a IA no servidor. Tente novamente em instantes.',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }
       ]);
@@ -191,6 +195,9 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
       });
 
       const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || data.message || `Não foi possível processar a localização (${response.status}).`);
+      }
       const newMsgs: ChatMessage[] = [];
 
       if (data.replyText) {
@@ -208,8 +215,14 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
       if (data.orderCreated && onOrderCreatedNotification) {
         onOrderCreatedNotification();
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error sending simulated location:', err);
+      setMessages(prev => [...prev, {
+        id: `err_loc_${Date.now()}`,
+        sender: 'system',
+        text: err?.message || 'Não foi possível processar a localização.',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }]);
     } finally {
       setIsTyping(false);
     }

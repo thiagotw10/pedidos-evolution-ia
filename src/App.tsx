@@ -17,6 +17,8 @@ import { WhatsAppView } from './components/WhatsAppView';
 import { SettingsView } from './components/SettingsView';
 import { CampaignsView } from './components/CampaignsView';
 import { FinanceView } from './components/FinanceView';
+import { BillingView } from './components/BillingView';
+import { PublicStorefront } from './components/PublicStorefront';
 import { AuthView } from './components/AuthView';
 import { HomeView } from './components/HomeView';
 import { SubscriptionGate } from './components/SubscriptionGate';
@@ -42,10 +44,12 @@ export default function App() {
   const [demoMode, setDemoMode] = useState(false);
   const [unauthView, setUnauthView] = useState<'home' | 'auth'>('home');
   const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('register');
+  const [referralCode] = useState(() => new URLSearchParams(window.location.search).get('ref') || undefined);
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [isPwaInstallModalOpen, setIsPwaInstallModalOpen] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const publicStoreId = window.location.pathname.match(/^\/loja\/([^/]+)/)?.[1] || new URLSearchParams(window.location.search).get('loja');
 
   const [currentTab, setCurrentTab] = useState<string>('orders');
   const [orders, setOrders] = useState<Order[]>([]);
@@ -357,12 +361,17 @@ export default function App() {
     );
   }
 
+  if (publicStoreId) {
+    return <PublicStorefront storeId={decodeURIComponent(publicStoreId)} />;
+  }
+
   // If user is not authenticated, render Landing Page or Auth View
   if (!isAuthenticated) {
     if (unauthView === 'auth') {
       return (
         <AuthView 
           initialMode={authInitialMode}
+          referralCode={referralCode}
           onBackToHome={() => setUnauthView('home')}
           onAuthSuccess={(uid, email) => {
             if (uid === 'default_store') {
@@ -451,6 +460,10 @@ export default function App() {
               />
             )}
 
+            {currentTab === 'billing' && (
+              <BillingView establishmentId={storeId} email={currentUser?.email || sessionUser?.email} />
+            )}
+
             {currentTab === 'products' && (
               <ProductsView
                 products={products}
@@ -494,6 +507,7 @@ export default function App() {
                 onSaveEstablishment={handleSaveEstablishment}
               />
             )}
+
           </main>
         </div>
       </div>

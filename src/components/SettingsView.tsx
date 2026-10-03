@@ -28,6 +28,7 @@ import {
   Play,
   Square,
   Headphones
+  , Copy, ExternalLink
 } from 'lucide-react';
 import { Establishment, OperatingSchedule, DaySchedule, OutOfHoursAction } from '../types';
 import { 
@@ -55,6 +56,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [formData, setFormData] = useState<Partial<Establishment>>({});
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [publicLinkCopied, setPublicLinkCopied] = useState(false);
   const initializedStoreIdRef = useRef<string | null>(null);
 
   // Audio Voice Mirror Demo Player State
@@ -272,6 +274,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
+  const slug = (formData.publicSlug || formData.name || establishment?.name || 'estabelecimento').toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'estabelecimento';
+  const publicLink = `${window.location.origin}/loja/${slug}`;
+  const copyPublicLink = async () => { await navigator.clipboard?.writeText(publicLink); setPublicLinkCopied(true); setTimeout(() => setPublicLinkCopied(false), 2200); };
+
   return (
     <div className="p-3 sm:p-6 md:p-8 max-w-5xl mx-auto space-y-4 sm:space-y-6">
       <div>
@@ -282,6 +288,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <p className="text-xs sm:text-sm text-slate-400 mt-1">
           Ajuste as informações da empresa, taxas, regras de entrega e o comportamento do atendente de IA.
         </p>
+      </div>
+
+      <div className="bg-emerald-500/10 border border-emerald-500/25 rounded-2xl p-4 sm:p-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div><h3 className="font-bold text-white flex items-center gap-2"><ExternalLink className="w-5 h-5 text-emerald-400" /> Site público do estabelecimento</h3><p className="text-xs text-slate-400 mt-1">Compartilhe este link para seus clientes montarem o carrinho e finalizarem pelo WhatsApp.</p></div>
+          <div className="flex gap-2 shrink-0"><button type="button" onClick={copyPublicLink} className="px-3 py-2 rounded-xl bg-emerald-500 text-slate-950 font-bold text-xs flex items-center gap-1.5">{publicLinkCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}{publicLinkCopied ? 'Copiado!' : 'Copiar link'}</button><button type="button" onClick={() => window.open(publicLink, '_blank')} className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-slate-200 font-bold text-xs">Abrir</button></div>
+        </div>
+        <input readOnly value={publicLink} className="w-full mt-3 bg-slate-950/80 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-emerald-300 font-mono outline-none" />
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5 sm:space-y-6">

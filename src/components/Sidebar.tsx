@@ -12,7 +12,8 @@ import {
   Car,
   Home,
   Shirt,
-  Package
+  Package,
+  CreditCard
 } from 'lucide-react';
 import { Establishment } from '../types';
 import { getSegmentConfig, getSegmentCatalogIcon, getSegmentOrdersIcon } from '../utils/segments';
@@ -50,6 +51,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: TrendingUp,
       badge: null
     },
+    { id: 'billing', label: 'Uso e Créditos', icon: CreditCard, badge: null },
     {
       id: 'products',
       label: segConfig.catalogTitle,

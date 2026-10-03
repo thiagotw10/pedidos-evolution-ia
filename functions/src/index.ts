@@ -21,6 +21,50 @@ const db = admin.firestore();
 // Initialize Gemini Client
 const geminiApiKey = process.env.GEMINI_API_KEY || 'AIzaSyA9GspslNh-yPg2n1vCRXU6SPP5OBUsDpo';
 const genai = new GoogleGenAI({ apiKey: geminiApiKey });
+const deepSeekApiKey = process.env.DEEPSEEK_API_KEY || '';
+
+async function generateDeepSeekResponse(contents: any[], systemInstruction: string, tools: any[]) {
+  if (!deepSeekApiKey) throw new Error('DEEPSEEK_API_KEY não configurada');
+  const messages: any[] = [
+    { role: 'system', content: systemInstruction },
+    ...contents.map(item => ({
+      role: item.role === 'model' ? 'assistant' : 'user',
+      content: (item.parts || []).map((part: any) => part.text || '').filter(Boolean).join('\n')
+    })).filter(item => item.content)
+  ];
+  const deepSeekTools = tools.map(tool => ({
+    type: 'function',
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters
+    }
+  }));
+  const response = await fetch('https://api.deepseek.com/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${deepSeekApiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'deepseek-flash',
+      messages,
+      tools: deepSeekTools,
+      tool_choice: 'auto',
+      thinking: { type: 'disabled' },
+      max_tokens: 1200,
+      stream: false
+    }),
+    signal: AbortSignal.timeout(15000)
+  });
+  if (!response.ok) throw new Error(`DeepSeek HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`);
+  const data: any = await response.json();
+  const message = data?.choices?.[0]?.message || {};
+  return {
+    text: message.content || '',
+    functionCalls: (message.tool_calls || []).map((call: any) => ({
+      name: call.function?.name,
+      args: typeof call.function?.arguments === 'string' ? JSON.parse(call.function.arguments) : (call.function?.arguments || {})
+    }))
+  };
+}
 
 const DEFAULT_ESTABLISHMENT_ID = 'default_store';
 
@@ -30,6 +74,16 @@ app.use(express.json());
 // In-memory cache for de-duplicating rapid Webhook calls from Evolution Go
 const processedMessages = new Map<string, number>();
 const botSentMessages = new Map<string, number>();
+const pendingInboundMessages = new Map<string, { version: number; texts: string[]; updatedAt: number }>();
+const INBOUND_MESSAGE_DEBOUNCE_MS = 4000;
+const simulatorRateLimit = new Map<string, number[]>();
+const SIMULATOR_DAILY_MESSAGE_LIMIT = 10;
+const SIMULATOR_MAX_MESSAGE_LENGTH = 600;
+const SIMULATOR_BURST_LIMIT = 3;
+const SIMULATOR_BURST_WINDOW_MS = 30000;
+const BILLING_MARGIN_BRL = 50;
+const DEFAULT_DEEPSEEK_COST_PER_1K_BRL = 0.03;
+const DEFAULT_GEMINI_COST_PER_1K_BRL = 0.12;
 
 // Multi-tenant helper to extract establishment ID
 function getStoreId(req: express.Request): string {
@@ -38,6 +92,10 @@ function getStoreId(req: express.Request): string {
   const header = req.headers['x-establishment-id'] as string;
   const body = req.body?.establishmentId;
   return (param || query || header || body || DEFAULT_ESTABLISHMENT_ID).trim();
+}
+
+function publicSlug(value: string): string {
+  return String(value || 'estabelecimento').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'estabelecimento';
 }
 
 // Password hasher helper for fallback auth
@@ -391,6 +449,42 @@ function isEstablishmentSubscriptionActive(est: any): boolean {
   return now < trialEndsMs;
 }
 
+function isEstablishmentTrialActive(est: any): boolean {
+  if (!est || est.id === DEFAULT_ESTABLISHMENT_ID) return true;
+  const created = est.createdAt ? new Date(est.createdAt).getTime() : Date.now();
+  const trialEnd = est.trialEndsAt ? new Date(est.trialEndsAt).getTime() : created + 7 * 24 * 60 * 60 * 1000;
+  return Date.now() < trialEnd;
+}
+
+function estimateAiUsageBrl(text: string, model: string): number {
+  const approxTokens = Math.max(1, Math.ceil(String(text || '').length / 4));
+  const per1k = model === 'deepseek-flash'
+    ? Number(process.env.AI_COST_DEEPSEEK_PER_1K_BRL || DEFAULT_DEEPSEEK_COST_PER_1K_BRL)
+    : Number(process.env.AI_COST_GEMINI_PER_1K_BRL || DEFAULT_GEMINI_COST_PER_1K_BRL);
+  return Math.max(0.01, Number(((approxTokens / 1000) * per1k).toFixed(4)));
+}
+
+async function reserveAiCredit(establishmentId: string, text: string, model: string) {
+  const ref = db.collection('establishments').doc(establishmentId);
+  const snap = await ref.get();
+  const est = snap.data() || {};
+  if (isEstablishmentTrialActive({ ...est, id: establishmentId })) return { allowed: true, trial: true, cost: 0 };
+  if (!isEstablishmentSubscriptionActive({ ...est, id: establishmentId })) return { allowed: false, reason: 'subscription_expired', cost: 0 };
+
+  const cost = estimateAiUsageBrl(text, model);
+  const usageRef = ref.collection('aiUsage').doc();
+  const result = await db.runTransaction(async transaction => {
+    const currentSnap = await transaction.get(ref);
+    const current = currentSnap.data() || {};
+    const balance = Number(current.aiCreditsBalance || 0);
+    if (balance < cost) return { allowed: false, balance, cost };
+    transaction.update(ref, { aiCreditsBalance: Number((balance - cost).toFixed(4)), updatedAt: new Date().toISOString() });
+    transaction.set(usageRef, { model, estimatedCost: cost, inputChars: String(text || '').length, createdAt: new Date().toISOString(), status: 'reserved' });
+    return { allowed: true, balance: Number((balance - cost).toFixed(4)), cost };
+  });
+  return { ...result, trial: false };
+}
+
 // Map to throttle out-of-hours auto-replies (storeId_phone -> lastSentTimestamp)
 const outOfHoursReplies = new Map<string, number>();
 
@@ -693,7 +787,8 @@ async function processAiCustomerMessage(
   customerPhone: string,
   incomingText: string,
   customerNameParam?: string,
-  mediaPart?: { mimeType: string; data: string }
+  mediaPart?: { mimeType: string; data: string },
+  model = 'gemini-3.1-flash-lite'
 ): Promise<{ 
   replyText: string; 
   orderCreated?: any; 
@@ -918,15 +1013,39 @@ COMO VOCÊ DEVE AGIR:
       parts: currentParts
     });
 
-    const response = await genai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: contents,
-      config: {
-        systemInstruction: { parts: [{ text: systemInstruction }] },
-        tools: [{ functionDeclarations: [registrarPedidoTool as any, enviarCardapioComFotosTool as any, enviarFotoProdutoTool as any] }],
-        temperature: 0.1
+    let response: any;
+    try {
+      const allTools = [registrarPedidoTool, enviarCardapioComFotosTool, enviarFotoProdutoTool];
+      if (model === 'deepseek-flash') {
+        response = await generateDeepSeekResponse(contents, systemInstruction, allTools);
+      } else {
+        response = await genai.models.generateContent({
+          model,
+          contents: contents,
+          config: {
+            systemInstruction: { parts: [{ text: systemInstruction }] },
+            tools: [{ functionDeclarations: allTools as any }],
+            temperature: 0.1
+          }
+        });
       }
-    });
+    } catch (modelError: any) {
+      // Keep the economic route, but never expose a model outage to the customer.
+      if (model !== 'gemini-3.1-flash-lite') {
+        console.warn(`[AI Gateway] Falha no modelo ${model}; fallback para gemini-3.1-flash-lite:`, modelError.message);
+        response = await genai.models.generateContent({
+          model: 'gemini-3.1-flash-lite',
+          contents: contents,
+          config: {
+            systemInstruction: { parts: [{ text: systemInstruction }] },
+            tools: [{ functionDeclarations: [registrarPedidoTool, enviarCardapioComFotosTool, enviarFotoProdutoTool] as any }],
+            temperature: 0.1
+          }
+        });
+      } else {
+        throw modelError;
+      }
+    }
 
     let replyText = response.text || '';
     let createdOrder: any = null;
@@ -1534,6 +1653,32 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
       });
     }
 
+    // Message coalescing: many customers send one thought in several WhatsApp messages.
+    // Wait for a quiet window and let only the newest webhook process the combined text.
+    if (text.trim() && !audioMsg && !imageMsg && !gpsData) {
+      const aggregateKey = `${storeId}:${phone}`;
+      const previous = pendingInboundMessages.get(aggregateKey);
+      const version = (previous?.version || 0) + 1;
+      const pending = {
+        version,
+        texts: [...(previous?.texts || []), text.trim()],
+        updatedAt: Date.now()
+      };
+      pendingInboundMessages.set(aggregateKey, pending);
+
+      await new Promise(resolve => setTimeout(resolve, INBOUND_MESSAGE_DEBOUNCE_MS));
+
+      const latest = pendingInboundMessages.get(aggregateKey);
+      if (!latest || latest.version !== version) {
+        console.log(`[Evolution Webhook] Aguardando continuação da mensagem de ${phone}; resposta agrupada pelo próximo evento.`);
+        return res.status(200).json({ status: 'waiting_message_aggregation', phone });
+      }
+
+      text = latest.texts.join('\n');
+      pendingInboundMessages.delete(aggregateKey);
+      console.log(`[Evolution Webhook] Mensagens agrupadas de ${phone}: ${latest.texts.length} parte(s)`);
+    }
+
     // Subscription / Trial Verification (7 days trial or active paid subscription)
     if (!isEstablishmentSubscriptionActive(est)) {
       console.warn(`[Evolution Webhook] 🛑 BLOQUEADO: Assinatura do estabelecimento "${est.name || storeId}" expirada (teste de 7 dias encerrado). Mensagem de ${phone} não será respondida pela IA.`);
@@ -1874,7 +2019,21 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
     // ----------------------------------------------------
     // System Two: Gemini 2.5 Flash Conversational Engine
     // ----------------------------------------------------
-    const result = await processAiCustomerMessage(storeId, phone, text, pushName, mediaPart || undefined);
+    // Jev acts as the model gateway: simple conversations use Flash-Lite,
+    // while orders, media and complex negotiations stay on full Flash.
+    const selectedModel = mediaPart || audioMsg || imageMsg
+      ? 'gemini-3.1-flash-lite'
+      : (jevTriage?.recommendedModel || (jevTriage?.complexity === 'HIGH' ? 'gemini-3.1-flash-lite' : 'deepseek-flash'));
+    console.log(`[AI Gateway/Jev Economy] Rota=${jevTriage?.route || 'FLASH_LITE'} Complexidade=${jevTriage?.complexity || 'MEDIUM'} Modelo=${selectedModel} TokensMáx=${jevTriage?.maxOutputTokens || 800} Contexto=${jevTriage?.contextBudget || 'STANDARD'} para ${phone}`);
+    const billing = await reserveAiCredit(storeId, text, selectedModel);
+    if (!billing.allowed) {
+      const message = billing.reason === 'subscription_expired'
+        ? 'O período gratuito terminou e a assinatura deste estabelecimento está inativa. Ative o plano para continuar.'
+        : 'Os créditos de IA deste estabelecimento terminaram. Adicione créditos para continuar o atendimento.';
+      console.warn(`[Billing] IA bloqueada para ${storeId}: ${billing.reason || 'saldo insuficiente'}`);
+      return res.status(402).json({ status: 'billing_required', reply: message, balance: (billing as any).balance || 0 });
+    }
+    const result = await processAiCustomerMessage(storeId, phone, text, pushName, mediaPart || undefined, selectedModel);
 
     // 1. Send product images FIRST (e.g. menu items with individual photos)
     if (result.mediaList && result.mediaList.length > 0) {
@@ -1952,7 +2111,7 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
 // ----------------------------------------------------
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { email, password, storeName, storePhone, segment } = req.body;
+    const { email, password, storeName, storePhone, segment, referralCode } = req.body;
     if (!email || !password || !storeName) {
       return res.status(400).json({ error: 'E-mail, senha e nome do estabelecimento são obrigatórios.' });
     }
@@ -1986,6 +2145,11 @@ app.post('/api/auth/register', async (req, res) => {
       createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
 
+    const normalizedReferral = typeof referralCode === 'string'
+      ? referralCode.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 32)
+      : '';
+    const referralCodeForStore = `IA-${uid.replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase()}`;
+
     await db.collection('establishments').doc(uid).set({
       id: uid,
       name: storeName,
@@ -2001,6 +2165,8 @@ app.post('/api/auth/register', async (req, res) => {
       evolutionApiKey: 'minha_chave_secreta_7108',
       evolutionApiUrl: 'http://86.48.23.152:8081',
       evolutionInstanceName: `pedidos_${uid.slice(0, 15)}`,
+      referralCode: referralCodeForStore,
+      ...(normalizedReferral ? { referredBy: normalizedReferral } : {}),
       createdAt: admin.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
 
@@ -2012,6 +2178,55 @@ app.post('/api/auth/register', async (req, res) => {
     res.json({ success: true, uid, email: cleanEmail, storeName, customToken });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------------------------------------------
+// Partner / Referral Program
+// ----------------------------------------------------
+app.get('/api/referrals', async (req, res) => {
+  try {
+    const storeId = getStoreId(req);
+    const storeRef = db.collection('establishments').doc(storeId);
+    const storeSnap = await storeRef.get();
+    if (!storeSnap.exists) return res.status(404).json({ error: 'Estabelecimento não encontrado.' });
+
+    const store = storeSnap.data() || {};
+    const ownCode = String(store.referralCode || `IA-${storeId.replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase()}`);
+    if (!store.referralCode) await storeRef.set({ referralCode: ownCode }, { merge: true });
+
+    const referredSnap = await db.collection('establishments').where('referredBy', '==', ownCode).get();
+    const now = Date.now();
+    const referrals = referredSnap.docs.map((doc) => {
+      const data = doc.data();
+      const validUntil = data.subscriptionValidUntil ? new Date(data.subscriptionValidUntil).getTime() : 0;
+      const active = data.accountStatus === 'active_paid' || validUntil > now || data.plan === 'active';
+      return {
+        id: doc.id,
+        name: data.name || 'Estabelecimento',
+        segment: data.segment || 'GENERAL',
+        status: active ? 'active_paid' : (data.accountStatus === 'trial' ? 'pending_trial' : 'inactive'),
+        createdAt: data.createdAt || null,
+        lastPaymentDate: data.lastPaymentDate || null,
+        subscriptionValidUntil: data.subscriptionValidUntil || null
+      };
+    });
+
+    const activePaid = referrals.filter(r => r.status === 'active_paid').length;
+    const pendingTrials = referrals.filter(r => r.status === 'pending_trial').length;
+    const rewardPerActive = 15;
+    return res.json({
+      referralCode: ownCode,
+      referralLink: `/?ref=${encodeURIComponent(ownCode)}`,
+      rewardPerActive,
+      activePaid,
+      pendingTrials,
+      totalEarned: activePaid * rewardPerActive,
+      referrals: referrals.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+    });
+  } catch (err: any) {
+    console.error('[Referrals] Erro ao carregar indicações:', err);
+    return res.status(500).json({ error: err.message || 'Não foi possível carregar as indicações.' });
   }
 });
 
@@ -2056,6 +2271,38 @@ app.post('/api/auth/login', async (req, res) => {
 // ----------------------------------------------------
 // Establishment Settings (Multi-Tenant)
 // ----------------------------------------------------
+app.get('/api/public/store/:storeId', async (req, res) => {
+  try {
+    const requested = String(req.params.storeId || '').trim();
+    let storeId = requested;
+    let snap = await db.collection('establishments').doc(storeId).get();
+    if (!snap.exists) {
+      const bySlug = await db.collection('establishments').where('publicSlug', '==', requested).limit(1).get();
+      if (!bySlug.empty) { storeId = bySlug.docs[0].id; snap = bySlug.docs[0]; }
+    }
+    // Existing establishments may not have a publicSlug yet. Resolve the
+    // friendly URL from the establishment name and persist it for future hits.
+    if (!snap.exists) {
+      const establishments = await db.collection('establishments').get();
+      const match = establishments.docs.find(doc => {
+        const data = doc.data() || {};
+        return publicSlug(data.publicSlug || data.name || '') === requested;
+      });
+      if (match) { storeId = match.id; snap = match; }
+    }
+    if (!snap.exists) return res.status(404).json({ error: 'Estabelecimento não encontrado.' });
+    const data = snap.data() || {};
+    const slug = data.publicSlug || `${publicSlug(data.name || 'estabelecimento')}-${storeId.slice(0, 5)}`;
+    if (!data.publicSlug) await snap.ref.set({ publicSlug: slug }, { merge: true });
+    const productsSnap = await db.collection('establishments').doc(storeId).collection('products').get();
+    const products = productsSnap.docs.map(doc => {
+      const p = doc.data();
+      return { id: doc.id, name: p.name || 'Produto', description: p.description || '', price: Number(p.price || 0), category: p.category || 'Catálogo', imageUrl: p.imageUrl || '', available: p.available !== false };
+    }).filter(p => p.available);
+    res.json({ store: { id: storeId, publicSlug: slug, name: data.name || 'Estabelecimento', description: data.description || '', address: data.address || '', operatingHours: data.operatingHours || '', segment: data.segment || 'GENERAL', phone: data.whatsappNumber || data.phone || '', logoUrl: data.logoUrl || '' }, products });
+  } catch (err: any) { res.status(500).json({ error: err.message || 'Não foi possível carregar a vitrine.' }); }
+});
+
 app.get('/api/establishment', async (req, res) => {
   try {
     const storeId = getStoreId(req);
@@ -2419,11 +2666,87 @@ app.post('/api/simulator/chat', async (req, res) => {
     const testPhone = phone || '5511988887777';
     const testName = name || 'Cliente Teste';
 
+    const simulatorText = String(text || '').trim();
+    if (!simulatorText) {
+      return res.status(400).json({ error: 'Digite uma mensagem para iniciar a simulação.' });
+    }
+    if (simulatorText.length > SIMULATOR_MAX_MESSAGE_LENGTH) {
+      return res.status(413).json({
+        error: `A mensagem do simulador pode ter no máximo ${SIMULATOR_MAX_MESSAGE_LENGTH} caracteres.`
+      });
+    }
+
+    // Burst protection stays in memory and prevents rapid repeated calls to Gemini.
+    const now = Date.now();
+    const recentRequests = (simulatorRateLimit.get(storeId) || [])
+      .filter(timestamp => now - timestamp < SIMULATOR_BURST_WINDOW_MS);
+    if (recentRequests.length >= SIMULATOR_BURST_LIMIT) {
+      simulatorRateLimit.set(storeId, recentRequests);
+      return res.status(429).json({
+        error: 'Aguarde alguns segundos antes de continuar a simulação.',
+        retryAfterSeconds: Math.ceil((SIMULATOR_BURST_WINDOW_MS - (now - recentRequests[0])) / 1000)
+      });
+    }
+
+    // Daily quota is persisted in Firestore, so it survives function restarts.
+    const dateKey = new Date().toISOString().slice(0, 10);
+    const usageRef = db.collection('establishments').doc(storeId)
+      .collection('simulatorUsage').doc(dateKey);
+    const usage = await db.runTransaction(async transaction => {
+      const snapshot = await transaction.get(usageRef);
+      const current = Number(snapshot.data()?.messages || 0);
+      if (current >= SIMULATOR_DAILY_MESSAGE_LIMIT) return { count: current, allowed: false };
+      transaction.set(usageRef, {
+        date: dateKey,
+        messages: current + 1,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+      return { count: current + 1, allowed: true };
+    });
+
+    if (!usage.allowed) {
+      return res.status(429).json({
+        error: 'O limite diário do simulador foi atingido. Tente novamente amanhã.',
+        dailyLimit: SIMULATOR_DAILY_MESSAGE_LIMIT
+      });
+    }
+    recentRequests.push(now);
+    simulatorRateLimit.set(storeId, recentRequests);
+
+    // Keep the simulator aligned with the real WhatsApp webhook security boundary.
+    const security = await screenPromptInjectionWithJev(simulatorText);
+    if (security.blocked) {
+      console.warn(`[TypeSafe Jev Security] 🚫 Simulação bloqueada (${security.category}, confiança ${security.confidence})`);
+      return res.json({
+        replyText: 'Posso ajudar com produtos, serviços, preços, disponibilidade, pedidos e informações da loja. Como posso ajudar? 😊',
+        securityBlocked: true,
+        securityCategory: security.category
+      });
+    }
+
+    const simulatorTriage = await triageInboundMessageWithJev(simulatorText);
+    const simulatorModel = simulatorTriage?.recommendedModel || (simulatorTriage?.complexity === 'HIGH'
+      ? 'gemini-3.1-flash-lite'
+      : 'deepseek-flash');
+    console.log(`[AI Gateway/Jev Economy] Simulador: Complexidade=${simulatorTriage?.complexity || 'MEDIUM'} Modelo=${simulatorModel} Contexto=${simulatorTriage?.contextBudget || 'STANDARD'}`);
+
+    const billing = await reserveAiCredit(storeId, simulatorText, simulatorModel);
+    if (!billing.allowed) {
+      return res.status(402).json({
+        error: billing.reason === 'subscription_expired'
+          ? 'Seu período gratuito terminou. Ative o plano para continuar usando o simulador.'
+          : 'Os créditos de IA terminaram. Adicione créditos para continuar usando o simulador.',
+        billingRequired: true
+      });
+    }
+
     const result = await processAiCustomerMessage(
       storeId,
       testPhone,
-      text,
-      testName
+      simulatorText,
+      testName,
+      undefined,
+      simulatorModel
     );
 
     res.json(result);
@@ -3221,7 +3544,7 @@ ${conversationSnippets.length > 0 ? conversationSnippets.join('\n\n') : 'Sem con
     let parsedResult: any = null;
     try {
       const response = await genai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.1-flash-lite',
         contents: [
           { role: 'user', parts: [{ text: userPrompt }] }
         ],
@@ -3650,6 +3973,66 @@ app.all('/api/cron/check-campaigns', async (req, res) => {
 // ----------------------------------------------------
 // Mercado Pago PIX Subscription Endpoints (R$ 50/mês)
 // ----------------------------------------------------
+
+app.get('/api/billing/summary', async (req, res) => {
+  try {
+    const storeId = getStoreId(req);
+    const snap = await db.collection('establishments').doc(storeId).get();
+    const est = snap.data() || {};
+    const trialActive = isEstablishmentTrialActive({ ...est, id: storeId });
+    const usageSnap = await db.collection('establishments').doc(storeId).collection('aiUsage').get();
+    const totalUsed = usageSnap.docs.reduce((sum, d) => sum + Number(d.data()?.estimatedCost || 0), 0);
+    return res.json({
+      trialActive,
+      trialEndsAt: est.trialEndsAt || null,
+      monthlyPlatformFee: BILLING_MARGIN_BRL,
+      creditsBalance: Number(est.aiCreditsBalance || 0),
+      totalUsed: Number(totalUsed.toFixed(4)),
+      pricing: { deepseekPer1kBrl: Number(process.env.AI_COST_DEEPSEEK_PER_1K_BRL || DEFAULT_DEEPSEEK_COST_PER_1K_BRL), geminiPer1kBrl: Number(process.env.AI_COST_GEMINI_PER_1K_BRL || DEFAULT_GEMINI_COST_PER_1K_BRL) }
+    });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/billing/credits/pix', async (req, res) => {
+  try {
+    const storeId = req.body.establishmentId || getStoreId(req);
+    const amount = Number(req.body.amount);
+    if (!Number.isFinite(amount) || amount < 10 || amount > 5000) return res.status(400).json({ error: 'Escolha uma recarga entre R$10 e R$5.000.' });
+    const mpToken = process.env.MP_ACCESS_TOKEN;
+    if (!mpToken) return res.status(500).json({ error: 'Mercado Pago não configurado.' });
+    const { MercadoPagoConfig, Payment } = await import('mercadopago');
+    const payment = new Payment(new MercadoPagoConfig({ accessToken: mpToken, options: { timeout: 10000 } }));
+    const created: any = await payment.create({ body: { transaction_amount: Number(amount.toFixed(2)), description: `Créditos de IA iaPedido - ${storeId}`, payment_method_id: 'pix', payer: { email: req.body.email || 'cliente@iapedido.com.br' }, external_reference: `CREDIT:${storeId}` } });
+    const id = String(created.id);
+    await db.collection('pendingCreditTopups').doc(id).set({ establishmentId: storeId, amount, status: 'pending', createdAt: new Date().toISOString() });
+    res.json({ success: true, id, qr_code: created.point_of_interaction?.transaction_data?.qr_code, qr_code_base64: created.point_of_interaction?.transaction_data?.qr_code_base64 });
+  } catch (err: any) { res.status(500).json({ error: err.message || 'Falha ao gerar recarga.' }); }
+});
+
+app.get('/api/billing/credits/status/:paymentId', async (req, res) => {
+  try {
+    const id = req.params.paymentId;
+    const mpToken = process.env.MP_ACCESS_TOKEN;
+    if (!mpToken) return res.status(500).json({ error: 'Mercado Pago não configurado.' });
+    const { MercadoPagoConfig, Payment } = await import('mercadopago');
+    const paymentInfo: any = await new Payment(new MercadoPagoConfig({ accessToken: mpToken, options: { timeout: 10000 } })).get({ id });
+    if (paymentInfo.status === 'approved') {
+      const pendingRef = db.collection('pendingCreditTopups').doc(id);
+      const pending = await pendingRef.get();
+      const topup = pending.data();
+      if (topup?.status !== 'approved' && topup?.establishmentId) {
+        await db.runTransaction(async transaction => {
+          const estRef = db.collection('establishments').doc(topup.establishmentId);
+          const est = await transaction.get(estRef);
+          const balance = Number(est.data()?.aiCreditsBalance || 0);
+          transaction.update(estRef, { aiCreditsBalance: Number((balance + Number(topup.amount || 0)).toFixed(4)), updatedAt: new Date().toISOString() });
+          transaction.set(pendingRef, { status: 'approved', approvedAt: new Date().toISOString() }, { merge: true });
+        });
+      }
+    }
+    res.json({ id, status: paymentInfo.status, approved: paymentInfo.status === 'approved' });
+  } catch (err: any) { res.status(500).json({ error: err.message || 'Falha ao consultar recarga.' }); }
+});
 
 // API: Gerar cobrança PIX para assinatura mensal
 app.post('/api/subscription/pix', async (req, res) => {

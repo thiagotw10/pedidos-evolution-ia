@@ -20,7 +20,8 @@ import {
   Car,
   Home,
   Shirt,
-  Package
+  Package,
+  CreditCard
 } from 'lucide-react';
 import { Establishment } from '../types';
 import { getSubscriptionStatus } from '../utils/subscription';
@@ -63,6 +64,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
   const menuItems = [
     { id: 'orders', label: segConfig.ordersTitle, icon: OrdersIcon },
     { id: 'finance', label: 'Painel Financeiro', icon: TrendingUp },
+    { id: 'billing', label: 'Uso e Créditos', icon: CreditCard },
     { id: 'products', label: segConfig.catalogTitle, icon: CatalogIcon },
     { id: 'campaigns', label: 'Disparos & Campanhas', icon: Megaphone },
     { id: 'simulator', label: 'Simulador da IA', icon: MessageSquareCode, badge: 'Testar' },

@@ -8,6 +8,12 @@ export interface JevTriageResult {
   urgent: boolean;
   sentiment: 'ANGRY' | 'NEUTRAL' | 'HAPPY';
   confidence: number;
+  complexity: 'LOW' | 'MEDIUM' | 'HIGH';
+  route: 'DIRECT_RESPONSE' | 'FLASH_LITE' | 'FLASH';
+  recommendedModel: 'deepseek-flash' | 'gemini-3.1-flash-lite';
+  maxOutputTokens: number;
+  contextBudget: 'MINIMAL' | 'STANDARD' | 'EXTENDED';
+  estimatedInputTokens: number;
   durationMs: number;
 }
 
@@ -24,7 +30,7 @@ export interface JevSecurityResult {
   durationMs: number;
 }
 
-const TYPESAFE_API_KEY = process.env.TYPESAFE_API_KEY || 'apikey_28126e1dedfbc8b4ed6a01e5e47c090f644_c5fae74707c4d68704cd52e43e7ea270006718345637e606bc0965ddb892d2a0';
+const TYPESAFE_API_KEY = process.env.TYPESAFE_API_KEY || '';
 
 const injectionPattern = /(ignore|esque[cç]a|desconsidere|ignore todas|regras anteriores|instru[cç][õo]es anteriores|system prompt|prompt do sistema|mensagem de sistema|mostre|revele|exiba).{0,80}(instru[cç][õo]es|prompt|regras|segredo|chave|api|token|senha)|jailbreak|developer message|modo desenvolvedor|fa[cç]a de conta que voc[eê]|voc[eê] agora [eé]|n[aã]o siga as regras|bypass|override|tool call|chame a ferramenta|fun[cç][aã]o registrar_pedido/i;
 
@@ -134,6 +140,15 @@ export async function triageInboundMessageWithJev(
               'NEUTRAL': 'Neutro, objetivo',
               'HAPPY': 'Agradecido, simpático ou feliz'
             }
+          },
+          complexity: {
+            type: 'choice',
+            instructions: 'Qual o nível de complexidade necessário para responder com segurança?',
+            criteria: {
+              'LOW': 'Pergunta objetiva que pode ser respondida com dados simples da loja, como horário, endereço, PIX ou status.',
+              'MEDIUM': 'Dúvida comum sobre produto, catálogo, disponibilidade ou atendimento que pode usar um modelo econômico.',
+              'HIGH': 'Pedido, negociação, áudio/imagem, múltiplas etapas, contexto longo ou decisão que exige raciocínio detalhado.'
+            }
           }
         }
       }),
@@ -152,17 +167,30 @@ export async function triageInboundMessageWithJev(
     const rawIntent = answers.intent?.choice || 'CONVERSATION';
     const rawUrgent = answers.urgent?.choice || 'NO';
     const rawSentiment = answers.sentiment?.choice || 'NEUTRAL';
+    const rawComplexity = answers.complexity?.choice || 'MEDIUM';
     const confidence = Number(answers.intent?.confidence ?? 1.0);
+    const complexity = rawComplexity === 'LOW' || rawComplexity === 'HIGH' ? rawComplexity : 'MEDIUM';
+    const route = complexity === 'LOW' ? 'DIRECT_RESPONSE' : complexity === 'HIGH' ? 'FLASH' : 'FLASH_LITE';
+    const recommendedModel = complexity === 'HIGH' ? 'gemini-3.1-flash-lite' : 'deepseek-flash';
+    const maxOutputTokens = complexity === 'LOW' ? 300 : complexity === 'HIGH' ? 1400 : 800;
+    const contextBudget = complexity === 'HIGH' ? 'EXTENDED' : complexity === 'MEDIUM' ? 'STANDARD' : 'MINIMAL';
+    const estimatedInputTokens = Math.max(1, Math.ceil(text.trim().length / 4));
 
     const result: JevTriageResult = {
       intent: rawIntent,
       urgent: rawUrgent === 'YES',
       sentiment: rawSentiment,
       confidence,
+      complexity,
+      route,
+      recommendedModel,
+      maxOutputTokens,
+      contextBudget,
+      estimatedInputTokens,
       durationMs
     };
 
-    console.log(`[TypeSafe Jev] Triagem concluída em ${durationMs}ms: Intent=${result.intent} | Urgent=${result.urgent} | Sentiment=${result.sentiment} (Conf: ${result.confidence})`);
+    console.log(`[TypeSafe Jev] Triagem concluída em ${durationMs}ms: Intent=${result.intent} | Complexidade=${result.complexity} | Modelo=${result.recommendedModel} | TokensMáx=${result.maxOutputTokens}`);
     return result;
   } catch (err: any) {
     console.warn('[TypeSafe Jev] Falha ou timeout na triagem (fallback automático ativado):', err.message);

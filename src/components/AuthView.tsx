@@ -27,12 +27,14 @@ interface AuthViewProps {
   onAuthSuccess: (storeId: string, email?: string) => void;
   initialMode?: 'login' | 'register';
   onBackToHome?: () => void;
+  referralCode?: string;
 }
 
 export const AuthView: React.FC<AuthViewProps> = ({ 
   onAuthSuccess, 
   initialMode = 'login',
-  onBackToHome 
+  onBackToHome,
+  referralCode
 }) => {
   const [isRegister, setIsRegister] = useState(initialMode === 'register');
   const [email, setEmail] = useState('');
@@ -54,6 +56,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
       
       const segConf = getSegmentConfig(storeSegment);
       const cleanInstName = `pedidos_${name.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 15)}_${uid.slice(0, 5)}`;
+      const ownReferralCode = `IA-${uid.replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase()}`;
       const storeData = {
         id: uid,
         name: name || 'Meu Negócio',
@@ -71,6 +74,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
         evolutionConnected: false,
         aiPromptCustom: segConf.defaultPrompt.replace(/\{loja\}/g, name || 'Nossa Empresa'),
         aiWelcomeMessage: segConf.defaultWelcome.replace(/\{loja\}/g, name || 'Nossa Empresa'),
+        ...(referralCode ? { referredBy: referralCode.toUpperCase() } : {}),
+        referralCode: ownReferralCode,
         createdAt: new Date().toISOString(),
         trialEndsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
         plan: 'trial',
@@ -147,7 +152,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
           const fbRes = await fetch('/api/auth/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password, storeName, storePhone, segment })
+            body: JSON.stringify({ email, password, storeName, storePhone, segment, referralCode })
           });
           const fbData = await fbRes.json();
           if (!fbRes.ok || !fbData.success) {
