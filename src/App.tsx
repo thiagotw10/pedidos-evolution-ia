@@ -11,6 +11,7 @@ import { db, auth } from './lib/firebase';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { OrdersView } from './components/OrdersView';
+import { AutomotiveProjects } from './components/AutomotiveProjects';
 import { ProductsView } from './components/ProductsView';
 import { SimulatorView } from './components/SimulatorView';
 import { WhatsAppView } from './components/WhatsAppView';
@@ -122,6 +123,7 @@ export default function App() {
   // 1. Listen for Orders in Real-Time (Firestore)
   useEffect(() => {
     if (!isAuthenticated) return;
+    if (establishment?.segment === 'AUTOMOTIVE_PARTS') { setOrders([]); setLoadingOrders(false); return; }
     setLoadingOrders(true);
     fetchOrdersFallback();
     try {
@@ -165,7 +167,7 @@ export default function App() {
       console.warn('Orders listener setup error:', err);
       fetchOrdersFallback();
     }
-  }, [isAuthenticated, storeId, soundEnabled]);
+  }, [isAuthenticated, storeId, soundEnabled, establishment?.segment]);
 
   const fetchOrdersFallback = async () => {
     try {
@@ -435,14 +437,15 @@ export default function App() {
           />
 
           {/* PWA Install & Push Notification Banner */}
-          <PwaInstallBanner 
+          {establishment?.segment !== 'AUTOMOTIVE_PARTS' && <PwaInstallBanner
             establishmentId={storeId} 
             onOpenModal={() => setIsPwaInstallModalOpen(true)}
             deferredPrompt={deferredPrompt}
-          />
+          />}
 
           <main className="flex-1 pb-24 md:pb-16">
-            {currentTab === 'orders' && (
+            {currentTab === 'orders' && establishment?.segment === 'AUTOMOTIVE_PARTS' && <AutomotiveProjects />}
+            {currentTab === 'orders' && establishment?.segment !== 'AUTOMOTIVE_PARTS' && (
               <OrdersView
                 orders={orders}
                 onUpdateStatus={handleUpdateOrderStatus}
@@ -453,7 +456,7 @@ export default function App() {
               />
             )}
 
-            {currentTab === 'finance' && (
+            {currentTab === 'finance' && establishment?.segment !== 'AUTOMOTIVE_PARTS' && (
               <FinanceView
                 orders={orders}
                 establishment={establishment}
@@ -475,7 +478,7 @@ export default function App() {
               />
             )}
 
-            {currentTab === 'campaigns' && (
+            {currentTab === 'campaigns' && establishment?.segment !== 'AUTOMOTIVE_PARTS' && (
               <CampaignsView
                 establishmentId={storeId}
                 establishment={establishment}

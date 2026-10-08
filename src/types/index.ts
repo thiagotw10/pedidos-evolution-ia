@@ -6,6 +6,8 @@ export interface Product {
   price: number;
   category: string;
   imageUrl?: string;
+  images?: string[];
+  videoUrl?: string;
   available: boolean;
   options?: {
     name: string;
@@ -97,6 +99,7 @@ export type OutOfHoursAction = 'SILENT' | 'AUTO_REPLY';
 export type BusinessSegment = 
   | 'FOOD'
   | 'VEHICLES'
+  | 'AUTOMOTIVE_PARTS'
   | 'REAL_ESTATE'
   | 'FASHION'
   | 'ELECTRONICS'
@@ -104,6 +107,7 @@ export type BusinessSegment =
 
 export interface Establishment {
   id: string;
+  publicSlug?: string;
   name: string;
   phone: string;
   whatsappNumber?: string;
@@ -150,6 +154,7 @@ export interface ChatMessage {
   timestamp: string;
   orderId?: string;
   mediaUrl?: string;
+  mediaType?: string;
 }
 
 export interface WhatsAppGroup {

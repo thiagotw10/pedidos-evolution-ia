@@ -138,6 +138,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
         <div className="flex gap-2 mb-4">
           <button
             onClick={() => setSoundEnabled(!soundEnabled)}
+            style={establishment?.segment === 'AUTOMOTIVE_PARTS' ? { display: 'none' } : undefined}
             className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition cursor-pointer border ${
               soundEnabled
                 ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
@@ -150,7 +151,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
         </div>
 
         {/* PWA Install Button in Drawer */}
-        {onOpenInstallModal && (
+        {onOpenInstallModal && establishment?.segment !== 'AUTOMOTIVE_PARTS' && (
           <button
             onClick={() => {
               onClose();
@@ -176,7 +177,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
           <p className="px-2 text-[10px] font-bold tracking-wider text-slate-500 uppercase mb-2">
             Módulos do Sistema
           </p>
-          {menuItems.map(item => {
+          {menuItems.filter(item => establishment?.segment !== 'AUTOMOTIVE_PARTS' || !['finance', 'campaigns'].includes(item.id)).map(item => {
             const Icon = item.icon;
             const isActive = currentTab === item.id;
             return (

@@ -15,6 +15,7 @@ import {
 export type BusinessSegment = 
   | 'FOOD'
   | 'VEHICLES'
+  | 'AUTOMOTIVE_PARTS'
   | 'REAL_ESTATE'
   | 'FASHION'
   | 'ELECTRONICS'
@@ -63,6 +64,20 @@ export interface SegmentConfig {
 }
 
 export const SEGMENT_CONFIGS: Record<BusinessSegment, SegmentConfig> = {
+  AUTOMOTIVE_PARTS: {
+    id: 'AUTOMOTIVE_PARTS', label: 'Performance & Escapamentos', shortLabel: 'Projetos automotivos', emoji: '🏁',
+    categoryDesc: 'Escapamentos esportivos, peças e projetos personalizados',
+    catalogTitle: 'Projetos & Referências', catalogSubtitle: 'Cadastre referências reais. Descreva veículo, configuração e material. Compatibilidade e valores dependem de aprovação técnica.',
+    itemAddLabel: 'Cadastrar referência', itemNoun: 'Projeto', itemPluralNoun: 'Projetos', categoryNoun: 'Categoria / Família de veículos',
+    ordersTitle: 'Projetos & Orçamentos', ordersNoun: 'Projeto', ordersPluralNoun: 'Projetos', receiptTitle: 'Solicitação de projeto',
+    copilotEmoji: '🏁', copilotTitle: 'Consultor de projetos',
+    statusLabels: { pending: 'Novo contato', inProgress: 'Análise técnica', dispatched: 'Enviado', ready: 'Pronto', completed: 'Concluído', cancelled: 'Cancelado' },
+    defaultWelcome: 'Olá! Bem-vindo à {loja}. Qual o modelo, ano e versão do seu carro? Vamos organizar seu projeto.',
+    defaultPrompt: 'Colete marca, modelo, ano, versão, modificações, objetivo e CEP. Apresente somente referências cadastradas, sem garantir aplicação. Não invente preço, estoque, potência, legalidade ou prazo. Orçamento, pagamento, compatibilidade e frete exigem confirmação da equipe técnica. Não registre pedidos de compra; organize uma solicitação para análise.',
+    sampleItemName: 'Projeto de escapamento — referência', sampleCategory: 'Porsche 992', samplePrice: 0,
+    sampleDescription: 'Descreva aqui o veículo e a configuração real deste projeto. Aplicação sob análise técnica.',
+    deliveryTypeLabels: { delivery: 'Consultar envio nacional', pickup: 'Consultar atendimento local' }, hasDeliveryTeam: false, hasDeliveryFee: false
+  },
   FOOD: {
     id: 'FOOD',
     label: 'Alimentação & Delivery',
@@ -300,6 +315,7 @@ export const SEGMENT_CONFIGS: Record<BusinessSegment, SegmentConfig> = {
 };
 
 export const SEGMENT_OPTIONS: SegmentConfig[] = [
+  SEGMENT_CONFIGS.AUTOMOTIVE_PARTS,
   SEGMENT_CONFIGS.FOOD,
   SEGMENT_CONFIGS.VEHICLES,
   SEGMENT_CONFIGS.REAL_ESTATE,
@@ -312,6 +328,7 @@ export function getSegmentConfig(segment?: string): SegmentConfig {
   if (!segment) return SEGMENT_CONFIGS.FOOD;
   
   const normalized = segment.toUpperCase();
+  if (normalized === 'AUTOMOTIVE_PARTS') return SEGMENT_CONFIGS.AUTOMOTIVE_PARTS;
   if (normalized.includes('VEIC') || normalized.includes('CARRO') || normalized.includes('MOTO') || normalized.includes('AUTO')) {
     return SEGMENT_CONFIGS.VEHICLES;
   }
@@ -342,6 +359,7 @@ export function getSegmentConfig(segment?: string): SegmentConfig {
 export function getSegmentCatalogIcon(segment?: string): LucideIcon {
   const seg = getSegmentConfig(segment);
   switch (seg.id) {
+    case 'AUTOMOTIVE_PARTS': return Car;
     case 'VEHICLES': return Car;
     case 'REAL_ESTATE': return Home;
     case 'FASHION': return Shirt;
@@ -354,6 +372,7 @@ export function getSegmentCatalogIcon(segment?: string): LucideIcon {
 export function getSegmentOrdersIcon(segment?: string): LucideIcon {
   const seg = getSegmentConfig(segment);
   switch (seg.id) {
+    case 'AUTOMOTIVE_PARTS': return ClipboardList;
     case 'VEHICLES': return ClipboardList;
     case 'REAL_ESTATE': return CalendarCheck;
     case 'FASHION': return ShoppingBag;

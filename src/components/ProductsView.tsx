@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { visibleForSegment } from '../../functions/src/catalogPolicy';
 import { 
   Plus, 
   Search, 
@@ -30,7 +31,7 @@ interface ProductsViewProps {
 }
 
 export const ProductsView: React.FC<ProductsViewProps> = ({
-  products,
+  products: allProducts,
   establishmentId,
   onSaveProduct,
   onDeleteProduct,
@@ -38,6 +39,8 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
   establishment
 }) => {
   const segConfig = getSegmentConfig(establishment?.segment);
+  const automotive = segConfig.id === 'AUTOMOTIVE_PARTS';
+  const products = visibleForSegment(allProducts, segConfig.id);
   const CatalogIcon = getSegmentCatalogIcon(establishment?.segment);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
@@ -163,7 +166,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
             type="text"
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
-            placeholder="Buscar produto por nome ou ingrediente..."
+            placeholder={automotive ? 'Buscar projeto, veículo ou configuração...' : 'Buscar produto por nome ou descrição...'}
             className="w-full bg-slate-950/80 border border-slate-800 rounded-xl pl-10 pr-4 py-2 text-sm sm:text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/60"
           />
         </div>
@@ -247,6 +250,18 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                     {product.category}
                   </span>
 
+                  {/* Media Indicators (Vídeo / Álbum) */}
+                  {product.videoUrl && (
+                    <span className="absolute bottom-3 left-3 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-950/90 text-rose-300 border border-rose-800/80 backdrop-blur-sm flex items-center gap-1 shadow-md">
+                      🎬 Vídeo do Ronco
+                    </span>
+                  )}
+                  {product.images && product.images.length > 1 && (
+                    <span className="absolute bottom-3 right-3 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-900/90 text-slate-200 border border-slate-700/80 backdrop-blur-sm shadow-md">
+                      📷 {product.images.length} fotos
+                    </span>
+                  )}
+
                   {/* Availability Badge */}
                   <button
                     onClick={() => handleToggleAvailable(product)}
@@ -258,7 +273,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                     }}
                   >
                     <span className={`w-1.5 h-1.5 rounded-full ${product.available ? 'bg-emerald-400' : 'bg-rose-400'}`} />
-                    {product.available ? 'Disponível' : 'Pausado'}
+                    {product.available ? (automotive ? 'Publicado' : 'Disponível') : 'Pausado'}
                   </button>
                 </div>
 
@@ -267,7 +282,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                   <div className="flex items-start justify-between gap-2">
                     <h4 className="font-bold text-white text-sm line-clamp-1">{product.name}</h4>
                     <span className="font-extrabold text-emerald-400 font-mono text-sm whitespace-nowrap">
-                      R$ {Number(product.price).toFixed(2)}
+                      {automotive ? 'Sob consulta' : `R$ ${Number(product.price).toFixed(2)}`}
                     </span>
                   </div>
 
@@ -297,7 +312,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                   </button>
                   <button
                     onClick={() => {
-                      if (confirm(`Deseja remover "${product.name}" do cardápio?`)) {
+                      if (confirm(`Deseja remover "${product.name}" do catálogo?`)) {
                         onDeleteProduct(product.id);
                       }
                     }}
@@ -346,12 +361,14 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Preço (R$) *</label>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">{automotive ? 'Valor definido no orçamento' : 'Preço (R$) *'}</label>
                   <input
                     type="number"
                     step="0.01"
-                    required
-                    value={editingProduct.price || ''}
+                    hidden={automotive}
+                    required={!automotive}
+                    disabled={automotive}
+                    value={automotive ? 0 : editingProduct.price || ''}
                     onChange={e => setEditingProduct({ ...editingProduct, price: parseFloat(e.target.value) || 0 })}
                     placeholder={segConfig.samplePrice.toFixed(2)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm sm:text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/60 font-mono"
@@ -489,7 +506,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                   className="w-4 h-4 rounded text-emerald-500 focus:ring-0 bg-slate-950 border-slate-800 cursor-pointer"
                 />
                 <label htmlFor="availableCheck" className="text-xs text-slate-300 cursor-pointer font-medium">
-                  Disponível para venda no WhatsApp
+                  {automotive ? 'Publicar como referência (não confirma disponibilidade para venda)' : 'Disponível para venda no WhatsApp'}
                 </label>
               </div>
 

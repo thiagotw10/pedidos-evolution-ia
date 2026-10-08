@@ -30,7 +30,7 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
 }) => {
   const segConfig = getSegmentConfig(establishment?.segment);
   const OrdersIcon = getSegmentOrdersIcon(establishment?.segment);
-  const initialGreeting = establishment?.aiWelcomeMessage || 
+  const initialGreeting = (segConfig.id !== 'AUTOMOTIVE_PARTS' && establishment?.aiWelcomeMessage) ||
     segConfig.defaultWelcome.replace(/\{loja\}/g, establishment?.name || 'Nossa Empresa');
 
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -99,7 +99,8 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
             sender: 'assistant',
             text: m.caption,
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            mediaUrl: m.url
+            mediaUrl: m.url,
+            mediaType: m.type || (m.url?.includes('.mp4') ? 'video' : 'image')
           });
         });
       } else if (data.mediaToSend) {
@@ -108,7 +109,8 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
           sender: 'assistant',
           text: data.mediaToSend.caption,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          mediaUrl: data.mediaToSend.url
+          mediaUrl: data.mediaToSend.url,
+          mediaType: data.mediaToSend.type || (data.mediaToSend.url?.includes('.mp4') ? 'video' : 'image')
         });
       }
 
@@ -230,6 +232,8 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
 
   const samplePrompts = useMemo(() => {
     switch (segConfig.id) {
+      case 'AUTOMOTIVE_PARTS':
+        return ['Tenho um Porsche 911 série 992. Quais dados precisam para analisar meu projeto?', 'Pode mostrar referências de escapamentos?', 'Quero consultar um projeto com envio para o CEP 50000-000.'];
       case 'VEHICLES':
         return [
           'Tem algum veículo automático disponível até 80 mil?',
@@ -279,7 +283,7 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
             <span className="w-2.5 h-2.5 rounded-full bg-purple-500 animate-pulse"></span>
           </h2>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Teste em tempo real a conversa da IA, cardápio e fechamento de pedidos como se você fosse um cliente no WhatsApp!
+            {segConfig.id === 'AUTOMOTIVE_PARTS' ? 'Teste a qualificação do veículo, as referências e o encaminhamento para análise técnica.' : 'Teste em tempo real o atendimento da IA e o catálogo como cliente no WhatsApp.'}
           </p>
         </div>
 
@@ -354,7 +358,7 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
               ))}
             </div>
 
-            <div className="pt-2 border-t border-slate-800/80">
+            <div hidden={segConfig.id === 'AUTOMOTIVE_PARTS'} className="pt-2 border-t border-slate-800/80">
               <button
                 type="button"
                 onClick={handleSendLocation}
@@ -423,11 +427,20 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
                     >
                       {msg.mediaUrl && (
                         <div className="mb-2.5 rounded-xl overflow-hidden border border-slate-700/80 bg-slate-950">
-                          <img
-                            src={msg.mediaUrl}
-                            alt="Foto do produto"
-                            className="w-full max-h-52 object-cover rounded-lg"
-                          />
+                          {msg.mediaType === 'video' || msg.mediaUrl.includes('.mp4') ? (
+                            <video
+                              src={msg.mediaUrl}
+                              controls
+                              playsInline
+                              className="w-full max-h-64 rounded-lg bg-black"
+                            />
+                          ) : (
+                            <img
+                              src={msg.mediaUrl}
+                              alt="Foto do produto"
+                              className="w-full max-h-52 object-cover rounded-lg"
+                            />
+                          )}
                         </div>
                       )}
                       {msg.text}
@@ -476,6 +489,7 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
                 disabled={isTyping}
                 className="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-400 border border-slate-700 flex items-center justify-center transition cursor-pointer shrink-0"
                 title="Simular Compartilhar Localização no WhatsApp"
+                style={segConfig.id === 'AUTOMOTIVE_PARTS' ? { display: 'none' } : undefined}
               >
                 <MapPin className="w-4 h-4" />
               </button>

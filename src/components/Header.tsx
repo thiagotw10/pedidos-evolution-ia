@@ -54,7 +54,7 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Right Controls */}
       <div className="flex items-center gap-2 sm:gap-2.5 flex-shrink-0">
         {/* PWA Download / Install App Button (Desktop only in header, mobile has dedicated banner and drawer) */}
-        {onOpenInstallModal && (
+        {onOpenInstallModal && establishment?.segment !== 'AUTOMOTIVE_PARTS' && (
           <button
             onClick={onOpenInstallModal}
             title="Instalar Aplicativo iaPedido no Celular (PWA)"
@@ -68,6 +68,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Sound Alert Toggle (Desktop in header, mobile in drawer) */}
         <button
           onClick={() => setSoundEnabled(!soundEnabled)}
+          style={establishment?.segment === 'AUTOMOTIVE_PARTS' ? { display: 'none' } : undefined}
           title={soundEnabled ? 'Alerta sonoro de novo pedido ativado' : 'Alerta sonoro desativado'}
           className={`hidden sm:flex p-2 sm:px-3.5 sm:py-2 rounded-xl text-xs font-semibold items-center gap-2 transition cursor-pointer border ${
             soundEnabled

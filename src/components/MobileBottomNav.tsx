@@ -37,7 +37,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   const tabs = [
     {
       id: 'orders',
-      label: segConfig.id === 'VEHICLES' ? 'Propostas' : segConfig.id === 'REAL_ESTATE' ? 'Leads' : 'Pedidos',
+      label: segConfig.id === 'AUTOMOTIVE_PARTS' ? 'Projetos' : segConfig.id === 'VEHICLES' ? 'Propostas' : segConfig.id === 'REAL_ESTATE' ? 'Leads' : 'Pedidos',
       icon: OrdersIcon,
       badge: pendingOrdersCount > 0 ? pendingOrdersCount : null
     },
@@ -63,7 +63,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
 
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur-xl border-t border-slate-800/90 px-3 py-1.5 flex items-center justify-around shadow-2xl pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-      {tabs.map(tab => {
+      {tabs.filter(tab => establishment?.segment !== 'AUTOMOTIVE_PARTS' || !['finance', 'campaigns'].includes(tab.id)).map(tab => {
         const Icon = tab.icon;
         const isActive = currentTab === tab.id;
         return (

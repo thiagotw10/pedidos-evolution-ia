@@ -467,7 +467,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               />
             </div>
 
-            <div>
+            <div hidden={getSegmentConfig(formData.segment).id === 'AUTOMOTIVE_PARTS'}>
               <label className="block text-slate-300 font-semibold mb-1">Chave PIX (Para envio aos clientes)</label>
               <input
                 type="text"

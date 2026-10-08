@@ -110,7 +110,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="px-3 pb-3 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
           Menu Principal
         </div>
-        {menuItems.map((item) => {
+        {menuItems.filter(item => segConfig.id !== 'AUTOMOTIVE_PARTS' || !['finance', 'campaigns'].includes(item.id)).map((item) => {
           const Icon = item.icon;
           const isActive = currentTab === item.id;
           return (

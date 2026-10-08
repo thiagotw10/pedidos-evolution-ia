@@ -63,8 +63,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
         segment: segConf.id,
         phone: phone || '',
         address: 'Rua Principal, 100 - Centro',
-        deliveryFee: segConf.id === 'VEHICLES' || segConf.id === 'REAL_ESTATE' ? 0 : 7.00,
-        estimatedDeliveryTime: segConf.id === 'VEHICLES' ? 'Visitas agendadas' : '35 a 50 minutos',
+        deliveryFee: segConf.hasDeliveryFee === false ? 0 : 7.00,
+        estimatedDeliveryTime: segConf.id === 'AUTOMOTIVE_PARTS' ? 'Sob análise técnica' : segConf.id === 'VEHICLES' ? 'Visitas agendadas' : '35 a 50 minutos',
         operatingHours: 'Segunda a Sábado das 08:00 às 18:00',
         description: segConf.categoryDesc,
         pixKey: storeEmail || email || '',
@@ -95,8 +95,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
           });
         }
 
-        // Seed 2 initial sample products
-        try {
+        // Food examples belong only to food accounts. Other niches start empty.
+        if (segConf.id === 'FOOD') try {
           const p1Ref = doc(db, 'establishments', uid, 'products', 'prod_1');
           await setDoc(p1Ref, {
             id: 'prod_1',

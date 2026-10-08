@@ -380,7 +380,7 @@ export const WhatsAppView: React.FC<WhatsAppViewProps> = ({
             </span>
           </div>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Conexão com seu smartphone e gerenciamento da base de clientes que já fizeram e receberam pedidos.
+            {establishment?.segment === 'AUTOMOTIVE_PARTS' ? 'Conecte o WhatsApp para qualificar interessados e orientar solicitações de projetos.' : 'Conexão com seu smartphone e gerenciamento da base de clientes que já fizeram e receberam pedidos.'}
           </p>
         </div>
 
@@ -399,6 +399,7 @@ export const WhatsAppView: React.FC<WhatsAppViewProps> = ({
           </button>
 
           <button
+            style={establishment?.segment === 'AUTOMOTIVE_PARTS' ? { display: 'none' } : undefined}
             onClick={() => {
               setActiveTab('contacts');
               fetchCustomers();
@@ -436,7 +437,7 @@ export const WhatsAppView: React.FC<WhatsAppViewProps> = ({
                       </span>
                     </div>
                     <p className="text-sm text-slate-300 max-w-xl">
-                      Seu número está sincronizado. A Inteligência Artificial está atendendo mensagens de texto, áudios e registrando pedidos dos clientes no seu painel.
+                      {establishment?.segment === 'AUTOMOTIVE_PARTS' ? 'Seu número está sincronizado. A IA qualifica os interessados; análise técnica, orçamento e aprovação são feitos pela equipe.' : 'Seu número está sincronizado. A Inteligência Artificial está atendendo mensagens de texto, áudios e registrando pedidos dos clientes no seu painel.'}
                     </p>
                   </div>
                 </div>
@@ -958,7 +959,7 @@ export const WhatsAppView: React.FC<WhatsAppViewProps> = ({
       )}
 
       {/* TAB 2: CUSTOMERS & AUDIENCE LIST */}
-      {activeTab === 'contacts' && (
+      {activeTab === 'contacts' && establishment?.segment !== 'AUTOMOTIVE_PARTS' && (
         <div className="space-y-6 animate-in fade-in">
           {/* Summary Row */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

@@ -1,4 +1,5 @@
 import express from 'express';
+import { registerAutomotiveRoutes } from './functions/src/automotive';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -651,7 +652,7 @@ async function processAiCustomerMessage(
     ? `Você é o especialista técnico e atendente da loja "${establishment.name || 'Loja de Eletrônicos'}"`
     : `Você é o atendente de Inteligência Artificial do estabelecimento "${establishment.name || 'Estabelecimento'}"`;
 
-  const systemInstruction = `
+  let systemInstruction = `
 ${roleDesc}.
 Seu objetivo é atender os clientes pelo WhatsApp de forma educada, ágil, simpática e objetiva.
 
@@ -682,6 +683,8 @@ COMO VOCÊ DEVE AGIR:
    Você DEVE acionar a ferramenta/função 'registrar_pedido' para registrar no sistema da loja.
    Após chamar a ferramenta com sucesso, informe ao cliente de maneira acolhedora que o pedido foi enviado e que ele receberá a confirmação da equipe!
   `;
+
+  if (establishment.segment === 'AUTOMOTIVE_PARTS') systemInstruction = `Você é o consultor inicial de projetos automotivos de ${establishment.name}. Colete marca, modelo, ano, versão, modificações, objetivo e CEP. Não invente compatibilidade, preço, estoque, potência, legalidade, frete ou prazos. Encaminhe a análise técnica e orçamento à equipe. Não confirme pedidos ou pagamentos e não utilize registrar_pedido. O formulário do site registra solicitações; não afirme que registrou algo pelo chat. Referências informativas: ${menuText}`;
 
   // Define Function Calling Tool for order placement
   const registrarPedidoTool = {
@@ -751,6 +754,7 @@ COMO VOCÊ DEVE AGIR:
     if (functionCalls && functionCalls.length > 0) {
       for (const call of functionCalls) {
         if (call.name === 'registrar_pedido') {
+          if (establishment.segment === 'AUTOMOTIVE_PARTS') { replyText = 'Seu projeto precisa de análise técnica. Solicite um orçamento pelo formulário do site ou com a equipe.'; continue; }
           const args: any = call.args;
           
           // Calculate subtotals
@@ -861,6 +865,7 @@ async function startServer() {
   const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
 
   app.use(express.json());
+  registerAutomotiveRoutes(app, db);
 
   // Helper to resolve establishmentId in multi-tenant requests
   function getStoreId(req: express.Request): string {
@@ -1415,7 +1420,7 @@ async function startServer() {
         { name: 'Batata Frita Crocante', price: 16.0, category: 'Porções', description: 'Porção individual de batata frita bem sequinha.', available: true },
         { name: 'Refrigerante Lata 350ml', price: 6.0, category: 'Bebidas', description: 'Coca-Cola, Guaraná ou Fanta gelada.', available: true }
       ];
-      for (const prod of sampleProds) {
+      for (const prod of (segment === 'AUTOMOTIVE_PARTS' ? [] : sampleProds)) {
         await db.collection('establishments').doc(uid).collection('products').add({
           ...prod,
           createdAt: admin.firestore.FieldValue.serverTimestamp()
