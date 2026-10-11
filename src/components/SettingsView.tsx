@@ -27,8 +27,12 @@ import {
   Volume2,
   Play,
   Square,
-  Headphones
-  , Copy, ExternalLink
+  Headphones,
+  Copy,
+  ExternalLink,
+  Navigation,
+  Send,
+  Palette
 } from 'lucide-react';
 import { Establishment, OperatingSchedule, DaySchedule, OutOfHoursAction } from '../types';
 import { 
@@ -43,6 +47,7 @@ import {
   BusinessSegment 
 } from '../utils/segments';
 import { VOICE_OPTIONS } from '../utils/voiceGenerator';
+import { PRESET_THEMES } from '../utils/automotiveThemes';
 
 interface SettingsViewProps {
   establishment: Establishment | null;
@@ -63,6 +68,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
   const [loadingVoiceId, setLoadingVoiceId] = useState<string | null>(null);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+
+  // Location Geocoding & Test Send State
+  const [geocodingLoading, setGeocodingLoading] = useState(false);
+  const [testLocationPhone, setTestLocationPhone] = useState('');
+  const [sendingTestLocation, setSendingTestLocation] = useState(false);
+  const [testLocationStatus, setTestLocationStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Cleanup audio player on unmount
   useEffect(() => {
@@ -127,6 +138,85 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       setPlayingVoiceId(null);
     } finally {
       setLoadingVoiceId(null);
+    }
+  };
+
+  const handleGeocodeAddress = async () => {
+    if (!formData.address || formData.address.trim().length < 5) {
+      alert('Por favor, preencha o campo de endereço completo primeiro.');
+      return;
+    }
+    setGeocodingLoading(true);
+    setTestLocationStatus(null);
+    try {
+      const res = await fetch('/api/geocode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: formData.address })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Não foi possível encontrar as coordenadas.');
+      }
+      setFormData(prev => ({
+        ...prev,
+        latitude: data.latitude,
+        longitude: data.longitude
+      }));
+      setTestLocationStatus({
+        type: 'success',
+        message: `Coordenadas detectadas: Lat ${data.latitude}, Lng ${data.longitude}. Não se esqueça de salvar!`
+      });
+    } catch (err: any) {
+      setTestLocationStatus({
+        type: 'error',
+        message: err.message || 'Erro ao buscar coordenadas.'
+      });
+    } finally {
+      setGeocodingLoading(false);
+    }
+  };
+
+  const handleSendTestLocation = async () => {
+    const targetPhone = testLocationPhone.trim() || formData.phone || formData.whatsappNumber || '';
+    if (!targetPhone) {
+      alert('Informe um número de WhatsApp com DDD para enviar o teste.');
+      return;
+    }
+    if (!formData.latitude || !formData.longitude) {
+      if (formData.address) {
+        await handleGeocodeAddress();
+      } else {
+        alert('Defina o endereço e coordenadas primeiro.');
+        return;
+      }
+    }
+    setSendingTestLocation(true);
+    setTestLocationStatus(null);
+    try {
+      const res = await fetch('/api/establishment/test-send-location', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          establishmentId: formData.id,
+          phone: targetPhone
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Erro ao enviar card de localização.');
+      }
+      setTestLocationStatus({
+        type: 'success',
+        message: `Card interativo de localização enviado para ${targetPhone}! Confira seu WhatsApp.`
+      });
+    } catch (err: any) {
+      setTestLocationStatus({
+        type: 'error',
+        message: err.message || 'Não foi possível enviar o card.'
+      });
+    } finally {
+      setSendingTestLocation(false);
     }
   };
 
@@ -416,13 +506,139 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
             <div className="sm:col-span-2">
               <label className="block text-slate-300 font-semibold mb-1">Endereço Completo</label>
-              <input
-                type="text"
-                value={formData.address || ''}
-                onChange={e => setFormData({ ...formData, address: e.target.value })}
-                placeholder="Av. Principal, 1000 - Centro"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-emerald-500/60"
-              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={formData.address || ''}
+                  onChange={e => setFormData({ ...formData, address: e.target.value })}
+                  placeholder="Av. Principal, 1000 - Centro, Cidade - UF"
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-emerald-500/60"
+                />
+                <button
+                  type="button"
+                  onClick={handleGeocodeAddress}
+                  disabled={geocodingLoading || !formData.address}
+                  className="px-4 py-2.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                  title="Detectar automaticamente latitude e longitude a partir do texto do endereço"
+                >
+                  {geocodingLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+                  ) : (
+                    <MapPin className="w-4 h-4 text-emerald-400" />
+                  )}
+                  <span>Buscar GPS</span>
+                </button>
+              </div>
+            </div>
+
+            {/* WhatsApp Native Location Card Settings */}
+            <div className="sm:col-span-2 bg-gradient-to-br from-slate-900/90 via-slate-950 to-slate-900/80 border border-emerald-500/30 rounded-2xl p-5 space-y-4 shadow-xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-2xl pointer-events-none" />
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                    <Navigation className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-sm text-white flex items-center gap-2">
+                      Card Clicável de Localização no WhatsApp
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        GPS Nativo Evolution
+                      </span>
+                    </h4>
+                    <p className="text-xs text-slate-400">
+                      Quando o cliente perguntar "onde fica a loja?", "qual o endereço?" ou pedir instalação/visita presencial, a IA dispara automaticamente o card oficial com mapa e rota direta para o Waze / Google Maps!
+                    </p>
+                  </div>
+                </div>
+
+                {formData.latitude && formData.longitude && (
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${formData.latitude},${formData.longitude}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-cyan-400 hover:text-cyan-300 hover:underline shrink-0"
+                  >
+                    <span>Ver no Maps</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                )}
+              </div>
+
+              {testLocationStatus && (
+                <div className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
+                  testLocationStatus.type === 'success'
+                    ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                    : 'bg-red-950/60 border-red-500/40 text-red-300'
+                }`}>
+                  {testLocationStatus.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+                  )}
+                  <span>{testLocationStatus.message}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div>
+                  <label className="block text-slate-400 text-xs font-semibold mb-1">
+                    Latitude (GPS)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.000001"
+                    value={formData.latitude !== undefined && formData.latitude !== null ? formData.latitude : ''}
+                    onChange={e => setFormData({ ...formData, latitude: e.target.value === '' ? undefined : parseFloat(e.target.value) })}
+                    placeholder="-8.05428"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-emerald-500/60"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 text-xs font-semibold mb-1">
+                    Longitude (GPS)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.000001"
+                    value={formData.longitude !== undefined && formData.longitude !== null ? formData.longitude : ''}
+                    onChange={e => setFormData({ ...formData, longitude: e.target.value === '' ? undefined : parseFloat(e.target.value) })}
+                    placeholder="-34.8813"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-emerald-500/60"
+                  />
+                </div>
+              </div>
+
+              {/* Test Send Section */}
+              <div className="pt-3 border-t border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex-1">
+                  <label className="block text-slate-400 text-[11px] mb-1">
+                    Testar envio do card diretamente no seu WhatsApp:
+                  </label>
+                  <input
+                    type="text"
+                    value={testLocationPhone}
+                    onChange={e => setTestLocationPhone(e.target.value)}
+                    placeholder={formData.phone || 'Ex: 5511999999999'}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-white font-mono text-xs focus:outline-none focus:border-emerald-500/60"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSendTestLocation}
+                  disabled={sendingTestLocation}
+                  className="sm:self-end px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-50 shadow-lg shadow-emerald-950"
+                >
+                  {sendingTestLocation ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Send className="w-3.5 h-3.5" />
+                  )}
+                  <span>Testar Envio no WhatsApp</span>
+                </button>
+              </div>
             </div>
 
             {getSegmentConfig(formData.segment).hasDeliveryFee !== false && (
@@ -475,6 +691,159 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 onChange={e => setFormData({ ...formData, pixKey: e.target.value })}
                 placeholder="contato@email.com ou CNPJ"
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white font-mono focus:outline-none focus:border-emerald-500/60"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Whitelabel & Visual Identity (Cores e Marca) */}
+        <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-4 sm:p-6 space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h3 className="font-bold text-base text-white flex items-center gap-2">
+                <Palette className="w-5 h-5 text-orange-400" />
+                Identidade Visual & Whitelabel do Site
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Personalize as cores, logotipo e estilo da vitrine para a identidade da sua oficina ou loja.
+              </p>
+            </div>
+            <span className="text-[11px] font-bold px-3 py-1 rounded-full bg-orange-500/10 text-orange-400 border border-orange-500/20 w-fit">
+              100% Whitelabel
+            </span>
+          </div>
+
+          {/* Opção A: Paletas Automáticas com 1 Clique */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-white flex items-center gap-1.5">
+                <span>Opção A: Paletas Automáticas (1 Clique)</span>
+                <span className="text-[10px] font-medium text-slate-400">— Estilos esportivos prontos</span>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+              {PRESET_THEMES.map(preset => {
+                const isSelected = (formData.themePreset || 'racing_orange') === preset.id && (!formData.brandColor || formData.brandColor === preset.primary);
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => {
+                      setFormData(prev => ({
+                        ...prev,
+                        themePreset: preset.id,
+                        brandColor: preset.primary,
+                        brandTheme: {
+                          preset: preset.id,
+                          primaryColor: preset.primary,
+                          secondaryColor: preset.secondary
+                        }
+                      }));
+                    }}
+                    className={`relative p-3 rounded-xl border text-left transition flex flex-col justify-between gap-2.5 cursor-pointer ${
+                      isSelected 
+                        ? 'bg-white/[0.08] border-white/40 ring-2 ring-white/20 shadow-lg' 
+                        : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 hover:bg-slate-950'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <span className="text-lg">{preset.emoji}</span>
+                      <div 
+                        className="w-4 h-4 rounded-full border border-white/20 shadow-inner" 
+                        style={{ backgroundColor: preset.primary }} 
+                      />
+                    </div>
+                    <div>
+                      <p className="font-bold text-xs text-white leading-tight">{preset.name.split('/')[0].trim()}</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5 font-mono">{preset.primary}</p>
+                    </div>
+                    {isSelected && (
+                      <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Opção B: Cor Hex Personalizada */}
+          <div className="pt-3 border-t border-slate-800/80 space-y-3">
+            <label className="block text-xs font-bold text-white">
+              Opção B: Cor Primária Personalizada (HEX / Seletor Livre)
+            </label>
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 sm:w-72">
+                <input
+                  type="color"
+                  value={formData.brandColor?.startsWith('#') ? formData.brandColor : '#f97316'}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setFormData(prev => ({
+                      ...prev,
+                      brandColor: val,
+                      brandTheme: {
+                        preset: 'custom',
+                        primaryColor: val,
+                        secondaryColor: val
+                      }
+                    }));
+                  }}
+                  className="w-8 h-8 rounded-lg cursor-pointer bg-transparent border-0 p-0"
+                />
+                <input
+                  type="text"
+                  value={formData.brandColor || ''}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setFormData(prev => ({
+                      ...prev,
+                      brandColor: val,
+                      brandTheme: {
+                        preset: 'custom',
+                        primaryColor: val,
+                        secondaryColor: val
+                      }
+                    }));
+                  }}
+                  placeholder="#f97316"
+                  maxLength={7}
+                  className="w-full bg-transparent text-white font-mono text-xs focus:outline-none uppercase"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-400">Preview do Botão:</span>
+                <span 
+                  className="px-4 py-1.5 rounded-full text-black font-extrabold text-xs shadow-md transition"
+                  style={{ backgroundColor: formData.brandColor || '#f97316' }}
+                >
+                  Configurar Projeto ↗
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Slogan e Logo */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-slate-800/80 text-xs">
+            <div>
+              <label className="block text-slate-300 font-semibold mb-1">Slogan / Subtítulo da Marca</label>
+              <input
+                type="text"
+                value={formData.tagline || ''}
+                onChange={e => setFormData({ ...formData, tagline: e.target.value })}
+                placeholder="Ex: Escapamentos & Performance / Oficina Especializada"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-orange-500/60"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-300 font-semibold mb-1">URL do Logotipo da Loja (Opcional)</label>
+              <input
+                type="url"
+                value={formData.logoUrl || ''}
+                onChange={e => setFormData({ ...formData, logoUrl: e.target.value })}
+                placeholder="https://exemplo.com/logo.png"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-orange-500/60"
               />
             </div>
           </div>

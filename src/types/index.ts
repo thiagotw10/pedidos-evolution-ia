@@ -112,6 +112,8 @@ export interface Establishment {
   phone: string;
   whatsappNumber?: string;
   address: string;
+  latitude?: number;
+  longitude?: number;
   segment?: BusinessSegment | string;
   deliveryFee: number;
   estimatedDeliveryTime: string;
@@ -141,10 +143,25 @@ export interface Establishment {
   trialEndsAt?: string;
   subscriptionValidUntil?: string;
   lastPaymentDate?: string;
-  planPrice?: number;
-  referralCode?: string;
-  referredBy?: string;
+  // Whitelabel & Visual Identity
+  brandColor?: string;
+  themePreset?: string;
+  tagline?: string;
+  logoUrl?: string;
+  brandTheme?: {
+    preset?: string;
+    primaryColor?: string;
+    secondaryColor?: string;
+    tagline?: string;
+  };
   createdAt?: string;
+}
+
+export interface ChatLocation {
+  latitude: number;
+  longitude: number;
+  name: string;
+  address: string;
 }
 
 export interface ChatMessage {
@@ -155,6 +172,7 @@ export interface ChatMessage {
   orderId?: string;
   mediaUrl?: string;
   mediaType?: string;
+  location?: ChatLocation;
 }
 
 export interface WhatsAppGroup {

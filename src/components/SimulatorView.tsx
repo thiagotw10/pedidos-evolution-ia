@@ -124,6 +124,16 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
         });
       }
 
+      if (data.locationToSend) {
+        newMsgs.push({
+          id: `ai_loc_${Date.now()}`,
+          sender: 'assistant',
+          text: `📍 ${data.locationToSend.name}\n${data.locationToSend.address}`,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          location: data.locationToSend
+        });
+      }
+
       setMessages(prev => [...prev, ...newMsgs]);
 
       if (data.orderCreated) {
@@ -212,6 +222,16 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
         });
       }
 
+      if (data.locationToSend) {
+        newMsgs.push({
+          id: `ai_loc_${Date.now()}`,
+          sender: 'assistant',
+          text: `📍 ${data.locationToSend.name}\n${data.locationToSend.address}`,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          location: data.locationToSend
+        });
+      }
+
       setMessages(prev => [...prev, ...newMsgs]);
 
       if (data.orderCreated && onOrderCreatedNotification) {
@@ -233,7 +253,12 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
   const samplePrompts = useMemo(() => {
     switch (segConfig.id) {
       case 'AUTOMOTIVE_PARTS':
-        return ['Tenho um Porsche 911 série 992. Quais dados precisam para analisar meu projeto?', 'Pode mostrar referências de escapamentos?', 'Quero consultar um projeto com envio para o CEP 50000-000.'];
+        return [
+          'Tenho um Porsche 911 série 992. Quais dados precisam para analisar meu projeto?',
+          'Pode mostrar referências de escapamentos?',
+          'Onde fica a oficina de vocês? Qual o endereço para eu levar o carro?',
+          'Quero consultar um projeto com envio para o CEP 50000-000.'
+        ];
       case 'VEHICLES':
         return [
           'Tem algum veículo automático disponível até 80 mil?',
@@ -443,6 +468,45 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
                           )}
                         </div>
                       )}
+
+                      {msg.location && (
+                        <div className="mb-2.5 rounded-xl overflow-hidden border border-emerald-500/40 bg-slate-900 shadow-xl">
+                          {/* Map Preview Graphic */}
+                          <div className="relative h-28 bg-gradient-to-br from-emerald-950 via-slate-900 to-cyan-950 p-3 flex flex-col justify-between overflow-hidden">
+                            <div className="absolute inset-0 opacity-25" style={{ backgroundImage: 'radial-gradient(#10b981 1.5px, transparent 1.5px)', backgroundSize: '12px 12px' }} />
+                            <div className="absolute inset-0 bg-gradient-to-t from-slate-900 to-transparent" />
+                            <div className="relative z-10 flex items-center justify-between">
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                                <MapPin className="w-3 h-3 text-emerald-400" /> Card Clicável WhatsApp (GPS)
+                              </span>
+                            </div>
+                            <div className="relative z-10 flex items-center justify-center my-auto">
+                              <div className="w-10 h-10 rounded-full bg-red-500/20 border border-red-500/50 flex items-center justify-center text-red-400 animate-pulse shadow-lg shadow-red-500/20">
+                                <MapPin className="w-6 h-6 fill-red-500 text-white" />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Card Content */}
+                          <div className="p-3 bg-slate-900 space-y-2">
+                            <div>
+                              <h5 className="font-bold text-white text-xs">{msg.location.name}</h5>
+                              <p className="text-[11px] text-slate-300 line-clamp-2">{msg.location.address}</p>
+                            </div>
+
+                            <a
+                              href={`https://www.google.com/maps/dir/?api=1&destination=${msg.location.latitude},${msg.location.longitude}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="w-full py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] flex items-center justify-center gap-1.5 transition no-underline shadow-md"
+                            >
+                              <Navigation className="w-3.5 h-3.5" />
+                              <span>Abrir no Google Maps / Waze</span>
+                            </a>
+                          </div>
+                        </div>
+                      )}
+
                       {msg.text}
 
                       {msg.orderId && (

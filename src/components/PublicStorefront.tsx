@@ -3,8 +3,29 @@ import { StorefrontShowcase } from './StorefrontShowcase';
 import { AutomotiveStorefront } from './AutomotiveStorefront';
 import { Bot, ChevronRight, Minus, Plus, ShoppingBag, ShoppingCart, Trash2, X } from 'lucide-react';
 
-interface Product { id: string; name: string; description?: string; price: number; category?: string; imageUrl?: string; }
-interface Store { id: string; publicSlug?: string; name: string; description?: string; segment?: string; phone?: string; logoUrl?: string; }
+interface Product { 
+  id: string; 
+  name: string; 
+  description?: string; 
+  price: number; 
+  category?: string; 
+  imageUrl?: string; 
+  images?: string[]; 
+  videoUrl?: string; 
+}
+interface Store { 
+  id: string; 
+  publicSlug?: string; 
+  name: string; 
+  description?: string; 
+  segment?: string; 
+  phone?: string; 
+  logoUrl?: string; 
+  brandColor?: string; 
+  themePreset?: string; 
+  tagline?: string; 
+  brandTheme?: { preset?: string; primaryColor?: string; secondaryColor?: string; tagline?: string; };
+}
 const money = (value: number) => `R$ ${value.toFixed(2).replace('.', ',')}`;
 
 export const PublicStorefront: React.FC<{ storeId: string }> = ({ storeId }) => {
