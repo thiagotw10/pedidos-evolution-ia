@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { StorefrontShowcase } from './StorefrontShowcase';
 import { AutomotiveStorefront } from './AutomotiveStorefront';
+import type { AutomotiveModel3D } from '../../functions/src/automotiveModel3d';
 import { Bot, ChevronRight, Minus, Plus, ShoppingBag, ShoppingCart, Trash2, X } from 'lucide-react';
 
 interface Product { 
@@ -12,6 +13,7 @@ interface Product {
   imageUrl?: string; 
   images?: string[]; 
   videoUrl?: string; 
+  model3d?: AutomotiveModel3D | null;
 }
 interface Store { 
   id: string; 

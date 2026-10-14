@@ -30,6 +30,8 @@ import { storage } from '../lib/firebase';
 import { Product, Establishment } from '../types';
 import { getSegmentConfig, getSegmentCatalogIcon } from '../utils/segments';
 import { CarVideoStudioModal } from './CarVideoStudioModal';
+import AutomotiveModelEditor from './AutomotiveModelEditor';
+import { getThemeFromStore } from '../utils/automotiveThemes';
 
 interface ProductsViewProps {
   products: Product[];
@@ -57,6 +59,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(null);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   
   // AI Video Studio state
   const [isStudioOpen, setIsStudioOpen] = useState(false);
@@ -71,6 +74,8 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadingGallery, setUploadingGallery] = useState(false);
   const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [uploadingModel, setUploadingModel] = useState(false);
+  const editorBusy = saving || uploadingModel || uploadingImage || uploadingGallery || uploadingVideo;
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -215,6 +220,8 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
   });
 
   const handleOpenAddModal = () => {
+    if (editorBusy) return;
+    setSaveError('');
     setEditingProduct({
       name: '',
       price: 0,
@@ -229,6 +236,8 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
   };
 
   const handleOpenEditModal = (product: Product) => {
+    if (editorBusy) return;
+    setSaveError('');
     const images = (product.images && product.images.length > 0)
       ? product.images
       : (product.imageUrl ? [product.imageUrl] : []);
@@ -241,6 +250,13 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
     setIsModalOpen(true);
   };
 
+  const handleCloseEditModal = () => {
+    if (editorBusy) return;
+    setIsModalOpen(false);
+    setEditingProduct(null);
+    setSaveError('');
+  };
+
   const handleToggleAvailable = async (product: Product) => {
     await onSaveProduct({
       ...product,
@@ -250,6 +266,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
 
   // Upload Foto Principal de Capa
   const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (uploadingModel || saving) return;
     const file = e.target.files?.[0];
     if (!file || !editingProduct) return;
 
@@ -289,6 +306,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
 
   // Upload Múltiplas Fotos para a Galeria / Carrossel
   const handleMultipleGalleryUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (uploadingModel || saving) return;
     const files = e.target.files;
     if (!files || files.length === 0 || !editingProduct) return;
 
@@ -329,6 +347,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
 
   // Upload de Vídeo (.mp4, .mov, etc)
   const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (uploadingModel || saving) return;
     const file = e.target.files?.[0];
     if (!file || !editingProduct) return;
 
@@ -357,34 +376,41 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
   };
 
   const handleRemoveGalleryImage = (indexToRemove: number) => {
+    if (uploadingModel || saving) return;
     setEditingProduct(prev => {
       if (!prev) return null;
       const currentImages = prev.images || [];
       const updatedImages = currentImages.filter((_, idx) => idx !== indexToRemove);
       const currentCover = prev.imageUrl;
       const isRemovingCover = currentImages[indexToRemove] === currentCover;
+      const referenceImages = prev.model3d?.referenceImages?.filter(image => updatedImages.includes(image));
       return {
         ...prev,
         images: updatedImages,
-        imageUrl: isRemovingCover ? (updatedImages[0] || '') : currentCover
+        imageUrl: isRemovingCover ? (updatedImages[0] || '') : currentCover,
+        ...(prev.model3d ? { model3d: { ...prev.model3d, ...(referenceImages ? { referenceImages } : {}) } } : {}),
       };
     });
   };
 
   const handleSetCoverImage = (imgUrl: string) => {
+    if (uploadingModel || saving) return;
     setEditingProduct(prev => prev ? { ...prev, imageUrl: imgUrl } : null);
   };
 
   const handleRemoveVideo = () => {
+    if (uploadingModel || saving) return;
     setEditingProduct(prev => prev ? { ...prev, videoUrl: '' } : null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (editorBusy) return;
     if (!editingProduct?.name || editingProduct.price === undefined) return;
 
     try {
       setSaving(true);
+      setSaveError('');
       const gallery = (editingProduct.images && editingProduct.images.length > 0)
         ? editingProduct.images
         : (editingProduct.imageUrl ? [editingProduct.imageUrl] : []);
@@ -393,10 +419,13 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
         ...editingProduct,
         images: gallery,
         imageUrl: editingProduct.imageUrl || gallery[0] || '',
-        videoUrl: editingProduct.videoUrl || ''
+        videoUrl: editingProduct.videoUrl || '',
+        ...(editingProduct.model3d ? { model3d: { ...editingProduct.model3d, ...(editingProduct.model3d.referenceImages ? { referenceImages: editingProduct.model3d.referenceImages.filter(image => gallery.includes(image)).slice(0, 20) } : {}) } } : {}),
       });
       setIsModalOpen(false);
       setEditingProduct(null);
+    } catch (error: unknown) {
+      setSaveError(error instanceof Error ? error.message : 'Não foi possível salvar o projeto. Tente novamente.');
     } finally {
       setSaving(false);
     }
@@ -705,8 +734,11 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                 {editingProduct.id ? 'Editar' : 'Novo(a)'} {segConfig.itemNoun}
               </h3>
               <button
-                onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-white transition cursor-pointer"
+                type="button"
+                onClick={handleCloseEditModal}
+                disabled={editorBusy}
+                aria-label="Fechar edição do projeto"
+                className="text-slate-400 hover:text-white transition cursor-pointer disabled:opacity-40 disabled:cursor-wait"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -721,6 +753,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                   type="text"
                   required
                   value={editingProduct.name || ''}
+                  disabled={uploadingModel || saving}
                   onChange={e => setEditingProduct({ ...editingProduct, name: e.target.value })}
                   placeholder={`Ex: ${segConfig.sampleItemName}`}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm sm:text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/60"
@@ -737,6 +770,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                     step="0.01"
                     min="0"
                     value={editingProduct.price !== undefined ? editingProduct.price : 0}
+                    disabled={uploadingModel || saving}
                     onChange={e => setEditingProduct({ ...editingProduct, price: parseFloat(e.target.value) || 0 })}
                     placeholder={automotive ? '0 (Sob consulta)' : '0.00'}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm sm:text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/60"
@@ -756,6 +790,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                     type="text"
                     required
                     value={editingProduct.category || ''}
+                    disabled={uploadingModel || saving}
                     onChange={e => setEditingProduct({ ...editingProduct, category: e.target.value })}
                     placeholder={`Ex: ${segConfig.sampleCategory}`}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm sm:text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/60"
@@ -779,7 +814,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                   <button
                     type="button"
                     onClick={() => galleryInputRef.current?.click()}
-                    disabled={uploadingGallery}
+                    disabled={uploadingGallery || uploadingModel || saving}
                     className="px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
                   >
                     {uploadingGallery ? (
@@ -800,6 +835,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                   type="file"
                   multiple
                   ref={galleryInputRef}
+                  disabled={uploadingModel || saving}
                   accept="image/png,image/jpeg,image/jpg,image/webp"
                   onChange={handleMultipleGalleryUpload}
                   className="hidden"
@@ -827,6 +863,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleSetCoverImage(imgUrl)}
+                                disabled={uploadingModel || saving}
                                 className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-white transition cursor-pointer"
                               >
                                 Usar Capa
@@ -835,6 +872,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                             <button
                               type="button"
                               onClick={() => handleRemoveGalleryImage(index)}
+                              disabled={uploadingModel || saving}
                               className="p-1 rounded bg-rose-500/20 text-rose-400 hover:bg-rose-500 hover:text-white transition cursor-pointer"
                               title="Excluir esta foto"
                             >
@@ -874,6 +912,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                     <button
                       type="button"
                       onClick={handleRemoveVideo}
+                      disabled={uploadingModel || saving}
                       className="text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1 cursor-pointer transition"
                     >
                       <Trash2 className="w-3 h-3" /> Remover Vídeo
@@ -882,7 +921,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                     <button
                       type="button"
                       onClick={() => videoInputRef.current?.click()}
-                      disabled={uploadingVideo}
+                      disabled={uploadingVideo || uploadingModel || saving}
                       className="px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
                     >
                       {uploadingVideo ? (
@@ -903,6 +942,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                 <input
                   type="file"
                   ref={videoInputRef}
+                  disabled={uploadingModel || saving}
                   accept="video/mp4,video/quicktime,video/webm"
                   onChange={handleVideoUpload}
                   className="hidden"
@@ -922,7 +962,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                       <button
                         type="button"
                         onClick={() => videoInputRef.current?.click()}
-                        disabled={uploadingVideo}
+                        disabled={uploadingVideo || uploadingModel || saving}
                         className="text-[11px] underline text-slate-300 hover:text-white cursor-pointer"
                       >
                         Substituir Vídeo
@@ -950,6 +990,20 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                 )}
               </div>
 
+              {segConfig.id === 'AUTOMOTIVE_PARTS' && (
+                <AutomotiveModelEditor
+                  key={editingProduct.id || 'new-project'}
+                  establishmentId={establishmentId}
+                  model={editingProduct.model3d}
+                  images={editingProduct.images?.length ? editingProduct.images : (editingProduct.imageUrl ? [editingProduct.imageUrl] : [])}
+                  projectName={editingProduct.name || ''}
+                  accent={getThemeFromStore(establishment || undefined).primary}
+                  disabled={saving || uploadingImage || uploadingGallery || uploadingVideo}
+                  onBusyChange={setUploadingModel}
+                  onChange={model3d => setEditingProduct(previous => previous ? { ...previous, model3d } : null)}
+                />
+              )}
+
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
                   {segConfig.id === 'VEHICLES' 
@@ -960,6 +1014,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                 </label>
                 <textarea
                   rows={3}
+                  disabled={uploadingModel || saving}
                   value={editingProduct.description || ''}
                   onChange={e => setEditingProduct({ ...editingProduct, description: e.target.value })}
                   placeholder={`Ex: ${segConfig.sampleDescription}`}
@@ -971,6 +1026,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                 <input
                   type="checkbox"
                   id="availableCheck"
+                  disabled={uploadingModel || saving}
                   checked={editingProduct.available !== false}
                   onChange={e => setEditingProduct({ ...editingProduct, available: e.target.checked })}
                   className="w-4 h-4 rounded text-emerald-500 focus:ring-0 bg-slate-950 border-slate-800 cursor-pointer"
@@ -983,19 +1039,21 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
               <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800/80">
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white transition cursor-pointer"
+                  onClick={handleCloseEditModal}
+                  disabled={editorBusy}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white transition cursor-pointer disabled:opacity-40 disabled:cursor-wait"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  disabled={saving || uploadingGallery || uploadingVideo || uploadingImage}
+                  disabled={editorBusy}
                   className="px-5 py-2.5 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition cursor-pointer shadow-lg shadow-emerald-500/20 disabled:opacity-50"
                 >
                   {saving ? 'Salvando...' : `Salvar ${segConfig.itemNoun}`}
                 </button>
               </div>
+              {saveError && <p role="alert" className="rounded-xl border border-rose-400/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">{saveError}</p>}
             </form>
           </div>
         </div>

@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { 
-  ArrowUpRight, 
+  ArrowUpRight,
+  ArrowDown,
   Check, 
   ShieldCheck, 
   Play, 
@@ -9,15 +10,30 @@ import {
   MessageCircle, 
   ChevronLeft, 
   ChevronRight, 
-  Sparkles, 
   Flame, 
   Maximize2, 
   X, 
   CheckCircle2, 
-  Wrench, 
-  Send
+  Send,
+  Box
 } from 'lucide-react';
 import { getThemeFromStore } from '../utils/automotiveThemes';
+import type { AutomotiveModel3D } from '../../functions/src/automotiveModel3d';
+import './automotive-storefront.css';
+
+const AutomotiveExhaustScene = lazy(() => import('./AutomotiveExhaustScene'));
+const AutomotiveProjectModelScene = lazy(() => import('./AutomotiveProjectModelScene'));
+
+const expandHex = (color: string) => /^#[0-9a-f]{3}$/i.test(color) ? '#' + color.slice(1).split('').map(c => c + c).join('') : color;
+
+class AutomotiveSceneBoundary extends React.Component<{ children: React.ReactNode; image?: string }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return <div className="auto-scene-unavailable">{this.props.image && <img src={this.props.image} alt="Projeto real da loja" loading="lazy" />}<p role="status">A experiência 3D não está disponível agora. Explore as fotos e os vídeos dos projetos abaixo.</p></div>;
+  }
+}
 
 export type AutomotiveReference = { 
   id: string; 
@@ -26,6 +42,7 @@ export type AutomotiveReference = {
   imageUrl?: string; 
   images?: string[]; 
   videoUrl?: string; 
+  model3d?: AutomotiveModel3D | null;
   category?: string;
   price?: number;
 };
@@ -46,7 +63,22 @@ interface AutomotiveStorefrontProps {
 }
 
 export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontProps) {
-  const theme = getThemeFromStore(store);
+  const configuredTheme = getThemeFromStore(store);
+  const theme = { ...configuredTheme, primary: expandHex(configuredTheme.primary), accent: expandHex(configuredTheme.accent) };
+  const accent = theme.primary;
+  const rgb = /^#[0-9a-f]{6}$/i.test(accent) ? [1, 3, 5].map(i => parseInt(accent.slice(i, i + 2), 16)) : [91, 132, 255];
+  const linear = rgb.map(channel => { const value = channel / 255; return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4; });
+  const luminance = linear[0] * .2126 + linear[1] * .7152 + linear[2] * .0722;
+  const onAccent = (luminance + .05) / .0527 >= 1.05 / (luminance + .05) ? '#08090b' : '#ffffff';
+  const storefrontRef = useRef<HTMLDivElement>(null);
+  const engineeringRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const [sceneReady, setSceneReady] = useState(false);
+  useEffect(() => {
+    const previousTitle = document.title;
+    document.title = `${store.name} | ${store.tagline || store.brandTheme?.tagline || 'Escapamentos & Performance'}`;
+    return () => { document.title = previousTitle; };
+  }, [store.name, store.tagline, store.brandTheme?.tagline]);
   const [selected, setSelected] = useState<string[]>([]);
   const [activeCategory, setActiveCategory] = useState<string>('all');
   
@@ -57,7 +89,7 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
   const [lightbox, setLightbox] = useState<{
     isOpen: boolean;
     product: AutomotiveReference | null;
-    activeTab: 'photos' | 'video';
+    activeTab: 'photos' | 'video' | 'model';
     photoIndex: number;
   }>({
     isOpen: false,
@@ -69,6 +101,61 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
   // Hero showcase project
   const featuredProduct = products.find(p => p.videoUrl) || products[0] || null;
   const [heroPhotoIndex, setHeroPhotoIndex] = useState(0);
+  const modelProjects = products.filter(product => product.model3d?.url);
+  const [activeModelId, setActiveModelId] = useState<string | null>(null);
+  const activeModelProject = modelProjects.find(product => product.id === activeModelId) || modelProjects[0] || null;
+
+  // Load the 3D chunk near its section; other storefront niches do not load it.
+  useEffect(() => {
+    const element = engineeringRef.current;
+    if (!element || sceneReady) return;
+    if (!('IntersectionObserver' in window)) { setSceneReady(true); return; }
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) { setSceneReady(true); observer.disconnect(); }
+    }, { rootMargin: '350px' });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [sceneReady]);
+
+  // Native reveal animations keep scrolling and all existing controls available.
+  useEffect(() => {
+    const root = storefrontRef.current;
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (!root || reduced.matches || !('IntersectionObserver' in window)) return;
+    const animations = new Set<Animation>();
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting) return;
+        observer.unobserve(entry.target);
+        if (reduced.matches || !('animate' in entry.target)) return;
+        const animation = entry.target.animate([{ opacity: 0, transform: 'translateY(24px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: 700, easing: 'cubic-bezier(.16,1,.3,1)' });
+        animations.add(animation);
+        animation.finished.then(() => animations.delete(animation)).catch(() => {});
+      });
+    }, { threshold: .08 });
+    root.querySelectorAll('[data-auto-reveal]').forEach(element => observer.observe(element));
+    const stopMotion = () => { if (reduced.matches) animations.forEach(animation => animation.finish()); };
+    reduced.addEventListener('change', stopMotion);
+    return () => { observer.disconnect(); reduced.removeEventListener('change', stopMotion); animations.forEach(animation => animation.cancel()); };
+  }, [activeCategory, products.length]);
+
+  // Modal focus is trapped and restored; videos still begin only after a click.
+  useEffect(() => {
+    if (!lightbox.isOpen) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    dialogRef.current?.querySelector<HTMLButtonElement>('[data-auto-close]')?.focus();
+    const trapFocus = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab' || !dialogRef.current) return;
+      const controls = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], video[controls], input, [tabindex="0"]')).filter(element => element.getClientRects().length > 0);
+      const first = controls[0], last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener('keydown', trapFocus);
+    return () => { document.body.style.overflow = previousOverflow; document.removeEventListener('keydown', trapFocus); if (previousFocus?.isConnected) previousFocus.focus(); };
+  }, [lightbox.isOpen]);
 
   // Form state
   const [form, setForm] = useState({ 
@@ -106,9 +193,11 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
         setLightbox(prev => ({ ...prev, isOpen: false }));
       } else if (e.key === 'ArrowRight' && lightbox.activeTab === 'photos') {
         const imgs = getProductImages(lightbox.product);
+        if (!imgs.length) return;
         setLightbox(prev => ({ ...prev, photoIndex: (prev.photoIndex + 1) % imgs.length }));
       } else if (e.key === 'ArrowLeft' && lightbox.activeTab === 'photos') {
         const imgs = getProductImages(lightbox.product);
+        if (!imgs.length) return;
         setLightbox(prev => ({ ...prev, photoIndex: (prev.photoIndex - 1 + imgs.length) % imgs.length }));
       }
     };
@@ -134,7 +223,7 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
     });
   };
 
-  const openLightbox = (product: AutomotiveReference, initialTab: 'photos' | 'video' = 'photos', initialPhotoIndex = 0) => {
+  const openLightbox = (product: AutomotiveReference, initialTab: 'photos' | 'video' | 'model' = 'photos', initialPhotoIndex = 0) => {
     setLightbox({
       isOpen: true,
       product,
@@ -187,228 +276,81 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
   const featuredImages = featuredProduct ? getProductImages(featuredProduct) : [];
 
   return (
-    <div className="min-h-screen bg-[#07080a] text-slate-100 selection:bg-orange-500 selection:text-black overflow-x-hidden relative w-full">
-      {/* Ambient Glow Effects clamped within screen */}
-      <div 
-        className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-xs sm:max-w-lg h-[220px] sm:h-[350px] blur-3xl pointer-events-none -z-10" 
-        style={{ background: `radial-gradient(circle, ${theme.glowFrom} 0%, ${theme.glowVia} 50%, transparent 80%)` }}
-      />
-      <div 
-        className="fixed bottom-1/4 right-0 w-48 sm:w-96 h-48 sm:h-96 blur-3xl pointer-events-none -z-10" 
-        style={{ background: `radial-gradient(circle, ${theme.glowVia} 0%, transparent 70%)` }}
-      />
-
-      {/* Sticky Header */}
-      <header className="border-b border-white/10 sticky top-0 bg-[#07080a]/95 backdrop-blur-xl z-30 transition-all w-full">
-        <div className="max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-2.5 sm:py-3.5 flex items-center justify-between gap-3 w-full">
-          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-            {store.logoUrl ? (
-              <img src={store.logoUrl} alt={store.name} className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl object-cover shrink-0 border border-white/10" />
-            ) : (
-              <div 
-                className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center p-0.5 shadow-lg shrink-0"
-                style={{ background: `linear-gradient(135deg, ${theme.gradientFrom}, ${theme.gradientVia}, #18181b)` }}
-              >
-                <div className="w-full h-full bg-[#101114] rounded-[10px] flex items-center justify-center">
-                  <Flame className="w-4 h-4 sm:w-5 sm:h-5" style={{ color: theme.primary }} />
-                </div>
-              </div>
-            )}
-            <div className="min-w-0">
-              <span className="font-black text-xs sm:text-lg tracking-tight uppercase block leading-tight truncate max-w-[125px] xs:max-w-[190px] sm:max-w-none">
-                {store.name}
-              </span>
-              <span className="text-[8px] sm:text-[10px] uppercase tracking-wider font-semibold flex items-center gap-1.5 truncate" style={{ color: theme.primary }}>
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" /> {store.tagline || 'Escapamentos & Performance'}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-            <a 
-              href={getWhatsAppLink()} 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="hidden sm:inline-flex items-center gap-2 text-xs font-bold text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 px-3.5 py-2 rounded-full transition"
-            >
-              <MessageCircle size={15} /> WhatsApp Online
-            </a>
-            <a 
-              href="#project-form" 
-              className="text-xs font-bold text-black hover:brightness-110 px-3 py-2 sm:px-4 sm:py-2.5 rounded-full shadow-lg transition flex items-center gap-1 active:scale-95 shrink-0"
-              style={{ background: `linear-gradient(to right, ${theme.gradientFrom}, ${theme.gradientVia}, ${theme.gradientTo})` }}
-            >
-              <span>Simular Projeto</span>
-              <ArrowUpRight size={14} />
-            </a>
-          </div>
+    <div ref={storefrontRef} id="auto-top" className="auto-storefront" style={{ '--auto-accent': accent, '--auto-accent-rgb': rgb.join(', '), '--auto-on-accent': onAccent } as React.CSSProperties}>
+      <header className="auto-header">
+        <a className="auto-brand" href="#auto-top" aria-label={`${store.name} — início`}>
+          {store.logoUrl ? <img src={store.logoUrl} alt="" /> : <span className="auto-brand-symbol"><Flame size={23} strokeWidth={1.5} /></span>}
+          <span className="auto-brand-name">{store.name}<small>{store.tagline || store.brandTheme?.tagline || 'Escapamentos & Performance'}</small></span>
+        </a>
+        <nav className="auto-header-nav" aria-label="Navegação da vitrine">
+          <a href="#auto-engineering">Explore em 3D</a>
+          <a href="#auto-projects">Projetos reais</a>
+        </nav>
+        <div className="auto-header-actions">
+          <a className="auto-header-whatsapp" href={getWhatsAppLink()} target="_blank" rel="noopener noreferrer" aria-label="Conversar com a loja no WhatsApp"><MessageCircle size={19} /><span>Fale com a garagem</span></a>
+          <a className="auto-btn auto-btn-primary auto-header-cta" href="#project-form">Seu projeto <ArrowUpRight size={16} /></a>
         </div>
       </header>
 
-      <main className="max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 w-full min-w-0">
-        {/* HERO SECTION */}
-        <section className="pt-4 pb-8 sm:py-10 lg:py-14 grid lg:grid-cols-2 gap-8 lg:gap-12 items-center w-full min-w-0">
-          <div className="w-full min-w-0 flex flex-col justify-center">
-            <div 
-              className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 sm:px-3.5 sm:py-1.5 text-[10px] sm:text-xs font-semibold uppercase tracking-wider mb-3.5 sm:mb-5 backdrop-blur-md self-start"
-              style={{ borderColor: `${theme.primary}50`, backgroundColor: `${theme.primary}18`, color: theme.accent || theme.primary }}
-            >
-              <Sparkles size={12} style={{ color: theme.primary }} className="shrink-0" />
-              <span className="truncate">Titânio · Válvulas Originais · Ronco Único</span>
-            </div>
-
-            <h1 className="text-2xl xs:text-3xl sm:text-5xl lg:text-5xl xl:text-6xl font-black tracking-tight leading-[1.08] break-words text-white">
-              Seu carro.<br />
-              Sua assinatura.<br />
-              <span 
-                className="text-transparent bg-clip-text"
-                style={{ backgroundImage: `linear-gradient(to right, ${theme.gradientFrom}, ${theme.accent || theme.gradientVia}, ${theme.gradientTo})` }}
-              >
-                Seu próximo projeto.
-              </span>
-            </h1>
-
-            <p className="text-slate-400 text-xs sm:text-sm lg:text-base mt-3 sm:mt-4 max-w-xl leading-relaxed">
-              {store.description || 'Sistemas de escapamento de alta performance em titânio e inox cirúrgico sob medida. Controle de válvulas originais com acabamento e acústica de pista para o seu veículo.'}
-            </p>
-
-            <div className="mt-5 sm:mt-7 flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
-              <a 
-                href="#project-form" 
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-2xl sm:rounded-full hover:brightness-110 px-6 py-3.5 sm:px-7 sm:py-4 text-black font-extrabold text-sm sm:text-base shadow-xl transition-all active:scale-[0.98] whitespace-nowrap shrink-0"
-                style={{ background: `linear-gradient(to right, ${theme.gradientFrom}, ${theme.gradientVia}, ${theme.gradientTo})` }}
-              >
-                <span>Configurar meu projeto</span>
-                <ArrowUpRight size={18} />
-              </a>
-
-              <a 
-                href={getWhatsAppLink()} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-2xl sm:rounded-full bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 px-5 py-3.5 sm:px-6 sm:py-4 text-white font-bold text-sm sm:text-base transition-all active:scale-[0.98] whitespace-nowrap shrink-0"
-              >
-                <MessageCircle size={18} className="text-emerald-400 shrink-0" />
-                <span>Falar com consultor via IA</span>
-              </a>
-            </div>
-
-            {/* Differentiators */}
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-6 mt-6 sm:mt-8 pt-5 sm:pt-6 border-t border-white/10 text-xs text-slate-400 w-full min-w-0">
-              <div className="flex items-center gap-2 whitespace-nowrap">
-                <Volume2 className="w-4 h-4 shrink-0" style={{ color: theme.primary }} />
-                <span>Ronco esportivo sem ressonância</span>
-              </div>
-              <div className="flex items-center gap-2 whitespace-nowrap">
-                <Wrench className="w-4 h-4 shrink-0" style={{ color: theme.primary }} />
-                <span>Válvulas Plug & Play originais</span>
-              </div>
-              <div className="flex items-center gap-2 whitespace-nowrap">
-                <ShieldCheck className="w-4 h-4 shrink-0" style={{ color: theme.primary }} />
-                <span>Garantia e envio seguro nacional</span>
-              </div>
+      <main className="auto-main">
+        <section className={`auto-hero ${featuredImages.length ? 'auto-hero-with-image' : ''}`} aria-labelledby="auto-hero-title">
+          <div className="auto-hero-media" aria-hidden="true">
+            {featuredImages.length > 0 && <img key={featuredImages[heroPhotoIndex] || featuredImages[0]} className="auto-hero-image" src={featuredImages[heroPhotoIndex] || featuredImages[0]} alt="" fetchPriority="high" />}
+            <div className="auto-hero-shade" />
+          </div>
+          <div className="auto-hero-copy">
+            <p className="auto-eyebrow"><span className="auto-status-dot" /> {store.tagline || store.brandTheme?.tagline || 'Escapamentos & Performance'}</p>
+            <h1 id="auto-hero-title" aria-label="O som da sua assinatura."><span>O SOM DA</span><span>SUA</span><em>ASSINATURA.</em></h1>
+            <p className="auto-hero-description">{store.description || 'Seu carro tem personalidade. Crie um projeto de escapamento que traduz a sua — do acabamento ao ronco.'}</p>
+            <div className="auto-hero-actions">
+              <a className="auto-btn auto-btn-primary" href="#project-form">Configurar meu projeto <ArrowUpRight size={18} /></a>
+              <a className="auto-btn auto-btn-ghost" href="#auto-engineering">Explore a engenharia <ArrowDown size={17} /></a>
             </div>
           </div>
 
-          {/* Interactive Hero Media Showcase */}
-          <div className="relative w-full min-w-0">
-            {featuredProduct ? (
-              <div className="group relative rounded-2xl sm:rounded-3xl overflow-hidden border border-white/15 bg-zinc-950 shadow-2xl shadow-black/80 aspect-square sm:aspect-[4/3] lg:aspect-[16/11] xl:aspect-[16/10] lg:min-h-[480px] xl:min-h-[530px] flex flex-col justify-end w-full min-w-0">
-                {/* Background Image Carousel in Hero */}
-                <img 
-                  src={featuredImages[heroPhotoIndex] || featuredProduct.imageUrl} 
-                  alt={featuredProduct.name} 
-                  className="absolute inset-0 w-full h-full object-cover object-center transition-transform duration-700 group-hover:scale-105" 
-                />
+          {featuredProduct && <div className="auto-hero-feature">
+            <div className="auto-feature-kicker"><span>01 / NA GARAGEM</span><span>{featuredProduct.category || 'PROJETO ESPECIAL'}</span></div>
+            <h2>{featuredProduct.name}</h2>
+            <div className="auto-feature-actions">
+              {featuredProduct.videoUrl && <button className="auto-sound-button" onClick={() => openLightbox(featuredProduct, 'video')}><span><Play size={13} fill="currentColor" /></span>Ouvir o ronco <span className="auto-mini-wave" aria-hidden="true">{[9,17,12,22,14,8].map((height,i)=><i key={i} style={{height}} />)}</span></button>}
+              {featuredImages.length > 0 && <button className="auto-gallery-button" onClick={() => openLightbox(featuredProduct, 'photos', heroPhotoIndex)}><Maximize2 size={15} /> Galeria <span>{String(featuredImages.length).padStart(2,'0')}</span></button>}
+            </div>
+            {featuredImages.length > 1 && <div className="auto-hero-thumbnails" aria-label="Fotos do projeto em destaque">
+              {featuredImages.map((image,index)=><button key={`${image}-${index}`} aria-label={`Ver foto ${index+1} de ${featuredImages.length}`} aria-pressed={heroPhotoIndex===index} onClick={()=>setHeroPhotoIndex(index)}><img src={image} alt="" loading="lazy" /></button>)}
+            </div>}
+          </div>}
+          <div className="auto-hero-bottom"><a href="#auto-engineering"><span className="auto-scroll-line" /> ROLE PARA EXPLORAR</a><span>DO SEU ESTILO. PARA O SEU CARRO.</span><span>{String(products.length).padStart(2,'0')} REFERÊNCIAS / INFINITAS POSSIBILIDADES</span></div>
+        </section>
 
-                {/* Gradient Overlays */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent pointer-events-none" />
-                <div className="absolute inset-0 bg-gradient-to-r from-black/50 via-transparent to-black/20 pointer-events-none" />
+        <div className="auto-editorial-strip" aria-hidden="true"><span>ENGENHARIA</span><i>✳</i><span>PERSONALIDADE</span><i>✳</i><span>ACÚSTICA</span><i>✳</i><span>ACABAMENTO</span><i>✳</i><span>PERFORMANCE</span></div>
 
-                {/* Top Badges */}
-                <div className="absolute top-2.5 left-2.5 right-2.5 sm:top-4 sm:left-4 sm:right-4 flex items-center justify-between pointer-events-none gap-2">
-                  <span 
-                    className="inline-flex items-center gap-1.5 rounded-full backdrop-blur-md px-2.5 sm:px-3 py-1 text-[10px] sm:text-xs font-black uppercase text-black shadow-lg"
-                    style={{ backgroundColor: theme.primary }}
-                  >
-                    <Flame size={12} /> Destaque da Garagem
-                  </span>
-                  {featuredImages.length > 1 && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-black/70 backdrop-blur-md px-2.5 py-1 text-[10px] sm:text-[11px] font-semibold text-slate-200 border border-white/15 shrink-0">
-                      <Camera size={12} /> {heroPhotoIndex + 1}/{featuredImages.length}
-                    </span>
-                  )}
-                </div>
-
-                {/* Floating Interactive Controls inside Hero */}
-                <div className="relative z-10 p-3.5 sm:p-5 lg:p-6 space-y-2 sm:space-y-3 w-full min-w-0">
-                  <div className="min-w-0">
-                    <span className="text-[10px] sm:text-xs uppercase font-extrabold tracking-wider block mb-0.5 truncate" style={{ color: theme.primary }}>
-                      {featuredProduct.category || 'Projeto Especial'}
-                    </span>
-                    <h3 className="text-base sm:text-xl lg:text-2xl font-black text-white leading-tight drop-shadow-md break-words line-clamp-2">
-                      {featuredProduct.name}
-                    </h3>
-                  </div>
-
-                  <div className="flex flex-row items-center gap-2 pt-1 w-full min-w-0">
-                    {/* Ouvir Ronco Button */}
-                    {featuredProduct.videoUrl && (
-                      <button
-                        onClick={() => openLightbox(featuredProduct, 'video')}
-                        className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 sm:gap-2 rounded-xl sm:rounded-2xl text-black px-3 py-2.5 sm:px-4 sm:py-2.5 font-black text-xs sm:text-sm shadow-xl transition active:scale-95 whitespace-nowrap shrink-0"
-                        style={{ background: `linear-gradient(to right, ${theme.gradientFrom}, ${theme.gradientVia}, ${theme.gradientTo})` }}
-                      >
-                        <span className="w-4 h-4 rounded-full bg-black flex items-center justify-center">
-                          <Play size={9} style={{ fill: theme.primary }} className="ml-0.5" />
-                        </span>
-                        <span>Ouvir Ronco</span>
-                      </button>
-                    )}
-
-                    {/* Ver Galeria de Fotos */}
-                    <button
-                      onClick={() => openLightbox(featuredProduct, 'photos', heroPhotoIndex)}
-                      className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 rounded-xl sm:rounded-2xl bg-black/60 hover:bg-black/80 backdrop-blur-md border border-white/20 text-white px-3 py-2.5 sm:px-3.5 sm:py-2.5 font-bold text-xs sm:text-sm transition active:scale-95 whitespace-nowrap shrink-0"
-                    >
-                      <Maximize2 size={13} />
-                      <span>Galeria ({featuredImages.length})</span>
-                    </button>
-                  </div>
-
-                  {/* Hero Mini Thumbnail Bar */}
-                  {featuredImages.length > 1 && (
-                    <div className="flex items-center gap-1.5 pt-1 overflow-x-auto no-scrollbar py-1 w-full">
-                      {featuredImages.map((img, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => setHeroPhotoIndex(idx)}
-                          className={`relative w-10 h-9 sm:w-12 sm:h-10 lg:w-14 lg:h-11 rounded-lg overflow-hidden border-2 shrink-0 transition-all ${
-                            heroPhotoIndex === idx 
-                              ? 'scale-105 ring-2' 
-                              : 'border-white/20 opacity-60 hover:opacity-100'
-                          }`}
-                          style={heroPhotoIndex === idx ? { borderColor: theme.primary } : {}}
-                        >
-                          <img src={img} alt="" className="w-full h-full object-cover" />
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="rounded-2xl sm:rounded-3xl border border-white/10 bg-gradient-to-br from-zinc-800 to-black aspect-square flex items-center justify-center p-8 text-center w-full">
-                <Flame size={64} className="mx-auto mb-4 opacity-75" style={{ color: theme.primary }} />
-                <p className="text-xl sm:text-2xl font-black uppercase">Projetos em Produção</p>
-                <p className="text-slate-400 text-xs sm:text-sm mt-2">Novas referências serão publicadas em breve.</p>
-              </div>
-            )}
+        <section id="auto-engineering" className="auto-engineering auto-section" aria-labelledby="auto-engineering-title">
+          <div className="auto-section-heading" data-auto-reveal>
+            <div><p className="auto-eyebrow">01 / CADA DETALHE IMPORTA</p><h2 id="auto-engineering-title">POR DENTRO<br /><span>DA PERFORMANCE.</span></h2></div>
+            <p>{activeModelProject ? 'Cada projeto tem sua própria forma. Escolha um escapamento, explore a composição em 3D e compare com as fotos da oficina.' : 'Forma, material e conexões. Explore uma composição de escapamento em 3D, gire a peça e descubra o que existe por trás do próximo ronco.'}</p>
           </div>
+          {modelProjects.length > 0 && <div className="auto-model-selector" role="group" aria-label="Escolher projeto para explorar em 3D">
+            {modelProjects.map(project => <button type="button" key={project.id} aria-pressed={activeModelProject?.id === project.id} onClick={() => setActiveModelId(project.id)}>
+              {(project.imageUrl || project.images?.[0]) && <img src={project.imageUrl || project.images?.[0]} alt="" loading="lazy" />}
+              <span><small>{project.category || 'PROJETO'}</small>{project.name}</span><Box size={18} aria-hidden="true" />
+            </button>)}
+          </div>}
+          <div ref={engineeringRef} className="auto-engineering-mount">
+            {sceneReady ? <AutomotiveSceneBoundary key={`${store.id}-${activeModelProject?.model3d?.url || 'illustrative'}`} image={activeModelProject?.imageUrl || featuredImages[0]}><Suspense fallback={<div className="auto-scene-loading"><span className="auto-status-dot" /> Preparando a experiência 3D…</div>}>{activeModelProject?.model3d ? <AutomotiveProjectModelScene key={activeModelProject.model3d.url} accent={theme.primary} model={activeModelProject.model3d} projectName={activeModelProject.name} fallbackImage={activeModelProject.imageUrl || activeModelProject.images?.[0]} /> : <AutomotiveExhaustScene accent={theme.primary} fallbackImage={featuredImages[0]} />}</Suspense></AutomotiveSceneBoundary> : <div className="auto-scene-loading"><span className="auto-status-dot" /> Uma nova perspectiva do seu próximo projeto</div>}
+          </div>
+          {activeModelProject && <div className="auto-model-reference-links">
+            <span>{activeModelProject.name}</span>
+            <button type="button" onClick={() => {
+              const images = getProductImages(activeModelProject);
+              const referenceIndex = images.indexOf(activeModelProject.model3d?.referenceImages?.[0] || '');
+              openLightbox(activeModelProject, 'photos', Math.max(0, referenceIndex));
+            }}><Camera size={14} /> Comparar com as fotos</button>
+            {activeModelProject.videoUrl && <button type="button" onClick={() => openLightbox(activeModelProject, 'video')}><Play size={13} /> Ouvir este projeto</button>}
+          </div>}
         </section>
 
         {/* WORKFLOW STEPS BAR */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-8 border-y border-white/10 py-6 sm:py-8 my-6 sm:my-8 w-full">
+        <div className="auto-workflow grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-8 border-y border-white/10 py-6 sm:py-8 my-6 sm:my-8 w-full">
           <div className="flex items-start gap-3.5">
             <span className="text-2xl sm:text-3xl font-black font-mono shrink-0" style={{ color: theme.primary }}>01</span>
             <div>
@@ -435,7 +377,7 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
         {/* SOUND EXPERIENCE CALLOUT */}
         {featuredProduct?.videoUrl && (
           <section 
-            className="my-8 sm:my-10 rounded-2xl sm:rounded-3xl border bg-gradient-to-b sm:bg-gradient-to-r from-zinc-900/90 via-zinc-900/60 to-black p-5 sm:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-5 sm:gap-6 relative overflow-hidden shadow-2xl"
+            className="auto-sound my-8 sm:my-10 rounded-2xl sm:rounded-3xl border bg-gradient-to-b sm:bg-gradient-to-r from-zinc-900/90 via-zinc-900/60 to-black p-5 sm:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-5 sm:gap-6 relative overflow-hidden shadow-2xl"
             style={{ borderColor: `${theme.primary}40` }}
           >
             <div className="flex items-start sm:items-center gap-3.5 sm:gap-5">
@@ -446,10 +388,10 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
                 <Volume2 size={24} className="sm:w-7 sm:h-7" />
               </div>
               <div>
-                <span className="text-[10px] sm:text-xs font-black tracking-wider uppercase" style={{ color: theme.primary }}>Acústica em Titânio</span>
-                <h3 className="text-lg sm:text-2xl font-black text-white leading-tight">Quer ouvir o ronco real deste {featuredProduct.name}?</h3>
+                <span className="text-[10px] sm:text-xs font-black tracking-wider uppercase" style={{ color: theme.primary }}>02 / O SOM DO PROJETO REAL</span>
+                <h3 className="text-lg sm:text-2xl font-black text-white leading-tight">NÃO É SÓ PARA VER. É PARA SENTIR.</h3>
                 <p className="text-slate-400 text-xs sm:text-sm mt-1 max-w-xl leading-relaxed">
-                  Grave acelerando e abrindo as válvulas originais. Dê o play agora ou solicite mais vídeos no WhatsApp!
+                  Ouça o vídeo de {featuredProduct.name}. Depois, conte para a equipe o que você busca para o seu carro.
                 </p>
               </div>
             </div>
@@ -477,13 +419,13 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
         )}
 
         {/* PROJECTS & REFERENCES CATALOG */}
-        <section className="py-8 sm:py-12 w-full">
-          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-6 sm:mb-8 w-full min-w-0">
+        <section id="auto-projects" className="auto-projects" aria-label="Portfólio de projetos">
+          <div className="auto-projects-heading flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-6 sm:mb-8 w-full min-w-0" data-auto-reveal>
             <div className="min-w-0">
               <span className="text-[10px] sm:text-xs uppercase font-extrabold tracking-wider block mb-1" style={{ color: theme.primary }}>
-                Portfólio de Referências
+                03 / PROJETOS COM PERSONALIDADE
               </span>
-              <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tight break-words">Inspirações para o seu veículo</h2>
+              <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tight break-words">CADA CARRO, UMA ASSINATURA.</h2>
               <p className="text-slate-400 text-xs sm:text-sm mt-1.5 sm:mt-2 max-w-2xl leading-relaxed">
                 Navegue pelas fotos dos projetos e escute o ronco. Nossa equipe e nossa IA confirmarão aplicação, materiais e orçamento sob medida.
               </p>
@@ -491,16 +433,17 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
 
             {/* Category Filter Pills */}
             {categories.length > 0 && (
-              <div className="w-full sm:w-auto max-w-full overflow-x-auto no-scrollbar pb-2 pt-1 scroll-smooth min-w-0">
+              <div className="auto-project-filters w-full sm:w-auto max-w-full overflow-x-auto no-scrollbar pb-2 pt-1 scroll-smooth min-w-0">
                 <div className="inline-flex items-center gap-2">
                   <button
                     onClick={() => setActiveCategory('all')}
+                    aria-pressed={activeCategory === 'all'}
                     className={`text-xs font-bold px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-full border transition whitespace-nowrap active:scale-95 ${
                       activeCategory === 'all'
                         ? 'shadow-md'
                         : 'bg-white/5 text-slate-300 border-white/10 hover:border-white/20'
                     }`}
-                    style={activeCategory === 'all' ? { backgroundColor: theme.primary, borderColor: theme.primary, color: '#000' } : {}}
+                    style={activeCategory === 'all' ? { backgroundColor: theme.primary, borderColor: theme.primary, color: onAccent } : {}}
                   >
                     Todos ({products.length})
                   </button>
@@ -508,12 +451,13 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
                     <button
                       key={cat}
                       onClick={() => setActiveCategory(cat)}
+                      aria-pressed={activeCategory === cat}
                       className={`text-xs font-bold px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-full border transition whitespace-nowrap active:scale-95 ${
                         activeCategory === cat
                           ? 'shadow-md'
                           : 'bg-white/5 text-slate-300 border-white/10 hover:border-white/20'
                       }`}
-                      style={activeCategory === cat ? { backgroundColor: theme.primary, borderColor: theme.primary, color: '#000' } : {}}
+                      style={activeCategory === cat ? { backgroundColor: theme.primary, borderColor: theme.primary, color: onAccent } : {}}
                     >
                       {cat} ({products.filter(p => p.category === cat).length})
                     </button>
@@ -524,7 +468,7 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
           </div>
 
           {/* Cards Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
+          <div className="auto-project-grid">
             {filteredProducts.map(p => {
               const images = getProductImages(p);
               const currentSlide = cardSliderIndices[p.id] || 0;
@@ -533,7 +477,8 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
               return (
                 <article 
                   key={p.id} 
-                  className={`group relative rounded-2xl sm:rounded-3xl overflow-hidden border transition-all duration-300 flex flex-col bg-gradient-to-b from-white/[0.04] to-black/60 backdrop-blur-md ${
+                  data-auto-reveal
+                  className={`auto-project-card group relative rounded-2xl sm:rounded-3xl overflow-hidden border transition-all duration-300 flex flex-col bg-gradient-to-b from-white/[0.04] to-black/60 backdrop-blur-md ${
                     isSelected 
                       ? 'shadow-2xl ring-1' 
                       : 'border-white/10 hover:border-white/25 hover:shadow-xl hover:shadow-black/50'
@@ -541,11 +486,11 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
                   style={isSelected ? { borderColor: theme.primary, boxShadow: `0 20px 25px -5px ${theme.glowFrom}` } : {}}
                 >
                   {/* Card Media Section with mini-slider */}
-                  <div className="relative aspect-[4/3] bg-zinc-950 overflow-hidden">
+                  <div className="auto-project-media relative aspect-[4/3] bg-zinc-950 overflow-hidden">
                     {images.length > 0 ? (
                       <img 
-                        loading="lazy" 
-                        src={images[currentSlide]} 
+                        src={images[currentSlide]}
+                        loading="lazy" decoding="async"
                         alt={p.name} 
                         className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 cursor-pointer" 
                         onClick={() => openLightbox(p, 'photos', currentSlide)}
@@ -613,7 +558,7 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
                   </div>
 
                   {/* Card Content */}
-                  <div className="p-4 sm:p-6 flex-1 flex flex-col justify-between">
+                  <div className="auto-project-body p-4 sm:p-6 flex-1 flex flex-col justify-between">
                     <div>
                       <h3 className="text-base sm:text-lg font-bold text-white transition leading-snug">
                         {p.name}
@@ -626,6 +571,7 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
 
                     {/* Card Actions */}
                     <div className="mt-4 sm:mt-6 pt-3.5 sm:pt-4 border-t border-white/10 space-y-2">
+                      {p.model3d?.url && <button type="button" className="auto-project-model-button" onClick={() => openLightbox(p, 'model')}><Box size={16} /> Explorar este escapamento em 3D <ArrowUpRight size={14} /></button>}
                       {/* Secondary Buttons: Video / WhatsApp */}
                       <div className="grid grid-cols-2 gap-2">
                         {p.videoUrl ? (
@@ -693,7 +639,7 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
         </section>
 
         {/* INTERACTIVE PROJECT INQUIRY FORM */}
-        <section id="project-form" className="scroll-mt-20 my-10 sm:my-14 grid lg:grid-cols-[1fr_1.3fr] gap-6 sm:gap-8 bg-gradient-to-b from-white/[0.04] to-black/80 border border-white/10 rounded-2xl sm:rounded-3xl p-4 sm:p-10 shadow-2xl relative w-full">
+        <section id="project-form" className="auto-form-section scroll-mt-20 my-10 sm:my-14 grid lg:grid-cols-[1fr_1.3fr] gap-6 sm:gap-8 bg-gradient-to-b from-white/[0.04] to-black/80 border border-white/10 rounded-2xl sm:rounded-3xl p-4 sm:p-10 shadow-2xl relative w-full">
           <div className="w-full min-w-0">
             <div 
               className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl border flex items-center justify-center mb-4 sm:mb-6"
@@ -707,7 +653,7 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
             </h2>
 
             <p className="text-slate-400 text-xs sm:text-sm mt-3 sm:mt-4 leading-relaxed">
-              Sem compromisso. Nossa equipe técnica e inteligência artificial avaliam seu veículo para garantir encaixe perfeito, fluxo ideal e acústica incomparável.
+              Sem compromisso. Nossa equipe técnica e inteligência artificial avaliam seu veículo, as referências e o que você busca de acabamento e acústica para preparar uma proposta sob medida.
             </p>
 
             {/* Selected References Showcase */}
@@ -848,7 +794,7 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
         </section>
 
         {/* Footer */}
-        <footer className="border-t border-white/10 py-8 text-center text-xs text-slate-500 w-full mt-12">
+        <footer className="auto-footer border-t border-white/10 py-8 text-center text-xs text-slate-500 w-full mt-12">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2">
               <span className="font-bold text-slate-300">{store.name}</span>
@@ -860,32 +806,18 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
         </footer>
       </main>
 
-      {/* FLOATING WHATSAPP BUTTON */}
-      <aside aria-label="Atendimento rápido" className="fixed bottom-4 right-3 sm:bottom-6 sm:right-6 z-40 max-w-[calc(100vw-24px)] pointer-events-auto">
-        <a
-          href={getWhatsAppLink()}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="group flex items-center gap-2.5 sm:gap-3 rounded-full bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-extrabold p-3 sm:px-5 sm:py-3.5 shadow-2xl shadow-emerald-500/50 border border-emerald-400/40 transition-all hover:scale-105 active:scale-95"
-        >
-          <div className="relative">
-            <MessageCircle size={22} className="fill-white" />
-            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
-          </div>
-          <div className="text-left hidden sm:block">
-            <span className="block text-xs uppercase tracking-wider font-bold text-emerald-100">Atendimento IA & Técnico</span>
-            <span className="block text-sm font-black leading-none text-white">Tirar Dúvidas no WhatsApp</span>
-          </div>
-        </a>
+      <aside className="auto-floating-contact" aria-label="Atendimento da loja">
+        <a href={getWhatsAppLink()} target="_blank" rel="noopener noreferrer" aria-label="Conversar com a loja no WhatsApp"><MessageCircle size={20} /><span>Vamos conversar<small>IA + equipe técnica</small></span><ArrowUpRight size={14} /></a>
       </aside>
 
       {/* LIGHTBOX MODAL: Fullscreen Photos & Cinematic Video Player */}
       {lightbox.isOpen && lightbox.product && (
         <div 
-          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex items-center justify-center p-3 sm:p-6"
+          className="auto-lightbox fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex items-center justify-center p-3 sm:p-6"
           onClick={() => setLightbox(prev => ({ ...prev, isOpen: false }))}
         >
           <div 
+            ref={dialogRef} role="dialog" aria-modal="true" aria-label={lightbox.product.name}
             className="relative w-full max-w-5xl max-h-[92vh] flex flex-col bg-[#121316] border border-white/15 rounded-3xl overflow-hidden shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
@@ -910,7 +842,7 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
                         ? 'shadow'
                         : 'text-slate-300 hover:text-white'
                     }`}
-                    style={lightbox.activeTab === 'photos' ? { backgroundColor: theme.primary, color: '#000' } : {}}
+                    style={lightbox.activeTab === 'photos' ? { backgroundColor: theme.primary, color: onAccent } : {}}
                   >
                     <Camera size={12} />
                     <span>Fotos ({getProductImages(lightbox.product).length})</span>
@@ -924,18 +856,18 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
                           ? 'shadow'
                           : 'text-slate-300 hover:text-white'
                       }`}
-                      style={lightbox.activeTab === 'video' ? { backgroundColor: theme.primary, color: '#000' } : {}}
+                      style={lightbox.activeTab === 'video' ? { backgroundColor: theme.primary, color: onAccent } : {}}
                     >
                       <Play size={11} className="fill-current" />
                       <span>Vídeo & Ronco</span>
                     </button>
                   )}
+                  {lightbox.product.model3d && <button type="button" aria-pressed={lightbox.activeTab === 'model'} onClick={() => setLightbox(prev => ({...prev, activeTab:'model'}))} className="auto-model-tab" style={lightbox.activeTab === 'model' ? {backgroundColor:theme.primary,color:onAccent} : {}}><Box size={13} /> 3D</button>}
                 </div>
 
                 <button
-                  onClick={() => setLightbox(prev => ({ ...prev, isOpen: false }))}
+                  data-auto-close aria-label="Fechar galeria" onClick={() => setLightbox(prev => ({ ...prev, isOpen: false }))}
                   className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white flex items-center justify-center transition active:scale-95"
-                  aria-label="Fechar"
                 >
                   <X size={16} />
                 </button>
@@ -943,7 +875,7 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
             </div>
 
             {/* Modal Content Body */}
-            <div className="flex-1 overflow-auto bg-black flex items-center justify-center min-h-[300px] sm:min-h-[500px] relative">
+            <div className="flex-1 min-h-0 overflow-auto bg-black flex items-center justify-center relative">
               {lightbox.activeTab === 'photos' ? (
                 (() => {
                   const images = getProductImages(lightbox.product);
@@ -952,11 +884,11 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
                   return (
                     <div className="w-full h-full flex flex-col items-center justify-center p-3 sm:p-4">
                       <div className="relative max-h-[60vh] flex items-center justify-center">
-                        <img 
+                        {images.length ? <img
                           src={currentImg} 
-                          alt="" 
+                          alt={`${lightbox.product.name} — foto ${lightbox.photoIndex + 1}`}
                           className="max-h-[60vh] w-auto max-w-full object-contain rounded-2xl shadow-2xl" 
-                        />
+                        /> : <p className="text-sm text-slate-400 text-center p-8">Esta referência ainda não possui fotos. Consulte os detalhes do projeto com a equipe.</p>}
 
                         {/* Prev/Next arrows in Lightbox */}
                         {images.length > 1 && (
@@ -986,6 +918,8 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
                             <button
                               key={idx}
                               onClick={() => setLightbox(prev => ({ ...prev, photoIndex: idx }))}
+                              aria-label={`Ver foto ${idx + 1} de ${images.length}`}
+                              aria-pressed={lightbox.photoIndex === idx}
                               className={`w-11 h-9 sm:w-14 sm:h-12 rounded-lg overflow-hidden border-2 shrink-0 transition-all ${
                                 lightbox.photoIndex === idx 
                                 ? 'scale-105 ring-2' 
@@ -1001,6 +935,14 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
                     </div>
                   );
                 })()
+              ) : lightbox.activeTab === 'model' && lightbox.product.model3d ? (
+                <div className="auto-lightbox-model w-full">
+                  <AutomotiveSceneBoundary key={lightbox.product.model3d.url} image={lightbox.product.imageUrl}>
+                    <Suspense fallback={<div className="auto-scene-loading" role="status">Preparando este projeto em 3D…</div>}>
+                      <AutomotiveProjectModelScene accent={theme.primary} model={lightbox.product.model3d} projectName={lightbox.product.name} fallbackImage={lightbox.product.imageUrl || lightbox.product.images?.[0]} />
+                    </Suspense>
+                  </AutomotiveSceneBoundary>
+                </div>
               ) : (
                 /* Video Tab */
                 <div className="w-full h-full flex flex-col items-center justify-center p-3 sm:p-4">

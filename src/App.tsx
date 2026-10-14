@@ -301,16 +301,19 @@ export default function App() {
   };
 
   const handleSaveProduct = async (productData: Partial<Product>) => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', 'x-establishment-id': storeId };
+    if (Object.prototype.hasOwnProperty.call(productData, 'model3d')) {
+      if (!auth.currentUser || auth.currentUser.uid !== storeId) throw new Error('Entre novamente na sua loja para salvar o modelo 3D.');
+      headers.Authorization = `Bearer ${await auth.currentUser.getIdToken()}`;
+    }
     const res = await fetch('/api/products', {
       method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'x-establishment-id': storeId
-      },
+      headers,
       body: JSON.stringify({ ...productData, establishmentId: storeId })
     });
     if (!res.ok) {
-      throw new Error('Falha ao salvar produto');
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'Falha ao salvar produto');
     }
   };
 

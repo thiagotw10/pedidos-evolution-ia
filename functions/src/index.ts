@@ -7,6 +7,7 @@ import dotenv from 'dotenv';
 import { registerAutomotiveRoutes } from './automotive';
 import { registerCarVideoStudioRoutes } from './carVideoStudio';
 import { visibleForSegment } from './catalogPolicy';
+import { MAX_MODEL3D_BYTES, MODEL3D_STORAGE_BUCKET, Model3dValidationError, model3dForPublic, model3dStoragePath, model3dUpdate, validateGlb } from './automotiveModel3d';
 import { GoogleGenAI } from '@google/genai';
 import { triageInboundMessageWithJev, qualifyLeadWithJev, screenPromptInjectionWithJev } from './typesafeJev';
 import { generateVoiceAudioBase64, VOICE_OPTIONS } from './voiceGenerator';
@@ -2632,6 +2633,7 @@ app.get('/api/public/store/:storeId', async (req, res) => {
         imageUrl: p.imageUrl || (images[0] || ''), 
         images: images,
         videoUrl: p.videoUrl || '',
+        ...(data.segment === 'AUTOMOTIVE_PARTS' ? { model3d: model3dForPublic(p.model3d, storeId, images) } : {}),
         available: p.available !== false 
       };
     }).filter(p => p.available);
@@ -2768,8 +2770,32 @@ app.get('/api/products', async (req, res) => {
 app.post('/api/products', async (req, res) => {
   try {
     const storeId = getStoreId(req);
-    const productData = req.body;
+    const productData = { ...req.body };
     let productId = productData.id;
+
+    // Existing catalog CRUD is unchanged. Model associations require a signed-in owner.
+    if (Object.prototype.hasOwnProperty.call(productData, 'model3d')) {
+      let uid: string;
+      try { uid = (await admin.auth().verifyIdToken((req.headers.authorization || '').replace(/^Bearer /, ''))).uid; }
+      catch { return res.status(401).json({ error: 'Entre novamente para salvar o modelo 3D.' }); }
+      if (uid !== storeId) return res.status(403).json({ error: 'O modelo 3D precisa pertencer à sua loja.' });
+      const store = await db.collection('establishments').doc(storeId).get();
+      if (store.data()?.segment !== 'AUTOMOTIVE_PARTS') return res.status(400).json({ error: 'Modelos 3D estão disponíveis para projetos automotivos.' });
+      const previous = productId ? (await db.collection('establishments').doc(storeId).collection('products').doc(productId).get()).data() || {} : {};
+      const images = productData.images ?? previous.images ?? [];
+      const imageUrl = productData.imageUrl ?? previous.imageUrl;
+      const update = model3dUpdate(productData, storeId, [...(Array.isArray(images) ? images : []), ...(imageUrl ? [imageUrl] : [])]);
+      if (update.model3d) {
+        const file = admin.storage().bucket(MODEL3D_STORAGE_BUCKET).file(model3dStoragePath(update.model3d.url, storeId));
+        let metadata: any;
+        try { [metadata] = await file.getMetadata(); }
+        catch { throw new Model3dValidationError('Envie o arquivo GLB antes de salvar o projeto.'); }
+        if (Number(metadata.size) !== update.model3d.sizeBytes || Number(metadata.size) > MAX_MODEL3D_BYTES || metadata.contentType !== 'model/gltf-binary') throw new Model3dValidationError('O arquivo enviado não corresponde ao modelo 3D informado.');
+        const [bytes] = await file.download();
+        validateGlb(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+      }
+      Object.assign(productData, update);
+    }
 
     if (productId) {
       delete productData.id;
@@ -2786,7 +2812,7 @@ app.post('/api/products', async (req, res) => {
 
     res.json({ success: true, product: { id: productId, ...productData } });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(err instanceof Model3dValidationError ? 400 : 500).json({ error: err.message });
   }
 });
 

@@ -1,3 +1,6 @@
+import type { AutomotiveModel3D } from '../../functions/src/automotiveModel3d';
+export type { AutomotiveModel3D } from '../../functions/src/automotiveModel3d';
+
 export interface Product {
   id: string;
   name: string;
@@ -8,6 +11,7 @@ export interface Product {
   imageUrl?: string;
   images?: string[];
   videoUrl?: string;
+  model3d?: AutomotiveModel3D | null;
   aiAudioUrl?: string;
   aiVideoScript?: {
     title?: string;

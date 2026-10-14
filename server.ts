@@ -1,5 +1,6 @@
 import express from 'express';
 import { registerAutomotiveRoutes } from './functions/src/automotive';
+import { MAX_MODEL3D_BYTES, MODEL3D_STORAGE_BUCKET, Model3dValidationError, model3dStoragePath, model3dUpdate, validateGlb } from './functions/src/automotiveModel3d';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -1548,8 +1549,30 @@ async function startServer() {
   app.post('/api/products', async (req, res) => {
     try {
       const storeId = getStoreId(req);
-      const product = req.body;
+      const product = { ...req.body };
       const productId = product.id || `prod_${Date.now()}`;
+      if (Object.prototype.hasOwnProperty.call(product, 'model3d')) {
+        let uid: string;
+        try { uid = (await admin.auth().verifyIdToken((req.headers.authorization || '').replace(/^Bearer /, ''))).uid; }
+        catch { return res.status(401).json({ error: 'Entre novamente para salvar o modelo 3D.' }); }
+        if (uid !== storeId) return res.status(403).json({ error: 'O modelo 3D precisa pertencer à sua loja.' });
+        const store = await db.collection('establishments').doc(storeId).get();
+        if (store.data()?.segment !== 'AUTOMOTIVE_PARTS') return res.status(400).json({ error: 'Modelos 3D estão disponíveis para projetos automotivos.' });
+        const previous = product.id ? (await db.collection('establishments').doc(storeId).collection('products').doc(productId).get()).data() || {} : {};
+        const images = product.images ?? previous.images ?? [];
+        const imageUrl = product.imageUrl ?? previous.imageUrl;
+        const update = model3dUpdate(product, storeId, [...(Array.isArray(images) ? images : []), ...(imageUrl ? [imageUrl] : [])]);
+        if (update.model3d) {
+          const file = admin.storage().bucket(MODEL3D_STORAGE_BUCKET).file(model3dStoragePath(update.model3d.url, storeId));
+          let metadata: any;
+          try { [metadata] = await file.getMetadata(); }
+          catch { throw new Model3dValidationError('Envie o arquivo GLB antes de salvar o projeto.'); }
+          if (Number(metadata.size) !== update.model3d.sizeBytes || Number(metadata.size) > MAX_MODEL3D_BYTES || metadata.contentType !== 'model/gltf-binary') throw new Model3dValidationError('O arquivo enviado não corresponde ao modelo 3D informado.');
+          const [bytes] = await file.download();
+          validateGlb(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+        }
+        Object.assign(product, update);
+      }
       const productData = {
         ...product,
         id: productId,
@@ -1560,7 +1583,7 @@ async function startServer() {
       await db.collection('establishments').doc(storeId).collection('products').doc(productId).set(productData, { merge: true });
       res.json({ success: true, product: productData });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err instanceof Model3dValidationError ? 400 : 500).json({ error: err.message });
     }
   });
 

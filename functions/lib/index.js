@@ -46,6 +46,7 @@ const dotenv_1 = __importDefault(require("dotenv"));
 const automotive_1 = require("./automotive");
 const carVideoStudio_1 = require("./carVideoStudio");
 const catalogPolicy_1 = require("./catalogPolicy");
+const automotiveModel3d_1 = require("./automotiveModel3d");
 const genai_1 = require("@google/genai");
 const typesafeJev_1 = require("./typesafeJev");
 const voiceGenerator_1 = require("./voiceGenerator");
@@ -2395,6 +2396,7 @@ app.get('/api/public/store/:storeId', async (req, res) => {
                 imageUrl: p.imageUrl || (images[0] || ''),
                 images: images,
                 videoUrl: p.videoUrl || '',
+                ...(data.segment === 'AUTOMOTIVE_PARTS' ? { model3d: (0, automotiveModel3d_1.model3dForPublic)(p.model3d, storeId, images) } : {}),
                 available: p.available !== false
             };
         }).filter(p => p.available);
@@ -2520,8 +2522,42 @@ app.get('/api/products', async (req, res) => {
 app.post('/api/products', async (req, res) => {
     try {
         const storeId = getStoreId(req);
-        const productData = req.body;
+        const productData = { ...req.body };
         let productId = productData.id;
+        // Existing catalog CRUD is unchanged. Model associations require a signed-in owner.
+        if (Object.prototype.hasOwnProperty.call(productData, 'model3d')) {
+            let uid;
+            try {
+                uid = (await firebase_admin_1.default.auth().verifyIdToken((req.headers.authorization || '').replace(/^Bearer /, ''))).uid;
+            }
+            catch {
+                return res.status(401).json({ error: 'Entre novamente para salvar o modelo 3D.' });
+            }
+            if (uid !== storeId)
+                return res.status(403).json({ error: 'O modelo 3D precisa pertencer à sua loja.' });
+            const store = await db.collection('establishments').doc(storeId).get();
+            if (store.data()?.segment !== 'AUTOMOTIVE_PARTS')
+                return res.status(400).json({ error: 'Modelos 3D estão disponíveis para projetos automotivos.' });
+            const previous = productId ? (await db.collection('establishments').doc(storeId).collection('products').doc(productId).get()).data() || {} : {};
+            const images = productData.images ?? previous.images ?? [];
+            const imageUrl = productData.imageUrl ?? previous.imageUrl;
+            const update = (0, automotiveModel3d_1.model3dUpdate)(productData, storeId, [...(Array.isArray(images) ? images : []), ...(imageUrl ? [imageUrl] : [])]);
+            if (update.model3d) {
+                const file = firebase_admin_1.default.storage().bucket(automotiveModel3d_1.MODEL3D_STORAGE_BUCKET).file((0, automotiveModel3d_1.model3dStoragePath)(update.model3d.url, storeId));
+                let metadata;
+                try {
+                    [metadata] = await file.getMetadata();
+                }
+                catch {
+                    throw new automotiveModel3d_1.Model3dValidationError('Envie o arquivo GLB antes de salvar o projeto.');
+                }
+                if (Number(metadata.size) !== update.model3d.sizeBytes || Number(metadata.size) > automotiveModel3d_1.MAX_MODEL3D_BYTES || metadata.contentType !== 'model/gltf-binary')
+                    throw new automotiveModel3d_1.Model3dValidationError('O arquivo enviado não corresponde ao modelo 3D informado.');
+                const [bytes] = await file.download();
+                (0, automotiveModel3d_1.validateGlb)(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+            }
+            Object.assign(productData, update);
+        }
         if (productId) {
             delete productData.id;
             await db.collection('establishments').doc(storeId).collection('products').doc(productId).set(productData, { merge: true });
@@ -2538,7 +2574,7 @@ app.post('/api/products', async (req, res) => {
         res.json({ success: true, product: { id: productId, ...productData } });
     }
     catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(err instanceof automotiveModel3d_1.Model3dValidationError ? 400 : 500).json({ error: err.message });
     }
 });
 app.delete('/api/products/:id', async (req, res) => {

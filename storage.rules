@@ -1,13 +1,23 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    match /automotive-models/{establishmentId}/{fileName} {
+      allow read: if true;
+      allow create, update: if request.auth != null
+        && request.auth.uid == establishmentId
+        && fileName.matches('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.glb$')
+        && request.resource.size <= 20 * 1024 * 1024
+        && request.resource.contentType == 'model/gltf-binary';
+      allow delete: if request.auth != null && request.auth.uid == establishmentId;
+    }
     match /establishments/{establishmentId}/products/{allPaths=**} {
       allow read: if true;
       allow write: if true;
     }
-    match /{allPaths=**} {
+    // Keep legacy paths unchanged; never let the catch-all bypass model ownership.
+    match /{topLevel}/{allPaths=**} {
       allow read: if true;
-      allow write: if true;
+      allow write: if topLevel != 'automotive-models';
     }
   }
 }
