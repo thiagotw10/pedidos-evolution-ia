@@ -44,6 +44,7 @@ const firebase_admin_1 = __importDefault(require("firebase-admin"));
 const crypto_1 = __importDefault(require("crypto"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const automotive_1 = require("./automotive");
+const carVideoStudio_1 = require("./carVideoStudio");
 const catalogPolicy_1 = require("./catalogPolicy");
 const genai_1 = require("@google/genai");
 const typesafeJev_1 = require("./typesafeJev");
@@ -107,6 +108,7 @@ const DEFAULT_ESTABLISHMENT_ID = 'default_store';
 const app = (0, express_1.default)();
 app.use(express_1.default.json());
 (0, automotive_1.registerAutomotiveRoutes)(app, db);
+(0, carVideoStudio_1.registerCarVideoStudioRoutes)(app, db, genai);
 // In-memory cache for de-duplicating rapid Webhook calls from Evolution Go
 const processedMessages = new Map();
 const botSentMessages = new Map();

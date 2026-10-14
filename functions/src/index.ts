@@ -5,6 +5,7 @@ import admin from 'firebase-admin';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 import { registerAutomotiveRoutes } from './automotive';
+import { registerCarVideoStudioRoutes } from './carVideoStudio';
 import { visibleForSegment } from './catalogPolicy';
 import { GoogleGenAI } from '@google/genai';
 import { triageInboundMessageWithJev, qualifyLeadWithJev, screenPromptInjectionWithJev } from './typesafeJev';
@@ -73,6 +74,7 @@ const DEFAULT_ESTABLISHMENT_ID = 'default_store';
 const app = express();
 app.use(express.json());
 registerAutomotiveRoutes(app, db);
+registerCarVideoStudioRoutes(app, db, genai);
 
 // In-memory cache for de-duplicating rapid Webhook calls from Evolution Go
 const processedMessages = new Map<string, number>();

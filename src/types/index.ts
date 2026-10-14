@@ -8,6 +8,16 @@ export interface Product {
   imageUrl?: string;
   images?: string[];
   videoUrl?: string;
+  aiAudioUrl?: string;
+  aiVideoScript?: {
+    title?: string;
+    hook?: string;
+    fullScript?: string;
+    cleanSpokenText?: string;
+    specsCards?: { label: string; value: string }[];
+    captionsTimeline?: { text: string; time: string }[];
+    cta?: string;
+  };
   available: boolean;
   options?: {
     name: string;
