@@ -1,6 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import { StorefrontShowcase } from './StorefrontShowcase';
 import { AutomotiveStorefront } from './AutomotiveStorefront';
+import { VehicleDealershipStorefront } from './VehicleDealershipStorefront';
+import { getSegmentConfig } from '../utils/segments';
 import type { AutomotiveModel3D } from '../../functions/src/automotiveModel3d';
 import { Bot, ChevronRight, Minus, Plus, ShoppingBag, ShoppingCart, Trash2, X } from 'lucide-react';
 
@@ -20,6 +24,10 @@ interface Store {
   publicSlug?: string; 
   name: string; 
   description?: string; 
+  address?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  operatingHours?: string;
   segment?: string; 
   phone?: string; 
   logoUrl?: string; 
@@ -32,7 +40,40 @@ const money = (value: number) => `R$ ${value.toFixed(2).replace('.', ',')}`;
 
 export const PublicStorefront: React.FC<{ storeId: string }> = ({ storeId }) => {
   const [store, setStore] = useState<Store | null>(null); const [products, setProducts] = useState<Product[]>([]); const [cart, setCart] = useState<Record<string, number>>({}); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [cartOpen, setCartOpen] = useState(false);
-  useEffect(() => { fetch(`/api/public/store/${encodeURIComponent(storeId)}`).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error); setStore(d.store); setProducts(d.products || []); }).catch(e => setError(e.message)).finally(() => setLoading(false)); }, [storeId]);
+  useEffect(() => {
+    fetch(`/api/public/store/${encodeURIComponent(storeId)}`)
+      .then(async r => {
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error);
+        let mergedStore: Store = d.store;
+        // Enrich directly from Firestore so address, latitude, longitude & phone are always up-to-date
+        if (mergedStore?.id) {
+          try {
+            const snap = await getDoc(doc(db, 'establishments', mergedStore.id));
+            if (snap.exists()) {
+              const fsData = snap.data();
+              mergedStore = {
+                ...mergedStore,
+                address: fsData.address || mergedStore.address || '',
+                latitude: typeof fsData.latitude === 'number' ? fsData.latitude : (fsData.latitude ? Number(fsData.latitude) : mergedStore.latitude ?? null),
+                longitude: typeof fsData.longitude === 'number' ? fsData.longitude : (fsData.longitude ? Number(fsData.longitude) : mergedStore.longitude ?? null),
+                operatingHours: fsData.operatingHours || mergedStore.operatingHours || '',
+                phone: fsData.whatsappNumber || fsData.phone || mergedStore.phone || '',
+                segment: fsData.segment || mergedStore.segment,
+                brandColor: fsData.brandColor || mergedStore.brandColor,
+                tagline: fsData.tagline || mergedStore.tagline
+              };
+            }
+          } catch {
+            // Keep API response if Firestore client read fails
+          }
+        }
+        setStore(mergedStore);
+        setProducts(d.products || []);
+      })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [storeId]);
   const grouped = useMemo(() => products.reduce<Record<string, Product[]>>((a, p) => { (a[p.category || 'Catálogo'] ||= []).push(p); return a; }, {}), [products]);
   const categories = Object.keys(grouped); const items = products.filter(p => cart[p.id]); const totalItems = items.reduce((n, p) => n + cart[p.id], 0); const total = items.reduce((n, p) => n + p.price * cart[p.id], 0);
   const add = (id: string) => setCart(c => ({ ...c, [id]: (c[id] || 0) + 1 })); const remove = (id: string) => setCart(c => { const n = (c[id] || 0) - 1; const next = { ...c }; if (n <= 0) delete next[id]; else next[id] = n; return next; });
@@ -40,6 +81,7 @@ export const PublicStorefront: React.FC<{ storeId: string }> = ({ storeId }) => 
   if (loading) return <div className="min-h-screen bg-[#070b18] text-white flex items-center justify-center"><div className="w-9 h-9 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" /></div>;
   if (error || !store) return <div className="min-h-screen bg-[#070b18] text-white flex items-center justify-center p-6 text-center"><p>{error || 'Vitrine não encontrada.'}</p></div>;
   if (store.segment === 'AUTOMOTIVE_PARTS') return <AutomotiveStorefront store={store} products={products} />;
+  if (getSegmentConfig(store.segment).id === 'VEHICLES') return <VehicleDealershipStorefront store={store} products={products} />;
   return <div className="min-h-screen bg-[#070b18] text-slate-100 pb-28">
     <header className="sticky top-0 z-30 border-b border-white/10 bg-[#070b18]/90 backdrop-blur-2xl"><div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3"><div className="flex items-center gap-3 min-w-0"><div className="w-11 h-11 shrink-0 rounded-2xl bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center shadow-lg shadow-emerald-500/20">{store.logoUrl ? <img src={store.logoUrl} className="w-full h-full rounded-2xl object-cover" /> : <Bot className="w-6 h-6 text-[#07121c]" />}</div><div className="min-w-0"><h1 className="font-black text-lg truncate">{store.name}</h1><p className="text-xs text-slate-400 truncate">Atendimento pelo WhatsApp com IA</p></div></div><button onClick={() => setCartOpen(true)} className="relative shrink-0 rounded-2xl bg-emerald-400 text-[#06131a] px-3.5 py-2.5 font-black flex items-center gap-2 shadow-lg shadow-emerald-500/20"><ShoppingCart className="w-5 h-5" /><span className="hidden sm:inline">Carrinho</span>{totalItems > 0 && <span className="absolute -top-2 -right-2 min-w-6 h-6 px-1 rounded-full bg-white text-[#07121c] text-xs flex items-center justify-center">{totalItems}</span>}</button></div>{categories.length > 1 && <nav className="max-w-5xl mx-auto flex gap-2 overflow-x-auto px-4 pb-3">{categories.map(category => <a key={category} href={`#${encodeURIComponent(category)}`} className="shrink-0 rounded-full border border-white/10 bg-white/[.04] px-4 py-2 text-sm font-semibold text-slate-300">{category}</a>)}</nav>}</header>
     <main className="max-w-5xl mx-auto px-4 py-6"><StorefrontShowcase products={products} add={add} /><div id="sf-catalog" />{Object.entries(grouped).map(([category, list]) => <section id={encodeURIComponent(category)} key={category} className="mb-9 scroll-mt-32"><div className="flex items-center justify-between mb-4"><h3 className="text-2xl font-black tracking-tight">{category}</h3><span className="text-xs text-slate-500">{list.length} {list.length === 1 ? 'item' : 'itens'}</span></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{list.map(p => <article key={p.id} className="relative flex min-h-[136px] rounded-2xl border border-white/10 bg-[#10182a] p-3 transition hover:border-emerald-400/40 hover:bg-[#142238]"><div className="flex-1 min-w-0 py-1 pr-2"><h4 className="font-bold text-base leading-tight">{p.name}</h4><p className="text-sm text-slate-400 mt-1 line-clamp-2">{p.description || 'Uma ótima escolha para você.'}</p><p className="text-emerald-300 font-black mt-3">{money(p.price)}</p></div>{p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="w-28 h-28 rounded-xl object-cover shrink-0" /> : <div className="w-28 h-28 rounded-xl bg-gradient-to-br from-emerald-400/20 to-cyan-400/10 shrink-0 flex items-center justify-center"><ShoppingBag className="w-7 h-7 text-emerald-300/70" /></div>}<button onClick={() => add(p.id)} aria-label={`Adicionar ${p.name}`} className="absolute right-3 bottom-3 rounded-xl bg-emerald-400 text-[#06131a] p-2 shadow-lg shadow-emerald-500/10"><Plus className="w-5 h-5" /></button></article>)}</div></section>)}</main>

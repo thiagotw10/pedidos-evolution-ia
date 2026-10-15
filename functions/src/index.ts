@@ -2638,7 +2638,26 @@ app.get('/api/public/store/:storeId', async (req, res) => {
       };
     }).filter(p => p.available);
     const visibleProducts = visibleForSegment(products, data.segment);
-    res.json({ store: { id: storeId, publicSlug: slug, name: data.name || 'Estabelecimento', description: data.description || '', address: data.address || '', operatingHours: data.operatingHours || '', segment: data.segment || 'GENERAL', phone: data.whatsappNumber || data.phone || '', logoUrl: data.logoUrl || '', brandColor: data.brandColor || '', themePreset: data.themePreset || '', tagline: data.tagline || '', brandTheme: data.brandTheme || null }, products: visibleProducts });
+    res.json({
+      store: {
+        id: storeId,
+        publicSlug: slug,
+        name: data.name || 'Estabelecimento',
+        description: data.description || '',
+        address: data.address || '',
+        latitude: typeof data.latitude === 'number' ? data.latitude : (data.latitude ? Number(data.latitude) : null),
+        longitude: typeof data.longitude === 'number' ? data.longitude : (data.longitude ? Number(data.longitude) : null),
+        operatingHours: data.operatingHours || '',
+        segment: data.segment || 'GENERAL',
+        phone: data.whatsappNumber || data.phone || '',
+        logoUrl: data.logoUrl || '',
+        brandColor: data.brandColor || '',
+        themePreset: data.themePreset || '',
+        tagline: data.tagline || '',
+        brandTheme: data.brandTheme || null
+      },
+      products: visibleProducts
+    });
   } catch (err: any) { res.status(500).json({ error: err.message || 'Não foi possível carregar a vitrine.' }); }
 });
 

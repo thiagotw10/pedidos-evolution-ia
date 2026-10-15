@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { getThemeFromStore } from '../utils/automotiveThemes';
 import type { AutomotiveModel3D } from '../../functions/src/automotiveModel3d';
+import { DealershipRouteScrollytelling } from './DealershipRouteScrollytelling';
 import './automotive-storefront.css';
 
 const AutomotiveExhaustScene = lazy(() => import('./AutomotiveExhaustScene'));
@@ -53,6 +54,10 @@ interface AutomotiveStorefrontProps {
     name: string; 
     phone?: string; 
     description?: string;
+    address?: string;
+    latitude?: number | null;
+    longitude?: number | null;
+    operatingHours?: string;
     logoUrl?: string;
     brandColor?: string;
     themePreset?: string;
@@ -285,6 +290,7 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
         <nav className="auto-header-nav" aria-label="Navegação da vitrine">
           <a href="#auto-engineering">Explore em 3D</a>
           <a href="#auto-projects">Projetos reais</a>
+          <a href="#auto-route">Rota até a loja</a>
         </nav>
         <div className="auto-header-actions">
           <a className="auto-header-whatsapp" href={getWhatsAppLink()} target="_blank" rel="noopener noreferrer" aria-label="Conversar com a loja no WhatsApp"><MessageCircle size={19} /><span>Fale com a garagem</span></a>
@@ -637,6 +643,27 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
             </div>
           )}
         </section>
+
+        {/* 04 / DEDICATED INTERACTIVE ROUTE SECTION (ISOLATED SECTION WITHOUT OVERLAP) */}
+        <div className="my-12 sm:my-16 clear-both relative z-10">
+          <DealershipRouteScrollytelling
+            sectionId="auto-route"
+            storeName={store.name}
+            storeTagline="04 / ROTA INTERATIVA • DA SUA GARAGEM ATÉ NOSSA OFICINA"
+            storeAddress={store.address}
+            storeLatitude={store.latitude}
+            storeLongitude={store.longitude}
+            storePhone={store.phone}
+            accentColor={theme.primary}
+            featuredVehicleName={featuredProduct?.name}
+            featuredVehicleImage={featuredImages[0]}
+            whatsappUrl={getWhatsAppLink(`Olá! Calculei minha rota no site da ${store.name} e gostaria de agendar uma visita à garagem!`)}
+            onScheduleClick={() => {
+              const el = document.getElementById('project-form');
+              el?.scrollIntoView({ behavior: 'smooth' });
+            }}
+          />
+        </div>
 
         {/* INTERACTIVE PROJECT INQUIRY FORM */}
         <section id="project-form" className="auto-form-section scroll-mt-20 my-10 sm:my-14 grid lg:grid-cols-[1fr_1.3fr] gap-6 sm:gap-8 bg-gradient-to-b from-white/[0.04] to-black/80 border border-white/10 rounded-2xl sm:rounded-3xl p-4 sm:p-10 shadow-2xl relative w-full">
