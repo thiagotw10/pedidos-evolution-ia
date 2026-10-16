@@ -1,56 +1,67 @@
 /**
- * Automotive 3D Spatial Audio Engine (Web Audio API)
- * --------------------------------------------------
- * Simula a acústica visceral de um escapamento esportivo de titânio:
- * - Fase 0 (Presença): Marcha lenta grave e compassada (idle rumble)
- * - Fase 1 (Fluxo): Ressonância metálica dentro do tubo de titânio (pipe acoustics + gás em alta pressão)
- * - Fase 2 (Assinatura): Aceleração potente, abertura de agudos e estalos esportivos (pops & bangs)
+ * Automotive 3D Spatial Audio Engine (Web Audio API com Áudio Real de Escapamento)
+ * ---------------------------------------------------------------------------------
+ * Utiliza gravações REAIS de escapamentos esportivos da Flow Garage (Porsche 911 / Corvette Titanium)
+ * combinadas com filtros espaciais interativos modulados pelo scroll:
  * 
- * 100% procedural via Web Audio API: Zero dependência externa, latência zero, funciona offline.
+ * - Fase 0 (Presença): Ronco real gravado em marcha lenta e aceleração externa encorpada
+ * - Fase 1 (Fluxo): O áudio real entra na tubulação de titânio (filtro de cavidade metálica + ressonância interna)
+ * - Fase 2 (Assinatura): Saída para o estúdio com válvulas abertas e agudos cristalinos
  */
-
-export interface SpatialAudioState {
-  isActive: boolean;
-  isSupported: boolean;
-  currentPhase: number;
-}
 
 class AutomotiveSpatialAudioEngine {
   private ctx: AudioContext | null = null;
   private isRunning: boolean = false;
-  private isMuted: boolean = false;
+  private audioBuffer: AudioBuffer | null = null;
+  private bufferSource: AudioBufferSourceNode | null = null;
+  private isLoadingAudio: boolean = false;
 
-  // Audio Nodes
+  // Audio Processing Nodes
   private masterGain: GainNode | null = null;
-  private panner: PannerNode | StereoPannerNode | null = null;
-
-  // Engine Oscillators (Boxer-6 / V8 Harminic Layers)
-  private subOsc: OscillatorNode | null = null;
-  private midOsc: OscillatorNode | null = null;
-  private harmonicOsc: OscillatorNode | null = null;
-  private engineGain: GainNode | null = null;
-
-  // Exhaust Pipe Chamber Filter (Resonância Metálica de Titânio)
+  private panner: StereoPannerNode | PannerNode | null = null;
   private pipeFilter: BiquadFilterNode | null = null;
   private metallicResonance: BiquadFilterNode | null = null;
+  private subBoost: BiquadFilterNode | null = null;
 
-  // Gas Flow Noise (Turbulência)
-  private noiseNode: AudioBufferSourceNode | null = null;
-  private noiseGain: GainNode | null = null;
-  private noiseFilter: BiquadFilterNode | null = null;
-
-  // State Tracking
+  // Trackers
   private currentProgress: number = 0;
   private lastScrollTime: number = 0;
-  private scrollVelocity: number = 0;
-  private popsCooldown: number = 0;
-
-  constructor() {
-    // Lazy init on first user interaction
-  }
 
   public isSupported(): boolean {
     return typeof window !== 'undefined' && ('AudioContext' in window || 'webkitAudioContext' in window);
+  }
+
+  private async loadRealExhaustBuffer(): Promise<AudioBuffer | null> {
+    if (this.audioBuffer) return this.audioBuffer;
+    if (!this.ctx) return null;
+
+    try {
+      this.isLoadingAudio = true;
+      // Tenta primeiro o áudio do Corvette Titanium (24s completo) ou Porsche (9s)
+      const audioUrls = [
+        '/audio/corvette_ronco_real.mp3',
+        '/audio/porsche_ronco_real.mp3'
+      ];
+
+      for (const url of audioUrls) {
+        try {
+          const res = await fetch(url);
+          if (res.ok) {
+            const arrayBuffer = await res.arrayBuffer();
+            this.audioBuffer = await this.ctx.decodeAudioData(arrayBuffer);
+            this.isLoadingAudio = false;
+            return this.audioBuffer;
+          }
+        } catch (err) {
+          // Tenta o próximo
+        }
+      }
+    } catch (e) {
+      console.warn('[Spatial Audio] Erro ao carregar áudio real do escapamento:', e);
+    }
+
+    this.isLoadingAudio = false;
+    return null;
   }
 
   public async start(): Promise<boolean> {
@@ -66,19 +77,21 @@ class AutomotiveSpatialAudioEngine {
         await this.ctx.resume();
       }
 
+      // Carrega o áudio real do escapamento gravado
+      await this.loadRealExhaustBuffer();
+
       this.buildAudioGraph();
       this.isRunning = true;
-      this.isMuted = false;
 
       // Suave Fade-In
       if (this.masterGain && this.ctx) {
-        this.masterGain.gain.setValueAtTime(0, this.ctx.currentTime);
-        this.masterGain.gain.linearRampToValueAtTime(0.75, this.ctx.currentTime + 0.6);
+        this.masterGain.gain.setValueAtTime(0.001, this.ctx.currentTime);
+        this.masterGain.gain.exponentialRampToValueAtTime(0.9, this.ctx.currentTime + 0.4);
       }
 
       return true;
     } catch (e) {
-      console.warn('[Spatial Audio] Falha ao inicializar Web Audio:', e);
+      console.warn('[Spatial Audio] Falha ao iniciar:', e);
       return false;
     }
   }
@@ -89,12 +102,12 @@ class AutomotiveSpatialAudioEngine {
     try {
       const now = this.ctx.currentTime;
       this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, now);
-      this.masterGain.gain.linearRampToValueAtTime(0.0001, now + 0.4);
+      this.masterGain.gain.linearRampToValueAtTime(0.0001, now + 0.35);
 
       setTimeout(() => {
         this.teardownNodes();
         this.isRunning = false;
-      }, 450);
+      }, 400);
     } catch (e) {
       this.teardownNodes();
       this.isRunning = false;
@@ -114,9 +127,6 @@ class AutomotiveSpatialAudioEngine {
     return this.isRunning;
   }
 
-  /**
-   * Constrói o grafo de nós de áudio em tempo real
-   */
   private buildAudioGraph(): void {
     if (!this.ctx) return;
     this.teardownNodes();
@@ -124,11 +134,11 @@ class AutomotiveSpatialAudioEngine {
     const ctx = this.ctx;
     const now = ctx.currentTime;
 
-    // 1. Master Output
+    // 1. Master Gain
     this.masterGain = ctx.createGain();
-    this.masterGain.gain.setValueAtTime(0.75, now);
+    this.masterGain.gain.setValueAtTime(0.9, now);
 
-    // 2. Stereo Panner
+    // 2. Stereo Panner (efeito surround)
     if (ctx.createStereoPanner) {
       this.panner = ctx.createStereoPanner();
       this.masterGain.connect(this.panner);
@@ -137,99 +147,44 @@ class AutomotiveSpatialAudioEngine {
       this.masterGain.connect(ctx.destination);
     }
 
-    // 3. Exhaust Pipe Resonance Filter (O coração acústico do titânio)
+    // 3. Sub-Bass Boost para impacto nos graves do ronco
+    this.subBoost = ctx.createBiquadFilter();
+    this.subBoost.type = 'lowshelf';
+    this.subBoost.frequency.setValueAtTime(90, now);
+    this.subBoost.gain.setValueAtTime(4.5, now);
+
+    // 4. Pipe Chamber Filter (Simula a acústica metálica interna da tubulação)
     this.pipeFilter = ctx.createBiquadFilter();
     this.pipeFilter.type = 'lowpass';
-    this.pipeFilter.frequency.setValueAtTime(1400, now);
-    this.pipeFilter.Q.setValueAtTime(2.2, now);
+    this.pipeFilter.frequency.setValueAtTime(8000, now);
+    this.pipeFilter.Q.setValueAtTime(1.2, now);
 
+    // 5. Metallic Resonance (Filtro característico de titânio aquecido)
     this.metallicResonance = ctx.createBiquadFilter();
     this.metallicResonance.type = 'peaking';
-    this.metallicResonance.frequency.setValueAtTime(1150, now);
-    this.metallicResonance.Q.setValueAtTime(3.8, now);
-    this.metallicResonance.gain.setValueAtTime(4.0, now);
+    this.metallicResonance.frequency.setValueAtTime(1200, now);
+    this.metallicResonance.Q.setValueAtTime(2.2, now);
+    this.metallicResonance.gain.setValueAtTime(0, now);
 
+    // Cadeia de processamento:
+    // BufferSource -> subBoost -> pipeFilter -> metallicResonance -> masterGain -> panner -> destination
+    this.subBoost.connect(this.pipeFilter);
     this.pipeFilter.connect(this.metallicResonance);
     this.metallicResonance.connect(this.masterGain);
 
-    // 4. Engine Tone Generators (Boxer-6 / V8 Harminics)
-    this.engineGain = ctx.createGain();
-    this.engineGain.gain.setValueAtTime(0.65, now);
-    this.engineGain.connect(this.pipeFilter);
-
-    // Sub-Bass fundamental (38Hz idle)
-    this.subOsc = ctx.createOscillator();
-    this.subOsc.type = 'sawtooth';
-    this.subOsc.frequency.setValueAtTime(42, now);
-
-    // Octave mid (84Hz)
-    this.midOsc = ctx.createOscillator();
-    this.midOsc.type = 'triangle';
-    this.midOsc.frequency.setValueAtTime(84, now);
-
-    // High harmonic grit (126Hz)
-    this.harmonicOsc = ctx.createOscillator();
-    this.harmonicOsc.type = 'sawtooth';
-    this.harmonicOsc.frequency.setValueAtTime(126, now);
-
-    const subGain = ctx.createGain();
-    subGain.gain.value = 0.8;
-    this.subOsc.connect(subGain);
-    subGain.connect(this.engineGain);
-
-    const midGain = ctx.createGain();
-    midGain.gain.value = 0.55;
-    this.midOsc.connect(midGain);
-    midGain.connect(this.engineGain);
-
-    const harmGain = ctx.createGain();
-    harmGain.gain.value = 0.28;
-    this.harmonicOsc.connect(harmGain);
-    harmGain.connect(this.engineGain);
-
-    this.subOsc.start(now);
-    this.midOsc.start(now);
-    this.harmonicOsc.start(now);
-
-    // 5. Gas Flow Noise Generator (Turbulência dos gases em alta pressão)
-    this.noiseGain = ctx.createGain();
-    this.noiseGain.gain.setValueAtTime(0.18, now);
-
-    this.noiseFilter = ctx.createBiquadFilter();
-    this.noiseFilter.type = 'bandpass';
-    this.noiseFilter.frequency.setValueAtTime(800, now);
-    this.noiseFilter.Q.setValueAtTime(1.5, now);
-
-    this.noiseGain.connect(this.noiseFilter);
-    this.noiseFilter.connect(this.pipeFilter);
-
-    this.startNoiseBuffer();
-  }
-
-  private startNoiseBuffer(): void {
-    if (!this.ctx || !this.noiseGain) return;
-    const bufferSize = this.ctx.sampleRate * 2; // 2 segundos de ruído rosa
-    const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-    const output = noiseBuffer.getChannelData(0);
-
-    let b0 = 0, b1 = 0, b2 = 0;
-    for (let i = 0; i < bufferSize; i++) {
-      const white = Math.random() * 2 - 1;
-      b0 = 0.99886 * b0 + white * 0.0555179;
-      b1 = 0.99332 * b1 + white * 0.0750759;
-      b2 = 0.96900 * b2 + white * 0.1538520;
-      output[i] = (b0 + b1 + b2 + white * 0.5362) * 0.11;
+    // Inicia a reprodução do ronco real em loop
+    if (this.audioBuffer) {
+      this.bufferSource = ctx.createBufferSource();
+      this.bufferSource.buffer = this.audioBuffer;
+      this.bufferSource.loop = true;
+      this.bufferSource.playbackRate.setValueAtTime(1.0, now);
+      this.bufferSource.connect(this.subBoost);
+      this.bufferSource.start(now);
     }
-
-    this.noiseNode = this.ctx.createBufferSource();
-    this.noiseNode.buffer = noiseBuffer;
-    this.noiseNode.loop = true;
-    this.noiseNode.connect(this.noiseGain);
-    this.noiseNode.start();
   }
 
   /**
-   * Modula a acústica com base no progresso do Scroll (0.0 a 1.0)
+   * Modula o som real de acordo com a posição da câmera 3D no scroll
    */
   public updateProgress(progress: number): void {
     if (!this.isRunning || !this.ctx) return;
@@ -239,31 +194,28 @@ class AutomotiveSpatialAudioEngine {
     const p = Math.max(0, Math.min(1, progress));
     const dt = Math.max(0.016, now - this.lastScrollTime);
     const delta = Math.abs(p - this.currentProgress);
-    this.scrollVelocity = delta / dt;
+    const scrollVelocity = Math.min(2.0, delta / dt);
     this.lastScrollTime = now;
     this.currentProgress = p;
 
-    // Modulação de RPM conforme rolagem
-    const revBoost = Math.min(2.5, this.scrollVelocity * 0.85);
+    // Aceleração sutil do motor conforme a velocidade de rolagem (rev up ao rolar rápido)
+    const pitchMod = 1.0 + Math.min(0.25, scrollVelocity * 0.12);
+    if (this.bufferSource && 'playbackRate' in this.bufferSource) {
+      this.bufferSource.playbackRate.setTargetAtTime(pitchMod, now, 0.08);
+    }
 
     // -------------------------------------------------------------
-    // FASE 0: PRESENÇA (0.0 a 0.22) - Marcha lenta na saída do escape
+    // FASE 0: PRESENÇA (0.0 a 0.22) - Som real na saída do escapamento
     // -------------------------------------------------------------
     if (p <= 0.22) {
-      const baseFreq = 42 + revBoost * 14;
-      this.subOsc?.frequency.setTargetAtTime(baseFreq, now, 0.08);
-      this.midOsc?.frequency.setTargetAtTime(baseFreq * 2, now, 0.08);
-      this.harmonicOsc?.frequency.setTargetAtTime(baseFreq * 3, now, 0.08);
-
-      // Som externo com graves limpos e agudos controlados
-      this.pipeFilter?.frequency.setTargetAtTime(1400 + revBoost * 400, now, 0.1);
-      this.pipeFilter?.Q.setTargetAtTime(1.8, now, 0.1);
-
-      this.metallicResonance?.gain.setTargetAtTime(2.0, now, 0.1);
-      this.noiseGain?.gain.setTargetAtTime(0.12 + revBoost * 0.1, now, 0.1);
+      // Ronco direto e nítido
+      this.pipeFilter?.frequency.setTargetAtTime(9500, now, 0.1);
+      this.pipeFilter?.Q.setTargetAtTime(1.0, now, 0.1);
+      this.metallicResonance?.gain.setTargetAtTime(0.0, now, 0.1);
+      this.subBoost?.gain.setTargetAtTime(5.0, now, 0.1);
 
       if (this.panner && 'pan' in this.panner) {
-        this.panner.pan.setTargetAtTime(-0.15, now, 0.1);
+        this.panner.pan.setTargetAtTime(-0.1, now, 0.1);
       }
     }
     // -------------------------------------------------------------
@@ -271,124 +223,64 @@ class AutomotiveSpatialAudioEngine {
     // -------------------------------------------------------------
     else if (p > 0.22 && p <= 0.68) {
       const tubeProg = (p - 0.22) / (0.68 - 0.22);
-      const baseFreq = 48 + tubeProg * 28 + revBoost * 22;
 
-      this.subOsc?.frequency.setTargetAtTime(baseFreq, now, 0.06);
-      this.midOsc?.frequency.setTargetAtTime(baseFreq * 2, now, 0.06);
-      this.harmonicOsc?.frequency.setTargetAtTime(baseFreq * 3, now, 0.06);
+      // Simula a física dentro do tubo: abafa os agudos difusos e ressoa o metal
+      const tubeCutoff = 2200 - Math.sin(tubeProg * Math.PI) * 800;
+      this.pipeFilter?.frequency.setTargetAtTime(tubeCutoff, now, 0.08);
+      this.pipeFilter?.Q.setTargetAtTime(3.2, now, 0.08);
 
-      // Ressonância metálica interna: filtro passa-banda e pico de frequência de titânio (1.2kHz - 2.4kHz)
-      const resonantFreq = 950 + Math.sin(tubeProg * Math.PI) * 750 + revBoost * 300;
-      this.pipeFilter?.frequency.setTargetAtTime(2800, now, 0.08);
-      this.pipeFilter?.Q.setTargetAtTime(3.5, now, 0.08);
+      // Ganho de ressonância metálica de titânio
+      this.metallicResonance?.frequency.setTargetAtTime(1100 + tubeProg * 600, now, 0.08);
+      this.metallicResonance?.gain.setTargetAtTime(7.0, now, 0.08);
+      this.subBoost?.gain.setTargetAtTime(7.5, now, 0.08); // Graves mais densos dentro do cano
 
-      this.metallicResonance?.frequency.setTargetAtTime(resonantFreq, now, 0.08);
-      this.metallicResonance?.gain.setTargetAtTime(8.5, now, 0.08); // Ganho metálico intenso dentro do cano!
-
-      // Turbulência de gás aumentada
-      this.noiseGain?.gain.setTargetAtTime(0.26 + revBoost * 0.18, now, 0.08);
-      this.noiseFilter?.frequency.setTargetAtTime(1200 + tubeProg * 800, now, 0.08);
-
-      // Stereo sweep seguindo a curva da tubulação
+      // Stereo sweep acompanhando as curvas do tubo 3D
       if (this.panner && 'pan' in this.panner) {
-        const panSweep = Math.sin(tubeProg * Math.PI * 2) * 0.45;
+        const panSweep = Math.sin(tubeProg * Math.PI * 2) * 0.35;
         this.panner.pan.setTargetAtTime(panSweep, now, 0.08);
       }
     }
     // -------------------------------------------------------------
-    // FASE 2: ASSINATURA (0.68 a 1.0) - Saída do estúdio / Acelerada
+    // FASE 2: ASSINATURA (0.68 a 1.0) - Saída para o estúdio com válvulas abertas
     // -------------------------------------------------------------
     else {
       const emergeProg = (p - 0.68) / (1.0 - 0.68);
-      const baseFreq = 62 + emergeProg * 35 + revBoost * 30;
 
-      this.subOsc?.frequency.setTargetAtTime(baseFreq, now, 0.06);
-      this.midOsc?.frequency.setTargetAtTime(baseFreq * 2, now, 0.06);
-      this.harmonicOsc?.frequency.setTargetAtTime(baseFreq * 3, now, 0.06);
-
-      // Abertura total de brilho e ar livre
-      this.pipeFilter?.frequency.setTargetAtTime(5500 + emergeProg * 3000, now, 0.08);
-      this.pipeFilter?.Q.setTargetAtTime(1.2, now, 0.08);
-
-      this.metallicResonance?.gain.setTargetAtTime(3.0, now, 0.08);
-      this.noiseGain?.gain.setTargetAtTime(0.15, now, 0.08);
+      // Abertura total de ar livre e agudos nítidos
+      this.pipeFilter?.frequency.setTargetAtTime(14000, now, 0.08);
+      this.pipeFilter?.Q.setTargetAtTime(0.8, now, 0.08);
+      this.metallicResonance?.gain.setTargetAtTime(1.5, now, 0.08);
+      this.subBoost?.gain.setTargetAtTime(6.0, now, 0.08);
 
       if (this.panner && 'pan' in this.panner) {
         this.panner.pan.setTargetAtTime(0.0, now, 0.1);
       }
-
-      // Disparo de estalos esportivos (Pops & Bangs) na transição para o estúdio!
-      if (p > 0.72 && p < 0.88 && now > this.popsCooldown) {
-        this.triggerExhaustPop();
-        this.popsCooldown = now + 0.35;
-      }
     }
   }
 
-  /**
-   * Estalos esportivos de escapamento (Pops & Bangs / Overrun crackles)
-   */
-  private triggerExhaustPop(): void {
-    if (!this.ctx || !this.masterGain) return;
-    const ctx = this.ctx;
-    const now = ctx.currentTime;
-
-    const popOsc = ctx.createOscillator();
-    const popGain = ctx.createGain();
-    const popFilter = ctx.createBiquadFilter();
-
-    popOsc.type = 'sawtooth';
-    popOsc.frequency.setValueAtTime(120 + Math.random() * 60, now);
-    popOsc.frequency.exponentialRampToValueAtTime(30, now + 0.07);
-
-    popFilter.type = 'lowpass';
-    popFilter.frequency.setValueAtTime(1600, now);
-
-    popGain.gain.setValueAtTime(0.45, now);
-    popGain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
-
-    popOsc.connect(popFilter);
-    popFilter.connect(popGain);
-    popGain.connect(this.masterGain);
-
-    popOsc.start(now);
-    popOsc.stop(now + 0.1);
-  }
-
-  /**
-   * Pausa o áudio quando a seção sai do campo de visão (economiza CPU)
-   */
   public setVisible(visible: boolean): void {
     if (!this.ctx || !this.masterGain) return;
     const now = this.ctx.currentTime;
-    if (visible && !this.isMuted) {
-      this.masterGain.gain.setTargetAtTime(0.75, now, 0.15);
+    if (visible && this.isRunning) {
+      this.masterGain.gain.setTargetAtTime(0.9, now, 0.2);
     } else {
-      this.masterGain.gain.setTargetAtTime(0.0001, now, 0.15);
+      this.masterGain.gain.setTargetAtTime(0.0001, now, 0.2);
     }
   }
 
   private teardownNodes(): void {
     try {
-      this.subOsc?.stop();
-      this.midOsc?.stop();
-      this.harmonicOsc?.stop();
-      this.noiseNode?.stop();
+      this.bufferSource?.stop();
+      this.bufferSource?.disconnect();
     } catch (e) {}
 
-    this.subOsc = null;
-    this.midOsc = null;
-    this.harmonicOsc = null;
-    this.noiseNode = null;
+    this.bufferSource = null;
     this.pipeFilter = null;
     this.metallicResonance = null;
-    this.noiseGain = null;
-    this.noiseFilter = null;
-    this.engineGain = null;
+    this.subBoost = null;
     this.masterGain = null;
     this.panner = null;
   }
 }
 
-// Singleton global exportado para a aplicação
 export const spatialAudio = new AutomotiveSpatialAudioEngine();
