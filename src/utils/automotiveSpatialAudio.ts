@@ -36,18 +36,33 @@ class AutomotiveSpatialAudioEngine {
   private accelAmount: number = 0; // 0.0 = marcha lenta (idle), 1.0 = aceleração plena
   private animationFrameId: number | null = null;
 
+  private listeners = new Set<(isSuspended: boolean) => void>();
+
   public isSupported(): boolean {
     return typeof window !== 'undefined' && ('AudioContext' in window || 'webkitAudioContext' in window);
   }
 
+  public isSuspended(): boolean {
+    if (!this.ctx) return true;
+    return this.ctx.state === 'suspended';
+  }
+
+  public subscribe(listener: (isSuspended: boolean) => void): () => void {
+    this.listeners.add(listener);
+    listener(this.isSuspended());
+    return () => this.listeners.delete(listener);
+  }
+
+  private notify(): void {
+    const suspended = this.isSuspended();
+    this.listeners.forEach(fn => fn(suspended));
+  }
+
   /**
-   * Chamado no primeiríssimo gesto do usuário (touch, pointer, wheel, scroll).
-   * Desbloqueia o AudioContext permanentemente no iOS Safari e Chrome Android.
+   * Chamado no primeiríssimo gesto do usuário (touch, pointer, click, keydown).
+   * Desbloqueia o AudioContext permanentemente no iOS Safari e Chrome macOS/Android.
    */
   public unlockOnUserGesture(): void {
-    if (this.unlocked && this.isRunning) return;
-    this.unlocked = true;
-
     try {
       if (!this.ctx) {
         const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
@@ -55,10 +70,14 @@ class AutomotiveSpatialAudioEngine {
       }
 
       if (this.ctx.state === 'suspended') {
-        void this.ctx.resume();
+        void this.ctx.resume().then(() => {
+          this.notify();
+        });
       }
 
-      void this.start();
+      void this.start().then(() => {
+        this.notify();
+      });
     } catch (e) {
       console.warn('[Spatial Audio] Erro ao desbloquear:', e);
     }

@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowDown, ArrowUpRight, Camera, Play } from 'lucide-react';
+import { ArrowDown, ArrowUpRight, Camera, Play, Volume2 } from 'lucide-react';
 import type { AutomotiveReference } from './AutomotiveStorefront';
 import { spatialAudio } from '../utils/automotiveSpatialAudio';
 import './automotive-immersive-intro.css';
@@ -41,6 +41,7 @@ export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, f
   const [realModel, setRealModel] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const [near, setNear] = useState(false);
+  const [isSuspended, setIsSuspended] = useState<boolean>(() => spatialAudio.isSuspended());
 
   const staticMode = reducedMotion || unavailable || shortViewport;
   const image = featuredProject?.images?.[0] || featuredProject?.imageUrl;
@@ -48,26 +49,35 @@ export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, f
   const sceneFailed = useCallback(() => setUnavailable(true), []);
   const modelReady = useCallback((value: boolean) => setRealModel(value), []);
 
-  // Desbloqueia o áudio imediatamente no primeiríssimo gesto do usuário (touch/pointer/wheel/scroll)
+  // Monitora se o navegador suspendeu o áudio (ex: no trackpad do Chrome/Safari no Mac)
+  useEffect(() => {
+    return spatialAudio.subscribe(suspended => {
+      setIsSuspended(suspended);
+    });
+  }, []);
+
+  // Desbloqueia o áudio imediatamente em qualquer interação física (click, mousedown, touch, etc.)
   useEffect(() => {
     const unlock = () => {
       spatialAudio.unlockOnUserGesture();
     };
 
     const options = { passive: true, capture: true };
+    window.addEventListener('click', unlock, options);
+    window.addEventListener('pointerdown', unlock, options);
+    window.addEventListener('mousedown', unlock, options);
     window.addEventListener('touchstart', unlock, options);
     window.addEventListener('touchmove', unlock, options);
-    window.addEventListener('pointerdown', unlock, options);
-    window.addEventListener('pointermove', unlock, options);
     window.addEventListener('wheel', unlock, options);
     window.addEventListener('scroll', unlock, options);
     window.addEventListener('keydown', unlock, options);
 
     return () => {
+      window.removeEventListener('click', unlock, true);
+      window.removeEventListener('pointerdown', unlock, true);
+      window.removeEventListener('mousedown', unlock, true);
       window.removeEventListener('touchstart', unlock, true);
       window.removeEventListener('touchmove', unlock, true);
-      window.removeEventListener('pointerdown', unlock, true);
-      window.removeEventListener('pointermove', unlock, true);
       window.removeEventListener('wheel', unlock, true);
       window.removeEventListener('scroll', unlock, true);
       window.removeEventListener('keydown', unlock, true);
@@ -175,6 +185,18 @@ export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, f
         <h2>POR DENTRO<br />DA <em>SENSAÇÃO.</em></h2>
         <p className="auto-immersion-description">O caminho do fluxo.<br />A presença do som. A sua personalidade.</p>
       </div>
+
+      {phase === 1 && isSuspended && (
+        <button
+          type="button"
+          className="auto-immersion-unlock-pill"
+          onClick={() => spatialAudio.unlockOnUserGesture()}
+          aria-label="Liberar áudio do motor"
+        >
+          <Volume2 size={14} />
+          <span>Toque ou clique para liberar o som no notebook</span>
+        </button>
+      )}
 
       <div className="auto-immersion-copy auto-immersion-last" inert={phase !== 2} aria-hidden={phase !== 2}>
         <p className="auto-immersion-overline">03 / SUA PRÓXIMA ASSINATURA</p>

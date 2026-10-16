@@ -222,3 +222,44 @@ html:has(.auto-storefront), body:has(.auto-storefront), #root:has(.auto-storefro
   box-shadow: 0 0 20px rgba(var(--auto-accent-rgb), 0.3);
 }
 
+/* Prompt flutuante discreto para navegadores de notebook que bloqueiam áudio no trackpad */
+.auto-immersion-unlock-pill {
+  position: absolute;
+  bottom: 85px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 22px;
+  background: rgba(13, 16, 21, 0.92);
+  border: 1px solid var(--auto-accent);
+  border-radius: 30px;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  z-index: 50;
+  box-shadow: 0 0 28px rgba(var(--auto-accent-rgb), 0.5);
+  backdrop-filter: blur(16px);
+  animation: unlockPillPulse 2.2s infinite ease-in-out;
+  transition: all 0.25s ease;
+}
+.auto-immersion-unlock-pill:hover {
+  background: rgba(var(--auto-accent-rgb), 0.3);
+  transform: translateX(-50%) scale(1.05);
+}
+
+@keyframes unlockPillPulse {
+  0%, 100% {
+    transform: translateX(-50%) scale(1);
+    box-shadow: 0 0 20px rgba(var(--auto-accent-rgb), 0.35);
+  }
+  50% {
+    transform: translateX(-50%) scale(1.03);
+    box-shadow: 0 0 35px rgba(var(--auto-accent-rgb), 0.65);
+  }
+}
+
+
