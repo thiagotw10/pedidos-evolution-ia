@@ -548,8 +548,9 @@ function formatWhatsAppText(text: string): string {
 // now prepaid credits; the 7-day trial is handled inside reserveAiCredit.
 function isEstablishmentSubscriptionActive(est: any): boolean {
   if (!est) return true;
-  // Demo store always allowed for previewing
-  if (est.id === DEFAULT_ESTABLISHMENT_ID) return true;
+  // Demo store, owner account, and Flow Garage always allowed
+  if (est.id === DEFAULT_ESTABLISHMENT_ID || est.id === 'ZFFWUNspKNYKsn22kKDH6nybCWw2' || est.publicSlug === 'flow-garage-exhaust-ZFFWU') return true;
+  if (est.isOwner || est.plan === 'active' || est.accountStatus === 'active_paid' || (Number(est.aiCreditsBalance || 0) > 0)) return true;
 
   const now = Date.now();
 
@@ -575,7 +576,8 @@ function isEstablishmentSubscriptionActive(est: any): boolean {
 }
 
 function isEstablishmentTrialActive(est: any): boolean {
-  if (!est || est.id === DEFAULT_ESTABLISHMENT_ID) return true;
+  if (!est || est.id === DEFAULT_ESTABLISHMENT_ID || est.id === 'ZFFWUNspKNYKsn22kKDH6nybCWw2' || est.publicSlug === 'flow-garage-exhaust-ZFFWU') return true;
+  if (est.isOwner || est.plan === 'active' || est.accountStatus === 'active_paid') return true;
   const created = est.createdAt ? new Date(est.createdAt).getTime() : Date.now();
   const trialEnd = est.trialEndsAt ? new Date(est.trialEndsAt).getTime() : created + 7 * 24 * 60 * 60 * 1000;
   return Date.now() < trialEnd;
@@ -1990,6 +1992,14 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
     }
 
     // Subscription / Trial Verification (7 days trial or active paid subscription)
+    if (est.id === 'ZFFWUNspKNYKsn22kKDH6nybCWw2' && (!est.subscriptionValidUntil || new Date(est.subscriptionValidUntil).getTime() < Date.now())) {
+      void db.collection('establishments').doc(est.id).set({
+        plan: 'active',
+        accountStatus: 'active_paid',
+        subscriptionValidUntil: '2099-12-31T23:59:59.000Z'
+      }, { merge: true });
+    }
+
     if (!isEstablishmentSubscriptionActive(est)) {
       console.warn(`[Evolution Webhook] 🛑 BLOQUEADO: Assinatura do estabelecimento "${est.name || storeId}" expirada (teste de 7 dias encerrado). Mensagem de ${phone} não será respondida pela IA.`);
       return res.status(200).json({

@@ -31,6 +31,21 @@ export function getSubscriptionStatus(establishment: Establishment | null | unde
 
   const now = new Date();
 
+  // 0. Estabelecimento proprietário ou Flow Garage
+  if (establishment.id === 'ZFFWUNspKNYKsn22kKDH6nybCWw2' || establishment.publicSlug === 'flow-garage-exhaust-ZFFWU' || establishment.isOwner || establishment.plan === 'active' || establishment.accountStatus === 'active_paid') {
+    return {
+      hasAccess: true,
+      isTrial: false,
+      isActivePaid: true,
+      isExpired: false,
+      daysRemaining: 999,
+      hoursRemaining: 99999,
+      trialEndsAt: null,
+      subscriptionValidUntil: new Date('2099-12-31T23:59:59.000Z'),
+      statusLabel: 'Plano Ativo (Ilimitado)',
+    };
+  }
+
   // 1. Verificar se possui assinatura ativa paga (Mercado Pago PIX)
   if (establishment.subscriptionValidUntil) {
     const validUntil = new Date(establishment.subscriptionValidUntil);
