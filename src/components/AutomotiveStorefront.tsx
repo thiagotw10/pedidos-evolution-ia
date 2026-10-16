@@ -21,6 +21,7 @@ import { getThemeFromStore } from '../utils/automotiveThemes';
 import type { AutomotiveModel3D } from '../../functions/src/automotiveModel3d';
 import { DealershipRouteScrollytelling } from './DealershipRouteScrollytelling';
 import './automotive-storefront.css';
+import AutomotiveImmersiveIntro from './AutomotiveImmersiveIntro';
 
 const AutomotiveExhaustScene = lazy(() => import('./AutomotiveExhaustScene'));
 const AutomotiveProjectModelScene = lazy(() => import('./AutomotiveProjectModelScene'));
@@ -105,7 +106,6 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
 
   // Hero showcase project
   const featuredProduct = products.find(p => p.videoUrl) || products[0] || null;
-  const [heroPhotoIndex, setHeroPhotoIndex] = useState(0);
   const modelProjects = products.filter(product => product.model3d?.url);
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
   const activeModelProject = modelProjects.find(product => product.id === activeModelId) || modelProjects[0] || null;
@@ -299,34 +299,15 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
       </header>
 
       <main className="auto-main">
-        <section className={`auto-hero ${featuredImages.length ? 'auto-hero-with-image' : ''}`} aria-labelledby="auto-hero-title">
-          <div className="auto-hero-media" aria-hidden="true">
-            {featuredImages.length > 0 && <img key={featuredImages[heroPhotoIndex] || featuredImages[0]} className="auto-hero-image" src={featuredImages[heroPhotoIndex] || featuredImages[0]} alt="" fetchPriority="high" />}
-            <div className="auto-hero-shade" />
-          </div>
-          <div className="auto-hero-copy">
-            <p className="auto-eyebrow"><span className="auto-status-dot" /> {store.tagline || store.brandTheme?.tagline || 'Escapamentos & Performance'}</p>
-            <h1 id="auto-hero-title" aria-label="O som da sua assinatura."><span>O SOM DA</span><span>SUA</span><em>ASSINATURA.</em></h1>
-            <p className="auto-hero-description">{store.description || 'Seu carro tem personalidade. Crie um projeto de escapamento que traduz a sua — do acabamento ao ronco.'}</p>
-            <div className="auto-hero-actions">
-              <a className="auto-btn auto-btn-primary" href="#project-form">Configurar meu projeto <ArrowUpRight size={18} /></a>
-              <a className="auto-btn auto-btn-ghost" href="#auto-engineering">Explore a engenharia <ArrowDown size={17} /></a>
-            </div>
-          </div>
-
-          {featuredProduct && <div className="auto-hero-feature">
-            <div className="auto-feature-kicker"><span>01 / NA GARAGEM</span><span>{featuredProduct.category || 'PROJETO ESPECIAL'}</span></div>
-            <h2>{featuredProduct.name}</h2>
-            <div className="auto-feature-actions">
-              {featuredProduct.videoUrl && <button className="auto-sound-button" onClick={() => openLightbox(featuredProduct, 'video')}><span><Play size={13} fill="currentColor" /></span>Ouvir o ronco <span className="auto-mini-wave" aria-hidden="true">{[9,17,12,22,14,8].map((height,i)=><i key={i} style={{height}} />)}</span></button>}
-              {featuredImages.length > 0 && <button className="auto-gallery-button" onClick={() => openLightbox(featuredProduct, 'photos', heroPhotoIndex)}><Maximize2 size={15} /> Galeria <span>{String(featuredImages.length).padStart(2,'0')}</span></button>}
-            </div>
-            {featuredImages.length > 1 && <div className="auto-hero-thumbnails" aria-label="Fotos do projeto em destaque">
-              {featuredImages.map((image,index)=><button key={`${image}-${index}`} aria-label={`Ver foto ${index+1} de ${featuredImages.length}`} aria-pressed={heroPhotoIndex===index} onClick={()=>setHeroPhotoIndex(index)}><img src={image} alt="" loading="lazy" /></button>)}
-            </div>}
-          </div>}
-          <div className="auto-hero-bottom"><a href="#auto-engineering"><span className="auto-scroll-line" /> ROLE PARA EXPLORAR</a><span>DO SEU ESTILO. PARA O SEU CARRO.</span><span>{String(products.length).padStart(2,'0')} REFERÊNCIAS / INFINITAS POSSIBILIDADES</span></div>
-        </section>
+        <AutomotiveImmersiveIntro
+          storeName={store.name}
+          tagline={store.tagline || store.brandTheme?.tagline || 'Escapamentos & Performance'}
+          accent={theme.primary}
+          featuredProject={featuredProduct}
+          modelProject={modelProjects[0] || null}
+          onOpenProject={openLightbox}
+          onExploreModel={project => setActiveModelId(project.id)}
+        />
 
         <div className="auto-editorial-strip" aria-hidden="true"><span>ENGENHARIA</span><i>✳</i><span>PERSONALIDADE</span><i>✳</i><span>ACÚSTICA</span><i>✳</i><span>ACABAMENTO</span><i>✳</i><span>PERFORMANCE</span></div>
 
