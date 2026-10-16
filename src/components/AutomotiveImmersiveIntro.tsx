@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowDown, ArrowUpRight, Camera, Play } from 'lucide-react';
+import { ArrowDown, ArrowUpRight, Camera, Play, Volume2, Headphones } from 'lucide-react';
 import type { AutomotiveReference } from './AutomotiveStorefront';
+import { spatialAudio } from '../utils/automotiveSpatialAudio';
 import './automotive-immersive-intro.css';
 
 const ImmersiveScene = lazy(() => import('./AutomotiveImmersiveScene'));
@@ -40,11 +41,29 @@ export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, f
   const [realModel, setRealModel] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const [near, setNear] = useState(false);
+  const [audioActive, setAudioActive] = useState(false);
+  const audioActiveRef = useRef(false);
+
   const staticMode = reducedMotion || unavailable || shortViewport;
   const image = featuredProject?.images?.[0] || featuredProject?.imageUrl;
   const sceneReady = useCallback(() => setReady(true), []);
   const sceneFailed = useCallback(() => setUnavailable(true), []);
   const modelReady = useCallback((value: boolean) => setRealModel(value), []);
+
+  const toggleSpatialAudio = useCallback(async () => {
+    const nextState = await spatialAudio.toggle();
+    audioActiveRef.current = nextState;
+    setAudioActive(nextState);
+    if (nextState) {
+      spatialAudio.updateProgress(progress.current);
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      spatialAudio.stop();
+    };
+  }, []);
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -59,7 +78,9 @@ export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, f
     if (!element) return;
     if (!('IntersectionObserver' in window)) { setNear(true); return; }
     const observer = new IntersectionObserver(entries => {
-      if (entries.some(entry => entry.isIntersecting)) { setNear(true); observer.disconnect(); }
+      const isIntersecting = entries.some(entry => entry.isIntersecting);
+      spatialAudio.setVisible(isIntersecting);
+      if (isIntersecting) { setNear(true); }
     }, { rootMargin: '150px' });
     observer.observe(element);
     return () => observer.disconnect();
@@ -76,6 +97,9 @@ export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, f
       const p = staticMode ? 0 : clamp(-rect.top / Math.max(1, rect.height - stageHeight));
       element.dataset.active = String(rect.bottom > stageHeight * .4 && rect.top < stageHeight);
       progress.current = p;
+      if (audioActiveRef.current) {
+        spatialAudio.updateProgress(p);
+      }
       element.style.setProperty('--intro-p', p.toFixed(4));
       element.style.setProperty('--intro-first', String(1 - ramp(p, .10, .24)));
       element.style.setProperty('--intro-middle', String(ramp(p, .25, .33) * (1 - ramp(p, .57, .66))));
@@ -113,7 +137,26 @@ export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, f
         </Suspense></IntroSceneBoundary>
       </div>}
       <div className="auto-immersion-vignette" aria-hidden="true" />
-      <div className="auto-immersion-topline"><span><i /> {tagline}</span><a href="#auto-engineering">Pular abertura <ArrowUpRight size={14} /></a></div>
+      <div className="auto-immersion-topline">
+        <span><i /> {tagline}</span>
+        <div className="auto-immersion-topline-right">
+          <button
+            type="button"
+            className={`auto-immersion-audio-btn ${audioActive ? 'is-active' : ''}`}
+            onClick={toggleSpatialAudio}
+            title={audioActive ? 'Silenciar som espacial 3D' : 'Ativar som 3D imersivo do escapamento'}
+          >
+            {audioActive ? <Volume2 size={13} /> : <Headphones size={13} />}
+            <span>{audioActive ? 'Acústica 3D Ativa' : 'Ativar Som 3D'}</span>
+            {audioActive && (
+              <span className="auto-audio-equalizer" aria-hidden="true">
+                <i /><i /><i />
+              </span>
+            )}
+          </button>
+          <a href="#auto-engineering">Pular abertura <ArrowUpRight size={14} /></a>
+        </div>
+      </div>
 
       <div className="auto-immersion-copy auto-immersion-first" inert={phase !== 0} aria-hidden={phase !== 0}>
         <p className="auto-immersion-overline">MAIS DO QUE OUVIR.</p>
@@ -121,6 +164,14 @@ export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, f
         <p className="auto-immersion-description">Antes da primeira acelerada,<br />existe um mundo de possibilidades.</p>
         <div className="auto-immersion-actions">
           <a className="auto-btn auto-btn-primary" href="#project-form">Criar meu projeto <ArrowUpRight size={17} /></a>
+          <button
+            className={`auto-immersion-sound-trigger ${audioActive ? 'is-playing' : ''}`}
+            type="button"
+            onClick={toggleSpatialAudio}
+          >
+            {audioActive ? <Volume2 size={14} /> : <Headphones size={14} />}
+            <span>{audioActive ? 'Sentindo Som 3D' : 'Sentir o Ronco em 3D'}</span>
+          </button>
           {featuredProject?.videoUrl && <button className="auto-immersion-sound" type="button" onClick={() => onOpenProject(featuredProject, 'video')}><Play size={13} fill="currentColor" /> Ouvir um projeto real</button>}
         </div>
       </div>

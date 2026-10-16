@@ -137,3 +137,78 @@ html:has(.auto-storefront), body:has(.auto-storefront), #root:has(.auto-storefro
 .auto-storefront:has(.auto-immersion[data-active="true"]) .auto-floating-contact { visibility: hidden; pointer-events: none; }
 .auto-immersion-vignette { background: linear-gradient(90deg, #08090bd9, #08090b55 44%, #08090b00 73%), linear-gradient(0deg, #08090b 0%, transparent 30%, transparent 80%, #08090b88); }
 @media (max-width: 767px) { .auto-immersion-vignette { background: linear-gradient(180deg, #08090b99, #08090b66 37%, transparent 64%, #08090b 96%); } }
+
+/* 3D Spatial Audio Controls */
+.auto-immersion-topline-right { display: flex; align-items: center; gap: 16px; }
+.auto-immersion-audio-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(13, 16, 21, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 20px;
+  padding: 4px 11px;
+  color: #d1d5db;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: none;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  backdrop-filter: blur(12px);
+}
+.auto-immersion-audio-btn:hover {
+  background: rgba(var(--auto-accent-rgb), 0.18);
+  border-color: var(--auto-accent);
+  color: #ffffff;
+}
+.auto-immersion-audio-btn.is-active {
+  background: rgba(var(--auto-accent-rgb), 0.25);
+  border-color: var(--auto-accent);
+  color: #ffffff;
+  box-shadow: 0 0 16px rgba(var(--auto-accent-rgb), 0.4);
+}
+.auto-audio-equalizer {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 9px;
+  margin-left: 1px;
+}
+.auto-audio-equalizer i {
+  width: 2px;
+  background: var(--auto-accent);
+  border-radius: 1px;
+  animation: autoEqualize 0.8s ease-in-out infinite alternate;
+}
+.auto-audio-equalizer i:nth-child(1) { height: 40%; animation-delay: 0.1s; }
+.auto-audio-equalizer i:nth-child(2) { height: 90%; animation-delay: 0.3s; }
+.auto-audio-equalizer i:nth-child(3) { height: 60%; animation-delay: 0.2s; }
+
+@keyframes autoEqualize {
+  0% { height: 25%; }
+  100% { height: 100%; }
+}
+
+.auto-immersion-sound-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #e5e7eb;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+.auto-immersion-sound-trigger:hover, .auto-immersion-sound-trigger.is-playing {
+  background: rgba(var(--auto-accent-rgb), 0.18);
+  border-color: var(--auto-accent);
+  color: #ffffff;
+  box-shadow: 0 0 20px rgba(var(--auto-accent-rgb), 0.3);
+}
+
