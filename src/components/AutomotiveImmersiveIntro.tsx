@@ -1,7 +1,7 @@
 import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowDown, ArrowUpRight, Camera, Play, Volume2, Headphones } from 'lucide-react';
+import { ArrowDown, ArrowUpRight, Camera, Play, Volume2, VolumeX, Headphones } from 'lucide-react';
 import type { AutomotiveReference } from './AutomotiveStorefront';
-import { spatialAudio } from '../utils/automotiveSpatialAudio';
+import { spatialAudio, type SpatialAudioState } from '../utils/automotiveSpatialAudio';
 import './automotive-immersive-intro.css';
 
 const ImmersiveScene = lazy(() => import('./AutomotiveImmersiveScene'));
@@ -41,8 +41,9 @@ export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, f
   const [realModel, setRealModel] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const [near, setNear] = useState(false);
-  const [audioActive, setAudioActive] = useState(false);
-  const audioActiveRef = useRef(false);
+  
+  // Real-time audio engine state
+  const [audioState, setAudioState] = useState<SpatialAudioState>(() => spatialAudio.getState());
 
   const staticMode = reducedMotion || unavailable || shortViewport;
   const image = featuredProject?.images?.[0] || featuredProject?.imageUrl;
@@ -50,13 +51,34 @@ export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, f
   const sceneFailed = useCallback(() => setUnavailable(true), []);
   const modelReady = useCallback((value: boolean) => setRealModel(value), []);
 
-  const toggleSpatialAudio = useCallback(async () => {
-    const nextState = await spatialAudio.toggle();
-    audioActiveRef.current = nextState;
-    setAudioActive(nextState);
-    if (nextState) {
-      spatialAudio.updateProgress(progress.current);
-    }
+  // Pre-aquecimento do áudio na primeira interação do usuário (touch/scroll)
+  useEffect(() => {
+    const onUserInteraction = () => {
+      void spatialAudio.prepareContext();
+    };
+
+    window.addEventListener('scroll', onUserInteraction, { passive: true, once: true });
+    window.addEventListener('touchstart', onUserInteraction, { passive: true, once: true });
+    window.addEventListener('pointerdown', onUserInteraction, { passive: true, once: true });
+    window.addEventListener('wheel', onUserInteraction, { passive: true, once: true });
+
+    return () => {
+      window.removeEventListener('scroll', onUserInteraction);
+      window.removeEventListener('touchstart', onUserInteraction);
+      window.removeEventListener('pointerdown', onUserInteraction);
+      window.removeEventListener('wheel', onUserInteraction);
+    };
+  }, []);
+
+  // Escuta as mudanças de estado da engine de áudio (entrando, dentro, saindo, mutado)
+  useEffect(() => {
+    return spatialAudio.subscribe(state => {
+      setAudioState(state);
+    });
+  }, []);
+
+  const handleToggleMute = useCallback(() => {
+    spatialAudio.toggleMute();
   }, []);
 
   useEffect(() => {
@@ -97,9 +119,10 @@ export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, f
       const p = staticMode ? 0 : clamp(-rect.top / Math.max(1, rect.height - stageHeight));
       element.dataset.active = String(rect.bottom > stageHeight * .4 && rect.top < stageHeight);
       progress.current = p;
-      if (audioActiveRef.current) {
-        spatialAudio.updateProgress(p);
-      }
+
+      // Sempre atualiza o progresso no áudio — a engine decide o ganho e zonas
+      spatialAudio.updateProgress(p);
+
       element.style.setProperty('--intro-p', p.toFixed(4));
       element.style.setProperty('--intro-first', String(1 - ramp(p, .10, .24)));
       element.style.setProperty('--intro-middle', String(ramp(p, .25, .33) * (1 - ramp(p, .57, .66))));
@@ -126,6 +149,8 @@ export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, f
     window.scrollTo({ top: top + positions[index] * (element.offsetHeight - stageHeight), behavior: reducedMotion ? 'instant' : 'smooth' });
   };
 
+  const isAudioActive = audioState.isPlaying && !audioState.userMuted;
+
   return <section ref={root} className={`auto-immersion ${staticMode ? 'is-static' : ''} ${ready ? 'is-ready' : ''}`} aria-label={`Experiência de performance da ${storeName}`}>
     <div className="auto-immersion-stage">
       <div className="auto-immersion-backdrop" aria-hidden="true">
@@ -142,16 +167,34 @@ export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, f
         <div className="auto-immersion-topline-right">
           <button
             type="button"
-            className={`auto-immersion-audio-btn ${audioActive ? 'is-active' : ''}`}
-            onClick={toggleSpatialAudio}
-            title={audioActive ? 'Silenciar som espacial 3D' : 'Ativar som 3D imersivo do escapamento'}
+            className={`auto-immersion-audio-btn ${isAudioActive ? 'is-active' : ''} ${audioState.userMuted ? 'is-muted' : ''}`}
+            onClick={handleToggleMute}
+            title={
+              audioState.userMuted
+                ? 'Desmutar áudio dinâmico do escapamento'
+                : isAudioActive
+                ? 'Silenciar som do escapamento'
+                : 'Áudio ativado automaticamente no scroll ao entrar no escapamento'
+            }
           >
-            {audioActive ? <Volume2 size={13} /> : <Headphones size={13} />}
-            <span>{audioActive ? 'Acústica 3D Ativa' : 'Ativar Som 3D'}</span>
-            {audioActive && (
-              <span className="auto-audio-equalizer" aria-hidden="true">
-                <i /><i /><i />
-              </span>
+            {audioState.userMuted ? (
+              <>
+                <VolumeX size={13} />
+                <span>Áudio Mutado</span>
+              </>
+            ) : isAudioActive ? (
+              <>
+                <Volume2 size={13} />
+                <span>Ronco Ativo {audioState.zone === 'inside' ? '(No Tubo)' : ''}</span>
+                <span className="auto-audio-equalizer" aria-hidden="true">
+                  <i /><i /><i />
+                </span>
+              </>
+            ) : (
+              <>
+                <Headphones size={13} />
+                <span>Som Automático no Scroll</span>
+              </>
             )}
           </button>
           <a href="#auto-engineering">Pular abertura <ArrowUpRight size={14} /></a>
@@ -161,16 +204,21 @@ export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, f
       <div className="auto-immersion-copy auto-immersion-first" inert={phase !== 0} aria-hidden={phase !== 0}>
         <p className="auto-immersion-overline">MAIS DO QUE OUVIR.</p>
         <h1>O RONCO<br />COMEÇA<br /><em>AQUI.</em></h1>
-        <p className="auto-immersion-description">Antes da primeira acelerada,<br />existe um mundo de possibilidades.</p>
+        <p className="auto-immersion-description">Role para entrar no escapamento de titânio<br />e sentir o fluxo real em 3D.</p>
         <div className="auto-immersion-actions">
           <a className="auto-btn auto-btn-primary" href="#project-form">Criar meu projeto <ArrowUpRight size={17} /></a>
           <button
-            className={`auto-immersion-sound-trigger ${audioActive ? 'is-playing' : ''}`}
+            className={`auto-immersion-sound-trigger ${isAudioActive ? 'is-playing' : ''}`}
             type="button"
-            onClick={toggleSpatialAudio}
+            onClick={() => {
+              if (audioState.userMuted) {
+                spatialAudio.toggleMute();
+              }
+              goToChapter(1);
+            }}
           >
-            {audioActive ? <Volume2 size={14} /> : <Headphones size={14} />}
-            <span>{audioActive ? 'Sentindo Som 3D' : 'Sentir o Ronco em 3D'}</span>
+            {isAudioActive ? <Volume2 size={14} /> : <Headphones size={14} />}
+            <span>{isAudioActive ? 'Ronco em Ação' : 'Mergulhar no Ronco 3D'}</span>
           </button>
           {featuredProject?.videoUrl && <button className="auto-immersion-sound" type="button" onClick={() => onOpenProject(featuredProject, 'video')}><Play size={13} fill="currentColor" /> Ouvir um projeto real</button>}
         </div>

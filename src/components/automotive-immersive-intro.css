@@ -168,6 +168,16 @@ html:has(.auto-storefront), body:has(.auto-storefront), #root:has(.auto-storefro
   color: #ffffff;
   box-shadow: 0 0 16px rgba(var(--auto-accent-rgb), 0.4);
 }
+.auto-immersion-audio-btn.is-muted {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+}
+.auto-immersion-audio-btn.is-muted:hover {
+  background: rgba(239, 68, 68, 0.22);
+  border-color: #ef4444;
+  color: #ffffff;
+}
 .auto-audio-equalizer {
   display: inline-flex;
   align-items: flex-end;
