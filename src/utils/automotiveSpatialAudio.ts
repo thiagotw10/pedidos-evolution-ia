@@ -1,39 +1,26 @@
 /**
- * Automotive 3D Spatial Audio Engine (Web Audio API com Áudio Real de Escapamento)
+ * Automotive 3D Spatial Audio Engine (Real Flow Garage Exhaust Acoustics)
  * ---------------------------------------------------------------------------------
- * Utiliza gravações REAIS de escapamentos esportivos da Flow Garage (Porsche 911 / Corvette Titanium).
+ * Comportamento 100% automático guiado pelo scroll:
  * 
- * Comportamento inteligente de interação com o Scroll:
- * - Zona 0 (p < 0.16) - Idle: Câmera na visão externa, som silencioso.
- * - Zona 1 (0.16 <= p < 0.26) - Entrada: Ao embicar na boca do escape, o som desperta automaticamente
- *   com um fade-in exponencial e reforço dos sub-graves.
- * - Zona 2 (0.26 <= p <= 0.68) - Interior: O som "vai roncando" confinado dentro do tubo de titânio
- *   com ressonância metálica e rotação dinâmica vinculada à velocidade do scroll.
- * - Zona 3 (0.68 < p <= 0.84) - Saída: "Encerra com maestria" — abertura total de válvulas seguida
- *   de decaimento acústico sublime até silenciar no estúdio.
- * - Respeito ao Mudo: O usuário pode mutar a qualquer momento se desejar.
+ * 1. Desbloqueio transparente no primeiro toque ou movimento do usuário (Autoplay policy).
+ * 2. Fora do escapamento (p < 0.16 ou p > 0.84): Silêncio absoluto.
+ * 3. Entrada na boca do escape (0.16 <= p < 0.18): O motor desperta suavemente.
+ * 4. Por dentro do duto de titânio (0.18 <= p <= 0.68):
+ *    - ROLANDO O SCROLL: O motor ACELERA com giro alto, volume forte e ressonância metálica ("vai roncando").
+ *    - PAROU DE ROLAR: O motor cai imediatamente para MARCHA LENTA (idle grave, cadenciado e calmo no fundo do cano).
+ *    - VOLTOU A ROLAR: Acelera novamente no mesmo instante!
+ * 5. Saída do duto (0.68 < p <= 0.84): "Encerra com maestria" — abertura de válvulas e decaimento acústico sublime até silenciar no estúdio.
  */
-
-export type AudioZone = 'idle' | 'entering' | 'inside' | 'exiting' | 'ended';
-
-export interface SpatialAudioState {
-  isPlaying: boolean;
-  userMuted: boolean;
-  zone: AudioZone;
-  volume: number;
-}
-
-type StateListener = (state: SpatialAudioState) => void;
 
 class AutomotiveSpatialAudioEngine {
   private ctx: AudioContext | null = null;
   private isRunning: boolean = false;
-  private userMuted: boolean = false;
+  private unlocked: boolean = false;
   private isVisible: boolean = true;
   private audioBuffer: AudioBuffer | null = null;
   private bufferSource: AudioBufferSourceNode | null = null;
   private isLoadingAudio: boolean = false;
-  private listeners = new Set<StateListener>();
 
   // Audio Processing Nodes
   private masterGain: GainNode | null = null;
@@ -42,42 +29,24 @@ class AutomotiveSpatialAudioEngine {
   private metallicResonance: BiquadFilterNode | null = null;
   private subBoost: BiquadFilterNode | null = null;
 
-  // Trackers
+  // Real-time Throttle / Scroll Dynamics
   private currentProgress: number = 0;
-  private lastScrollTime: number = 0;
-  private currentZone: AudioZone = 'idle';
+  private lastScrollTimestamp: number = 0;
+  private scrollVelocity: number = 0;
+  private accelAmount: number = 0; // 0.0 = marcha lenta (idle), 1.0 = aceleração plena
+  private animationFrameId: number | null = null;
 
   public isSupported(): boolean {
     return typeof window !== 'undefined' && ('AudioContext' in window || 'webkitAudioContext' in window);
   }
 
-  public subscribe(listener: StateListener): () => void {
-    this.listeners.add(listener);
-    listener(this.getState());
-    return () => this.listeners.delete(listener);
-  }
-
-  public getState(): SpatialAudioState {
-    const isActuallyPlaying = this.isRunning && !this.userMuted && (this.currentZone === 'entering' || this.currentZone === 'inside' || this.currentZone === 'exiting');
-    return {
-      isPlaying: isActuallyPlaying,
-      userMuted: this.userMuted,
-      zone: this.currentZone,
-      volume: this.masterGain?.gain.value || 0
-    };
-  }
-
-  private notify(): void {
-    const state = this.getState();
-    this.listeners.forEach(fn => fn(state));
-  }
-
   /**
-   * Pre-aquece o AudioContext na primeira interação do usuário (touch, scroll, click)
-   * para contornar a política de autoplay dos navegadores.
+   * Chamado no primeiríssimo gesto do usuário (touch, pointer, wheel, scroll).
+   * Desbloqueia o AudioContext permanentemente no iOS Safari e Chrome Android.
    */
-  public async prepareContext(): Promise<void> {
-    if (!this.isSupported()) return;
+  public unlockOnUserGesture(): void {
+    if (this.unlocked && this.isRunning) return;
+    this.unlocked = true;
 
     try {
       if (!this.ctx) {
@@ -86,14 +55,12 @@ class AutomotiveSpatialAudioEngine {
       }
 
       if (this.ctx.state === 'suspended') {
-        await this.ctx.resume();
+        void this.ctx.resume();
       }
 
-      if (!this.audioBuffer && !this.isLoadingAudio) {
-        void this.loadRealExhaustBuffer();
-      }
+      void this.start();
     } catch (e) {
-      // Ignora restrições transitórias
+      console.warn('[Spatial Audio] Erro ao desbloquear:', e);
     }
   }
 
@@ -122,7 +89,7 @@ class AutomotiveSpatialAudioEngine {
         }
       }
     } catch (e) {
-      console.warn('[Spatial Audio] Erro ao carregar áudio real:', e);
+      console.warn('[Spatial Audio] Erro ao carregar áudio:', e);
     }
 
     this.isLoadingAudio = false;
@@ -133,60 +100,30 @@ class AutomotiveSpatialAudioEngine {
     if (!this.isSupported()) return false;
 
     try {
-      await this.prepareContext();
+      if (!this.ctx) {
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        this.ctx = new AudioContextClass();
+      }
+
+      if (this.ctx.state === 'suspended') {
+        await this.ctx.resume();
+      }
+
       if (!this.audioBuffer) {
         await this.loadRealExhaustBuffer();
       }
 
-      if (!this.isRunning) {
+      if (!this.isRunning && this.audioBuffer) {
         this.buildAudioGraph();
         this.isRunning = true;
+        this.startDynamicsTicker();
       }
 
-      this.notify();
       return true;
     } catch (e) {
-      console.warn('[Spatial Audio] Falha ao iniciar:', e);
+      console.warn('[Spatial Audio] Falha ao iniciar engine:', e);
       return false;
     }
-  }
-
-  public stop(): void {
-    if (!this.isRunning || !this.ctx || !this.masterGain) return;
-
-    try {
-      const now = this.ctx.currentTime;
-      this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, now);
-      this.masterGain.gain.linearRampToValueAtTime(0.0001, now + 0.25);
-
-      setTimeout(() => {
-        this.teardownNodes();
-        this.isRunning = false;
-        this.notify();
-      }, 300);
-    } catch {
-      this.teardownNodes();
-      this.isRunning = false;
-      this.notify();
-    }
-  }
-
-  public toggleMute(): boolean {
-    this.userMuted = !this.userMuted;
-    if (this.userMuted) {
-      if (this.masterGain && this.ctx) {
-        this.masterGain.gain.setTargetAtTime(0.0001, this.ctx.currentTime, 0.08);
-      }
-    } else {
-      // Re-avalia imediatamente com a posição atual de scroll
-      this.updateProgress(this.currentProgress);
-    }
-    this.notify();
-    return !this.userMuted;
-  }
-
-  public isMuted(): boolean {
-    return this.userMuted;
   }
 
   private buildAudioGraph(): void {
@@ -196,11 +133,11 @@ class AutomotiveSpatialAudioEngine {
     const ctx = this.ctx;
     const now = ctx.currentTime;
 
-    // 1. Master Gain (inicia silencioso para permitir fade-in via scroll)
+    // 1. Master Gain (inicia em silêncio absoluto)
     this.masterGain = ctx.createGain();
     this.masterGain.gain.setValueAtTime(0.0001, now);
 
-    // 2. Stereo Panner (efeito surround na curva do tubo)
+    // 2. Stereo Panner (efeito surround na curvatura do tubo)
     if (ctx.createStereoPanner) {
       this.panner = ctx.createStereoPanner();
       this.masterGain.connect(this.panner);
@@ -209,197 +146,211 @@ class AutomotiveSpatialAudioEngine {
       this.masterGain.connect(ctx.destination);
     }
 
-    // 3. Sub-Bass Boost para impacto nos graves do ronco real
+    // 3. Sub-Bass Boost (pressão nos graves de 80Hz)
     this.subBoost = ctx.createBiquadFilter();
     this.subBoost.type = 'lowshelf';
-    this.subBoost.frequency.setValueAtTime(90, now);
-    this.subBoost.gain.setValueAtTime(5.0, now);
+    this.subBoost.frequency.setValueAtTime(80, now);
+    this.subBoost.gain.setValueAtTime(6.0, now);
 
-    // 4. Pipe Chamber Filter (Simula a acústica metálica interna da tubulação)
+    // 4. Pipe Chamber Filter (Simula o isolamento e reflexões do tubo de titânio)
     this.pipeFilter = ctx.createBiquadFilter();
     this.pipeFilter.type = 'lowpass';
-    this.pipeFilter.frequency.setValueAtTime(8000, now);
-    this.pipeFilter.Q.setValueAtTime(1.2, now);
+    this.pipeFilter.frequency.setValueAtTime(2200, now);
+    this.pipeFilter.Q.setValueAtTime(2.8, now);
 
-    // 5. Metallic Resonance (Filtro característico de titânio aquecido)
+    // 5. Metallic Resonance (Filtro característico do metal sob pressão)
     this.metallicResonance = ctx.createBiquadFilter();
     this.metallicResonance.type = 'peaking';
     this.metallicResonance.frequency.setValueAtTime(1250, now);
-    this.metallicResonance.Q.setValueAtTime(2.6, now);
-    this.metallicResonance.gain.setValueAtTime(0, now);
+    this.metallicResonance.Q.setValueAtTime(3.0, now);
+    this.metallicResonance.gain.setValueAtTime(5.0, now);
 
-    // Cadeia: BufferSource -> subBoost -> pipeFilter -> metallicResonance -> masterGain -> panner -> destination
+    // Conexões: Buffer -> subBoost -> pipeFilter -> metallicResonance -> masterGain -> panner -> destination
     this.subBoost.connect(this.pipeFilter);
     this.pipeFilter.connect(this.metallicResonance);
     this.metallicResonance.connect(this.masterGain);
 
-    // Inicia a reprodução contínua do ronco real em loop
+    // Inicia reprodução contínua em loop
     if (this.audioBuffer) {
       this.bufferSource = ctx.createBufferSource();
       this.bufferSource.buffer = this.audioBuffer;
       this.bufferSource.loop = true;
-      this.bufferSource.playbackRate.setValueAtTime(1.0, now);
+      this.bufferSource.playbackRate.setValueAtTime(0.85, now);
       this.bufferSource.connect(this.subBoost);
       this.bufferSource.start(now);
     }
   }
 
   /**
-   * Modula o som real de acordo com a posição da câmera 3D no scroll.
-   * Ativa automaticamente quando a câmera começa a entrar e encerra com maestria na saída.
+   * Atualizado a cada evento de scroll da página.
+   * Calcula velocidade e registra timestamp de atividade.
    */
   public updateProgress(progress: number): void {
     const p = Math.max(0, Math.min(1, progress));
+    const now = performance.now();
+    const dt = Math.max(16, now - this.lastScrollTimestamp);
+    const delta = Math.abs(p - this.currentProgress);
+
+    // Velocidade normalizada de rolagem
+    this.scrollVelocity = Math.min(3.0, (delta / (dt / 1000)) * 0.8);
+    this.lastScrollTimestamp = now;
     this.currentProgress = p;
 
-    // Se mutado expressamente pelo usuário ou invisível, mantém em silêncio
-    if (this.userMuted || !this.isVisible) {
-      if (this.masterGain && this.ctx) {
-        this.masterGain.gain.setTargetAtTime(0.0001, this.ctx.currentTime, 0.08);
-      }
-      this.notify();
-      return;
-    }
-
-    // Auto-início quando entra na faixa ativa (entre 0.15 e 0.84)
+    // Se ainda não estava tocando e entrou na área de interesse, certifica-se de inicializar
     if (!this.isRunning && p >= 0.15 && p <= 0.84) {
-      void this.start().then(() => {
-        this.updateProgress(p);
-      });
-      return;
+      void this.start();
     }
+  }
 
-    if (!this.isRunning || !this.ctx || !this.masterGain) return;
+  /**
+   * Loop de dinâmica contínua (60fps) que orquestra a aceleração e marcha lenta.
+   */
+  private startDynamicsTicker(): void {
+    if (this.animationFrameId) return;
 
-    const ctx = this.ctx;
-    const now = ctx.currentTime;
-    const dt = Math.max(0.016, now - this.lastScrollTime);
-    const delta = Math.abs(p - this.currentProgress);
-    const scrollVelocity = Math.min(2.5, delta / dt);
-    this.lastScrollTime = now;
+    const tick = () => {
+      this.animationFrameId = requestAnimationFrame(tick);
+      if (!this.isRunning || !this.ctx || !this.masterGain) return;
 
-    let targetGain = 0.0001;
-    let nextZone: AudioZone = 'idle';
+      const nowPerf = performance.now();
+      const ctxNow = this.ctx.currentTime;
+      const timeSinceScroll = nowPerf - this.lastScrollTimestamp;
+      const isActivelyScrolling = timeSinceScroll < 160;
 
-    // -------------------------------------------------------------
-    // ZONA 0: IDLE (p < 0.16) - Vista Externa Antes de Entrar
-    // -------------------------------------------------------------
-    if (p < 0.16) {
-      nextZone = 'idle';
-      targetGain = 0.0001;
-      this.pipeFilter?.frequency.setTargetAtTime(9000, now, 0.1);
-      this.metallicResonance?.gain.setTargetAtTime(0, now, 0.1);
-      this.subBoost?.gain.setTargetAtTime(4.0, now, 0.1);
-    }
-    // -------------------------------------------------------------
-    // ZONA 1: ENTRANDO NO ESCAPE (0.16 <= p < 0.26) - Despertar do Ronco
-    // -------------------------------------------------------------
-    else if (p >= 0.16 && p < 0.26) {
-      nextZone = 'entering';
-      const enterT = (p - 0.16) / (0.26 - 0.16);
-      // Fade-in progressivo conforme a câmera engole a ponteira de titânio
-      targetGain = 0.05 + enterT * 0.88;
+      const p = this.currentProgress;
+      const isInsidePipe = p >= 0.18 && p <= 0.68;
+      const isEntering = p >= 0.16 && p < 0.18;
+      const isExiting = p > 0.68 && p <= 0.84;
 
-      // O ar externo fecha e o grave toma conta
-      this.pipeFilter?.frequency.setTargetAtTime(9000 - enterT * 5500, now, 0.08);
-      this.pipeFilter?.Q.setTargetAtTime(1.2 + enterT * 1.5, now, 0.08);
-      this.metallicResonance?.gain.setTargetAtTime(enterT * 5.0, now, 0.08);
-      this.subBoost?.gain.setTargetAtTime(4.5 + enterT * 3.0, now, 0.08);
-
-      // Dinâmica suave de rotação
-      const pitchMod = 1.0 + Math.min(0.2, scrollVelocity * 0.08);
-      if (this.bufferSource && 'playbackRate' in this.bufferSource) {
-        this.bufferSource.playbackRate.setTargetAtTime(pitchMod, now, 0.08);
-      }
-    }
-    // -------------------------------------------------------------
-    // ZONA 2: DENTRO DO CANO DE TITÂNIO (0.26 <= p <= 0.68) - "Vai Roncando"
-    // -------------------------------------------------------------
-    else if (p >= 0.26 && p <= 0.68) {
-      nextZone = 'inside';
-      targetGain = 0.94;
-      const tubeProg = (p - 0.26) / (0.68 - 0.26);
-
-      // Acústica interna de câmara metálica: agudos contidos, ressonância em 1.2kHz
-      const tubeCutoff = 2200 - Math.sin(tubeProg * Math.PI) * 700;
-      this.pipeFilter?.frequency.setTargetAtTime(tubeCutoff, now, 0.08);
-      this.pipeFilter?.Q.setTargetAtTime(3.4, now, 0.08);
-
-      // Ressonância metálica do titânio e pressão nos graves
-      this.metallicResonance?.frequency.setTargetAtTime(1150 + tubeProg * 500, now, 0.08);
-      this.metallicResonance?.gain.setTargetAtTime(8.0, now, 0.08);
-      this.subBoost?.gain.setTargetAtTime(8.0, now, 0.08);
-
-      // Reação orgânica ao scroll: se rola rápido, o motor sobe rotação (rev up)!
-      const revMod = 1.0 + Math.min(0.28, scrollVelocity * 0.14);
-      if (this.bufferSource && 'playbackRate' in this.bufferSource) {
-        this.bufferSource.playbackRate.setTargetAtTime(revMod, now, 0.08);
+      if (!this.isVisible) {
+        this.masterGain.gain.setTargetAtTime(0.0001, ctxNow, 0.1);
+        return;
       }
 
-      // Stereo sweep acompanhando as curvas do duto 3D
-      if (this.panner && 'pan' in this.panner) {
-        const panSweep = Math.sin(tubeProg * Math.PI * 2) * 0.35;
-        this.panner.pan.setTargetAtTime(panSweep, now, 0.08);
-      }
-    }
-    // -------------------------------------------------------------
-    // ZONA 3: SAÍDA E ENCERRAMENTO COM MAESTRIA (0.68 < p <= 0.84)
-    // -------------------------------------------------------------
-    else if (p > 0.68 && p <= 0.84) {
-      nextZone = 'exiting';
+      // -----------------------------------------------------------------
+      // CASO 1: DENTRO DO ESCAPE (0.18 <= p <= 0.68)
+      // Rolando: Acelera o carro (giro sobe, ganho pleno, agudos abrem).
+      // Parado: Marcha lenta (giro baixo cadenciado, volume reduzido, borbulho grave).
+      // -----------------------------------------------------------------
+      if (isInsidePipe) {
+        // Alvo de aceleração: se está rolando, calcula com base na velocidade (0.5 a 1.0)
+        // Se parou o dedo/scroll, alvo é 0.0 (marcha lenta)
+        const targetAccel = isActivelyScrolling 
+          ? Math.min(1.0, 0.55 + this.scrollVelocity * 0.45) 
+          : 0.0;
 
-      // Subfase A (0.68 < p <= 0.74): Válvulas abrem no estúdio com clímax glorioso
-      if (p <= 0.74) {
-        targetGain = 0.95;
-        this.pipeFilter?.frequency.setTargetAtTime(15500, now, 0.06);
-        this.pipeFilter?.Q.setTargetAtTime(0.8, now, 0.06);
-        this.metallicResonance?.gain.setTargetAtTime(1.5, now, 0.06);
-        this.subBoost?.gain.setTargetAtTime(6.0, now, 0.06);
+        // Ataque rápido ao começar a rolar (0.24), decaimento macio ao parar (0.09)
+        const smoothing = targetAccel > this.accelAmount ? 0.24 : 0.09;
+        this.accelAmount += (targetAccel - this.accelAmount) * smoothing;
+
+        // 1. Rotação do Motor (RPM):
+        // Marcha lenta: 0.83x (grave cadenciado)
+        // Acelerando: até 1.32x (gás aberto, giro cortando alto!)
+        const targetPlayback = 0.83 + this.accelAmount * 0.49;
+        if (this.bufferSource && 'playbackRate' in this.bufferSource) {
+          this.bufferSource.playbackRate.setTargetAtTime(targetPlayback, ctxNow, 0.05);
+        }
+
+        // 2. Volume no Tubo:
+        // Marcha lenta: 0.35 (carro roncando calmo no fundo do cano)
+        // Acelerando: 0.96 (pressão e presença máxima)
+        const targetGain = 0.35 + this.accelAmount * 0.61;
+        this.masterGain.gain.setTargetAtTime(targetGain, ctxNow, 0.04);
+
+        // 3. Timbre e Filtros Metálicos de Titânio:
+        const tubeProg = (p - 0.18) / (0.68 - 0.18);
+        const baseCutoff = 1700 - Math.sin(tubeProg * Math.PI) * 500;
+        const targetCutoff = baseCutoff + this.accelAmount * 1800; // abre mais rasp e estalos de combustão
+        this.pipeFilter?.frequency.setTargetAtTime(targetCutoff, ctxNow, 0.05);
+        this.pipeFilter?.Q.setTargetAtTime(3.2, ctxNow, 0.05);
+
+        // Sub-grave pesado na marcha lenta (8.5dB) e vibrante na aceleração (6.0dB)
+        this.subBoost?.gain.setTargetAtTime(8.5 - this.accelAmount * 2.5, ctxNow, 0.05);
+
+        // Ressonância metálica de parede de titânio
+        this.metallicResonance?.frequency.setTargetAtTime(1150 + tubeProg * 500, ctxNow, 0.05);
+        this.metallicResonance?.gain.setTargetAtTime(4.0 + this.accelAmount * 4.5, ctxNow, 0.05);
+
+        // Panning estéreo acompanhando as curvas do duto 3D
+        if (this.panner && 'pan' in this.panner) {
+          const panSweep = Math.sin(tubeProg * Math.PI * 2) * 0.35;
+          this.panner.pan.setTargetAtTime(panSweep, ctxNow, 0.06);
+        }
       }
-      // Subfase B (0.74 < p <= 0.84): Decaimento maestroso até o silêncio do estúdio
+      // -----------------------------------------------------------------
+      // CASO 2: ENTRANDO NO ESCAPE (0.16 <= p < 0.18)
+      // Despertar progressivo conforme a câmera embica na ponteira
+      // -----------------------------------------------------------------
+      else if (isEntering) {
+        this.accelAmount = 0.1;
+        const enterT = (p - 0.16) / (0.18 - 0.16);
+        const targetGain = 0.02 + enterT * 0.33;
+        this.masterGain.gain.setTargetAtTime(targetGain, ctxNow, 0.06);
+
+        if (this.bufferSource && 'playbackRate' in this.bufferSource) {
+          this.bufferSource.playbackRate.setTargetAtTime(0.85, ctxNow, 0.06);
+        }
+        this.pipeFilter?.frequency.setTargetAtTime(4500 - enterT * 2500, ctxNow, 0.06);
+      }
+      // -----------------------------------------------------------------
+      // CASO 3: SAÍDA COM MAESTRIA (0.68 < p <= 0.84)
+      // Abertura de válvulas no estúdio e decaimento acústico magistral
+      // -----------------------------------------------------------------
+      else if (isExiting) {
+        const exitProg = (p - 0.68) / (0.84 - 0.68);
+
+        // Primeiros 25% da saída: válvulas abertas e agudos cristalinos
+        if (exitProg < 0.25) {
+          this.pipeFilter?.frequency.setTargetAtTime(15500, ctxNow, 0.05);
+          this.masterGain.gain.setTargetAtTime(0.95, ctxNow, 0.05);
+          if (this.bufferSource && 'playbackRate' in this.bufferSource) {
+            this.bufferSource.playbackRate.setTargetAtTime(1.05, ctxNow, 0.05);
+          }
+        } 
+        // 75% restantes: decaimento suave até o silêncio da apresentação de estúdio
+        else {
+          const fadeOutT = (exitProg - 0.25) / 0.75;
+          const targetGain = 0.95 * Math.pow(1 - fadeOutT, 2.4);
+          this.masterGain.gain.setTargetAtTime(targetGain, ctxNow, 0.06);
+
+          this.pipeFilter?.frequency.setTargetAtTime(12000 - fadeOutT * 7000, ctxNow, 0.06);
+          if (this.bufferSource && 'playbackRate' in this.bufferSource) {
+            this.bufferSource.playbackRate.setTargetAtTime(0.95 - fadeOutT * 0.15, ctxNow, 0.06);
+          }
+        }
+
+        if (this.panner && 'pan' in this.panner) {
+          this.panner.pan.setTargetAtTime(0.0, ctxNow, 0.08);
+        }
+      }
+      // -----------------------------------------------------------------
+      // CASO 4: FORA DO CANO (p < 0.16 ou p > 0.84)
+      // Silêncio limpo e transparente
+      // -----------------------------------------------------------------
       else {
-        const fadeOutProg = (p - 0.74) / (0.84 - 0.74);
-        // Decaimento suave com curva acústica
-        targetGain = 0.95 * Math.pow(1 - fadeOutProg, 2.2);
-
-        this.pipeFilter?.frequency.setTargetAtTime(12000 - fadeOutProg * 6000, now, 0.08);
-        this.subBoost?.gain.setTargetAtTime(5.0 * (1 - fadeOutProg), now, 0.08);
+        this.accelAmount = 0;
+        this.masterGain.gain.setTargetAtTime(0.0001, ctxNow, 0.08);
       }
+    };
 
-      if (this.panner && 'pan' in this.panner) {
-        this.panner.pan.setTargetAtTime(0.0, now, 0.1);
-      }
-      if (this.bufferSource && 'playbackRate' in this.bufferSource) {
-        this.bufferSource.playbackRate.setTargetAtTime(1.0, now, 0.1);
-      }
-    }
-    // -------------------------------------------------------------
-    // ZONA 4: SILÊNCIO NO ESTÚDIO (p > 0.84)
-    // -------------------------------------------------------------
-    else {
-      nextZone = 'ended';
-      targetGain = 0.0001;
-    }
-
-    // Aplica o ganho calculado de forma ultra-suave
-    this.masterGain.gain.setTargetAtTime(targetGain, now, 0.05);
-
-    if (nextZone !== this.currentZone) {
-      this.currentZone = nextZone;
-      this.notify();
-    }
+    this.animationFrameId = requestAnimationFrame(tick);
   }
 
   public setVisible(visible: boolean): void {
     this.isVisible = visible;
     if (!this.ctx || !this.masterGain) return;
-    const now = this.ctx.currentTime;
     if (!visible) {
-      this.masterGain.gain.setTargetAtTime(0.0001, now, 0.15);
-    } else if (!this.userMuted) {
-      this.updateProgress(this.currentProgress);
+      this.masterGain.gain.setTargetAtTime(0.0001, this.ctx.currentTime, 0.12);
     }
-    this.notify();
+  }
+
+  public stop(): void {
+    if (this.animationFrameId) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
+    this.teardownNodes();
+    this.isRunning = false;
   }
 
   private teardownNodes(): void {
