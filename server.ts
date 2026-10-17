@@ -1,5 +1,5 @@
 import express from 'express';
-import { registerAutomotiveRoutes } from './functions/src/automotive';
+import { registerAutomotiveRoutes, saveAutomotiveContactAndSyncCrm, AutomotiveConversationContext } from './functions/src/automotive';
 import { MAX_MODEL3D_BYTES, MODEL3D_STORAGE_BUCKET, Model3dValidationError, model3dStoragePath, model3dUpdate, validateGlb } from './functions/src/automotiveModel3d';
 import fs from 'fs';
 import path from 'path';
@@ -604,9 +604,20 @@ async function processAiCustomerMessage(
   customerPhone: string,
   incomingText: string,
   customerNameParam?: string
-): Promise<{ replyText: string; orderCreated?: any }> {
+): Promise<{
+  replyText: string;
+  orderCreated?: any;
+  mediaList?: Array<{ url: string; caption: string; productName?: string; type?: string }>;
+  mediaToSend?: { url: string; caption: string; productName?: string; type?: string } | null;
+  locationToSend?: { latitude: number; longitude: number; name: string; address: string } | null;
+}> {
   const estDoc = await db.collection('establishments').doc(establishmentId).get();
   const establishment = estDoc.data() || {};
+
+  const safePhone = customerPhone.replace(/\D/g, '') || customerPhone;
+  const customerMemorySnap = await db.collection('establishments').doc(establishmentId).collection('customers').doc(safePhone).get().catch(() => null);
+  const customerMemory = customerMemorySnap?.data() || {};
+  const savedAutoCtx: AutomotiveConversationContext = customerMemory.automotiveContext || {};
 
   // Fetch active products
   const productsSnap = await db.collection('establishments').doc(establishmentId).collection('products').where('available', '==', true).get();
@@ -614,7 +625,7 @@ async function processAiCustomerMessage(
 
   // Fetch recent conversation history
   const chatRef = db.collection('establishments').doc(establishmentId).collection('chats').doc(customerPhone).collection('messages');
-  const historySnap = await chatRef.orderBy('timestamp', 'asc').limitToLast(12).get();
+  const historySnap = await chatRef.orderBy('timestamp', 'asc').limitToLast(15).get();
   const history = historySnap.docs.map(d => d.data());
 
   // Save current incoming message to history
@@ -629,12 +640,13 @@ async function processAiCustomerMessage(
   ).join('\n');
 
   const rawSegment = (establishment.segment || '').toUpperCase();
-  const isVehicles = rawSegment.includes('VEIC') || rawSegment.includes('CARRO') || rawSegment.includes('MOTO') || rawSegment.includes('AUTO');
+  const isAutomotive = rawSegment === 'AUTOMOTIVE_PARTS';
+  const isVehicles = !isAutomotive && (rawSegment.includes('VEIC') || rawSegment.includes('CARRO') || rawSegment.includes('MOTO') || rawSegment.includes('AUTO'));
   const isRealEstate = rawSegment.includes('IMOB') || rawSegment.includes('IMOVE') || rawSegment.includes('CORRETOR');
   const isFashion = rawSegment.includes('MODA') || rawSegment.includes('ROUPA') || rawSegment.includes('CALCAD');
   const isElectronics = rawSegment.includes('ELETRO') || rawSegment.includes('CELULAR') || rawSegment.includes('IPHONE');
   const isGeneral = rawSegment.includes('GERAL') || rawSegment.includes('VAREJO');
-  const isFood = !isVehicles && !isRealEstate && !isFashion && !isElectronics && !isGeneral;
+  const isFood = !isAutomotive && !isVehicles && !isRealEstate && !isFashion && !isElectronics && !isGeneral;
 
   const catalogHeader = isVehicles ? 'ESTOQUE DE VEÍCULOS DISPONÍVEIS' 
     : isRealEstate ? 'CATÁLOGO DE IMÓVEIS DISPONÍVEIS' 
@@ -685,7 +697,115 @@ COMO VOCÊ DEVE AGIR:
    Após chamar a ferramenta com sucesso, informe ao cliente de maneira acolhedora que o pedido foi enviado e que ele receberá a confirmação da equipe!
   `;
 
-  if (establishment.segment === 'AUTOMOTIVE_PARTS') systemInstruction = `Você é o consultor inicial de projetos automotivos de ${establishment.name}. Colete marca, modelo, ano, versão, modificações, objetivo e CEP. Não invente compatibilidade, preço, estoque, potência, legalidade, frete ou prazos. Encaminhe a análise técnica e orçamento à equipe. Não confirme pedidos ou pagamentos e não utilize registrar_pedido. O formulário do site registra solicitações; não afirme que registrou algo pelo chat. Referências informativas: ${menuText}`;
+  if (isAutomotive) systemInstruction = `Você é o Consultor Técnico de Projetos de Performance & Escapamentos de "${establishment.name || 'Nossa Oficina'}".
+Seu papel é oferecer um atendimento de alto nível pelo WhatsApp: seja apaixonado por carros, consultivo, cordial e objetivo. Conduza a conversa de forma fluida e natural, fazendo no máximo 1 ou 2 perguntas por vez para não cansar o cliente.
+
+CONTEXTO JÁ SALVO DESTE CONTATO NO WHATSAPP (NUNCA repita perguntas sobre dados já preenchidos abaixo):
+- Nome do Cliente: ${savedAutoCtx.customerName || customerMemory.name || customerNameParam || 'Ainda não informado'}
+- Veículo Identificado: ${[savedAutoCtx.brand, savedAutoCtx.model, savedAutoCtx.year, savedAutoCtx.version].filter(Boolean).join(' ') || 'Ainda não informado'}
+- Setup / Modificações Atuais: ${savedAutoCtx.modifications || 'Ainda não informado'}
+- Objetivo / Ronco Desejado: ${savedAutoCtx.objective || 'Ainda não informado'}
+- Modalidade / Logística: ${savedAutoCtx.delivery || 'Ainda não definida'}
+- CEP: ${savedAutoCtx.cep || 'Ainda não informado'}
+- Referências de Interesse: ${(savedAutoCtx.referenceNames || []).join(', ') || 'Nenhuma selecionada'}
+- Resumo Técnico Anterior: ${savedAutoCtx.summary || 'Primeiro contato'}
+
+DADOS E REFERÊNCIAS DO ESTABELECIMENTO:
+${JSON.stringify({
+  name: establishment.name,
+  description: establishment.description,
+  operatingHours: establishment.operatingHours || 'Horário comercial',
+  address: establishment.address || 'Sob consulta',
+  references: products.map((p: any) => ({
+    name: p.name,
+    category: p.category,
+    description: p.description,
+    hasPhotos: !!(p.imageUrl || (p.images && p.images.length > 0)),
+    totalPhotos: (p.images && p.images.length) || (p.imageUrl ? 1 : 0),
+    hasVideoRonco: !!p.videoUrl
+  }))
+})}
+${establishment.aiPromptCustom ? `\nDIRETRIZES ADICIONAIS DA LOJA:\n${establishment.aiPromptCustom}` : ''}
+
+COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
+1. ACOLHIMENTO E RECONHECIMENTO DE CONTEXTO:
+   - Se o cliente vier com mensagem do site (ex: "protocolo ... Veículo: ..."), reconheça imediatamente todos os dados enviados, elogie a máquina e confirme que a ficha já está integrada ao nosso CRM técnico.
+   - Elogie o veículo quando o cliente informar o modelo e crie conexão genuína de entusiasta automotivo.
+2. QUALIFICAÇÃO CONSULTIVA PROGRESSIVA (pergunte apenas o que ainda falta, 1 a 2 pontos por vez):
+   - Veículo: Marca, modelo, ano e versão/motorização, além de perguntar se o carro está original ou já possui preparação (remap, downpipe, stage, intake).
+   - Objetivo do Projeto: O que ele busca no sistema de escapamento (ex: catback, downpipe, sistema valvulado com difusor para alternar entre ronco esportivo encorpado e conforto sem ressonância/drone na estrada, Inox 304, Titânio, ponteiras esportivas).
+   - Logística & Contato: Nome do cliente e se prefere *Atendimento local* (instalação/avaliação na oficina) ou *Envio nacional* (solicitando o *CEP* para cotação de frete).
+3. FOTOS, VÍDEOS DO RONCO E LOCALIZAÇÃO:
+   - Quando houver referência compatível/similar no catálogo ou o cliente pedir para ver fotos ou ouvir o ronco, use 'enviar_foto_produto' (mediaType='image', 'video' ou 'all') ou 'enviar_cardapio_com_fotos'.
+   - Se o cliente perguntar onde fica a oficina, endereço, como chegar ou optar por Atendimento local, acione 'enviar_localizacao_loja' para enviar o card interativo de GPS (Waze/Google Maps).
+4. REGISTRO AUTOMÁTICO NO CRM DE PERFORMANCE ('registrar_interesse_projeto'):
+   - SEMPRE que o cliente informar dados do carro, objetivo, nome, CEP ou demonstrar interesse em projeto/orçamento, acione a ferramenta 'registrar_interesse_projeto' para salvar o contexto da conversa e atualizar a ficha do cliente no CRM da loja.
+   - Assim que os dados principais estiverem reunidos, apresente um resumo organizado (*Veículo*, *Objetivo/Configuração*, *Logística/CEP*) e confirme que a solicitação já entrou no CRM para nossa equipe técnica preparar o orçamento personalizado!
+5. TRANSPARÊNCIA TÉCNICA:
+   - Não invente preços, estoque, ganhos exatos de potência, homologação ou prazos. Explique que compatibilidade final, valores e frete são validados sob medida pelos especialistas da loja.
+   - Use formatação limpa de WhatsApp: negrito com um asterisco (*texto*) e listas com '• '.`;
+
+  const registrarInteresseProjetoTool = {
+    name: 'registrar_interesse_projeto',
+    description: 'Salva o contexto da conversa no WhatsApp e registra/atualiza o lead e projeto do cliente no CRM de Performance & Escapamentos da loja. Chame sempre que o cliente informar dados do veículo, objetivo do projeto, modificações, nome, CEP ou interesse em orçamento.',
+    parameters: {
+      type: 'object',
+      properties: {
+        customerName: { type: 'string', description: 'Nome do cliente se informado' },
+        brand: { type: 'string', description: 'Marca do veículo (ex: Porsche, BMW, Audi, VW, Mercedes)' },
+        model: { type: 'string', description: 'Modelo do veículo (ex: 911, M3, RS6, Golf GTI, Jetta GLI)' },
+        year: { type: 'string', description: 'Ano do veículo com 4 dígitos (ex: 2024)' },
+        version: { type: 'string', description: 'Versão ou motorização (ex: Carrera S 3.0 Biturbo, Competition, 2.0 TSI)' },
+        modifications: { type: 'string', description: 'Modificações atuais do veículo (ex: original, Stage 2, já possui downpipe)' },
+        objective: { type: 'string', description: 'Objetivo do projeto e perfil de ronco desejado (ex: catback valvulado inox 304, downpipe, ronco encorpado sem drone)' },
+        cep: { type: 'string', description: 'CEP do cliente para envio nacional' },
+        delivery: { type: 'string', enum: ['Envio nacional', 'Atendimento local', 'A definir'], description: 'Modalidade escolhida: Envio nacional ou Atendimento local na oficina' },
+        referenceNames: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Nomes das referências do catálogo pelas quais o cliente se interessou'
+        },
+        summary: { type: 'string', description: 'Resumo executivo do contexto da conversa para o consultor técnico da loja' },
+        leadTemperature: { type: 'string', enum: ['HOT', 'WARM', 'COLD'], description: 'Temperatura do interesse do cliente' }
+      }
+    }
+  };
+
+  const enviarCardapioComFotosTool = {
+    name: 'enviar_cardapio_com_fotos',
+    description: isAutomotive ? 'Envia fotos das referências cadastradas. Não confirma preço nem compatibilidade.' : 'Envia fotos e descrições do catálogo para o cliente.',
+    parameters: {
+      type: 'object',
+      properties: {
+        category: { type: 'string', description: 'Categoria específica se o cliente pediu apenas uma categoria' }
+      }
+    }
+  };
+
+  const enviarFotoProdutoTool = {
+    name: 'enviar_foto_produto',
+    description: 'Envia as fotos ou o vídeo de um produto/veículo/projeto específico diretamente no WhatsApp do cliente quando ele pedir fotos, álbum, vídeos ou ouvir o ronco do escapamento.',
+    parameters: {
+      type: 'object',
+      properties: {
+        productId: { type: 'string', description: 'ID do produto no catálogo se identificado' },
+        productName: { type: 'string', description: 'Nome do produto/veículo solicitado' },
+        mediaType: { type: 'string', enum: ['image', 'video', 'all'], description: 'Tipo de mídia: video para ouvir o ronco/ver vídeo, image para ver fotos' }
+      },
+      required: ['productName']
+    }
+  };
+
+  const enviarLocalizacaoLojaTool = {
+    name: 'enviar_localizacao_loja',
+    description: 'Envia o card interativo oficial de localização GPS da loja/oficina com mapa clicável no WhatsApp quando o cliente perguntar o endereço, onde fica a oficina/loja, como chegar ou optar por atendimento local.',
+    parameters: {
+      type: 'object',
+      properties: {
+        reason: { type: 'string', description: 'Motivo do envio da localização' }
+      }
+    }
+  };
 
   // Define Function Calling Tool for order placement
   const registrarPedidoTool = {
@@ -737,25 +857,87 @@ COMO VOCÊ DEVE AGIR:
       parts: [{ text: incomingText }]
     });
 
+    const activeTools = isAutomotive
+      ? [registrarInteresseProjetoTool, enviarCardapioComFotosTool, enviarFotoProdutoTool, enviarLocalizacaoLojaTool]
+      : [registrarPedidoTool, enviarCardapioComFotosTool, enviarFotoProdutoTool, enviarLocalizacaoLojaTool];
+
     const response = await genai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: contents,
       config: {
         systemInstruction: { parts: [{ text: systemInstruction }] },
-        tools: [{ functionDeclarations: [registrarPedidoTool as any] }],
-        temperature: 0.4
+        tools: [{ functionDeclarations: activeTools as any }],
+        temperature: 0.3
       }
     });
 
     let replyText = response.text || '';
     let createdOrder: any = null;
+    let automotiveToolArgs: Partial<AutomotiveConversationContext> | undefined = undefined;
+    let forceRegisterAutomotive = false;
+    let mediaList: Array<{ url: string; caption: string; productName?: string; type?: string }> = [];
+    let locationToSend: { latitude: number; longitude: number; name: string; address: string } | null = null;
 
-    // Check if the model called 'registrar_pedido'
+    // Check if the model called any tools
     const functionCalls = response.functionCalls;
     if (functionCalls && functionCalls.length > 0) {
       for (const call of functionCalls) {
+        if (call.name === 'registrar_interesse_projeto') {
+          automotiveToolArgs = { ...(automotiveToolArgs || {}), ...(call.args as any) };
+          forceRegisterAutomotive = true;
+        }
+        if (call.name === 'enviar_cardapio_com_fotos') {
+          const prodsToSend = products.filter((p: any) => p.available !== false && p.imageUrl).slice(0, 10);
+          mediaList = prodsToSend.map((p: any) => ({
+            url: p.imageUrl,
+            caption: isAutomotive
+              ? `🏁 *${p.name}*\n${p.description || ''}\nReferência: aplicação e orçamento sob análise técnica.`
+              : `🍽️ *${p.name}* - R$ ${Number(p.price).toFixed(2)}\n${p.description || ''}`,
+            productName: p.name
+          }));
+        }
+        if (call.name === 'enviar_foto_produto') {
+          const args: any = call.args;
+          const searchName = String(args.productName || '').toLowerCase().trim();
+          const found: any = products.find((prod: any) =>
+            (args.productId && prod.id === args.productId) ||
+            String(prod.name || '').toLowerCase().includes(searchName) ||
+            searchName.includes(String(prod.name || '').toLowerCase())
+          );
+          if (found) {
+            if (found.imageUrl) {
+              mediaList.push({
+                url: found.imageUrl,
+                caption: isAutomotive
+                  ? `🏁 *${found.name}*\n${found.description || ''}\nAplicação e orçamento sob análise técnica.`
+                  : `*${found.name}* - R$ ${Number(found.price).toFixed(2)}\n${found.description || ''}`,
+                productName: found.name,
+                type: 'image'
+              });
+            }
+            if ((args.mediaType === 'video' || args.mediaType === 'all') && found.videoUrl) {
+              mediaList.push({
+                url: found.videoUrl,
+                caption: `🏁 *Vídeo & Ronco do Projeto:* ${found.name}\n${found.description || ''}`,
+                productName: found.name,
+                type: 'video'
+              });
+            }
+          }
+        }
+        if (call.name === 'enviar_localizacao_loja') {
+          locationToSend = {
+            latitude: Number(establishment.latitude || -8.05428),
+            longitude: Number(establishment.longitude || -34.8813),
+            name: establishment.name || 'Nossa Localização',
+            address: establishment.address || 'Consulte nosso endereço'
+          };
+        }
         if (call.name === 'registrar_pedido') {
-          if (establishment.segment === 'AUTOMOTIVE_PARTS') { replyText = 'Seu projeto precisa de análise técnica. Solicite um orçamento pelo formulário do site ou com a equipe.'; continue; }
+          if (isAutomotive) {
+            forceRegisterAutomotive = true;
+            continue;
+          }
           const args: any = call.args;
           
           // Calculate subtotals
@@ -830,8 +1012,56 @@ COMO VOCÊ DEVE AGIR:
       }
     }
 
+    if (isAutomotive) {
+      const autoSync = await saveAutomotiveContactAndSyncCrm({
+        db,
+        establishmentId,
+        customerPhone,
+        customerName: customerNameParam,
+        incomingText,
+        replyText,
+        toolArgs: automotiveToolArgs,
+        catalog: products.map((p: any) => ({ id: p.id, name: p.name })),
+        forceRegisterProject: forceRegisterAutomotive
+      });
+      const ctx = autoSync.context;
+      if (autoSync.project) {
+        createdOrder = autoSync.project;
+      }
+      if (autoSync.isNewProject || autoSync.justQualified) {
+        sendAlertPushNotification(establishmentId, {
+          title: autoSync.justQualified
+            ? `🏁 Projeto Qualificado no WhatsApp: ${ctx.brand || ''} ${ctx.model || ''}`.trim()
+            : `🏁 Novo Lead de Performance: ${ctx.customerName || customerPhone}`,
+          body: `${ctx.summary || incomingText}`.slice(0, 120),
+          url: '/?tab=orders'
+        }).catch(() => {});
+      }
+
+      if (!replyText && (ctx.brand || ctx.model)) {
+        const vehicleLabel = [ctx.brand, ctx.model, ctx.year, ctx.version].filter(Boolean).join(' ');
+        if (!ctx.year || !ctx.version) {
+          replyText = `Excelente máquina! Já salvei aqui no seu atendimento o interesse para o *${vehicleLabel}* 🏁.\n\nPara nossa engenharia validar a aplicação exata, qual é o *ano e versão/motorização* do carro e o que você busca no projeto (ex: catback valvulado, downpipe, inox 304)?`;
+        } else if (!ctx.objective) {
+          replyText = `Perfeito! Já anotei os dados do seu *${vehicleLabel}* 🏁.\n\nQual é o seu *objetivo principal* com o projeto (ex: ronco mais encorpado com válvula/difusor, ganho de fluxo com downpipe, acabamento em inox ou titânio) e se o carro já possui alguma modificação?`;
+        } else if (ctx.delivery === 'A definir' && !ctx.cep) {
+          replyText = `Show! Já registrei o contexto do seu projeto para o *${vehicleLabel}* (*${ctx.objective}*) em nosso CRM técnico 🏁.\n\nPara finalizarmos a ficha para orçamento, qual é o seu *nome* e você prefere *Atendimento local* na nossa oficina ou *Envio nacional* (informando seu *CEP*)?`;
+        } else {
+          replyText = `🏁 *Ficha de Projeto Registrada no CRM Técnico!*\n\n` +
+            `• *Cliente:* ${ctx.customerName || 'Cliente'}\n` +
+            `• *Veículo:* ${vehicleLabel}\n` +
+            (ctx.modifications ? `• *Modificações:* ${ctx.modifications}\n` : '') +
+            `• *Objetivo:* ${ctx.objective}\n` +
+            `• *Logística:* ${ctx.delivery}${ctx.cep ? ` (CEP: ${ctx.cep})` : ''}\n\n` +
+            `Nossa equipe técnica já recebeu o contexto completo da nossa conversa e vai analisar a aplicação e preparar seu orçamento!`;
+        }
+      }
+    }
+
     if (!replyText) {
-      replyText = isVehicles
+      replyText = isAutomotive
+        ? 'Olá! Para organizarmos seu projeto e encaminharmos para análise técnica, qual é a marca, modelo, ano e versão do seu veículo? 🏁'
+        : isVehicles
         ? 'Desculpe, não consegui entender perfeitamente. Como posso te ajudar com os veículos disponíveis?'
         : isRealEstate
         ? 'Desculpe, não consegui entender perfeitamente. Como posso te ajudar com nossos imóveis?'
@@ -842,15 +1072,35 @@ COMO VOCÊ DEVE AGIR:
         : 'Desculpe, não consegui entender perfeitamente. Como posso te ajudar com o cardápio?';
     }
 
+    const finalTs = new Date().toISOString();
+
     // Save assistant reply to chat history
     await chatRef.add({
       sender: 'assistant',
       text: replyText,
-      timestamp: new Date().toISOString(),
-      orderId: createdOrder ? createdOrder.id : null
+      timestamp: finalTs,
+      orderId: createdOrder ? createdOrder.id : null,
+      mediaUrl: mediaList.length > 0 ? mediaList[0].url : null,
+      location: locationToSend || null
     });
 
-    return { replyText, orderCreated: createdOrder };
+    await db.collection('establishments').doc(establishmentId).collection('chats').doc(customerPhone).set({
+      customerPhone,
+      customerName: customerMemory.name || customerNameParam || 'Cliente WhatsApp',
+      segment: establishment.segment || 'FOOD',
+      lastMessage: replyText,
+      lastUserMessage: incomingText,
+      lastTimestamp: finalTs,
+      updatedAt: finalTs
+    }, { merge: true }).catch(() => {});
+
+    return {
+      replyText,
+      orderCreated: createdOrder,
+      mediaList,
+      mediaToSend: mediaList.length > 0 ? mediaList[0] : null,
+      locationToSend
+    };
   } catch (err: any) {
     console.error('[Gemini AI Process Error]:', err);
     return {
@@ -1882,16 +2132,142 @@ _Bom trabalho e dirija com segurança! 🚀_`;
     try {
       const storeId = req.body.establishmentId || getStoreId(req);
       const phone = req.body.phone || '5511988887777';
-      const messagesCol = db.collection('establishments').doc(storeId)
-        .collection('chats').doc(phone)
-        .collection('messages');
+      const cleanPhone = String(phone).replace(/\D/g, '') || phone;
+      const chatDocRef = db.collection('establishments').doc(storeId).collection('chats').doc(phone);
+      const messagesCol = chatDocRef.collection('messages');
       
       const snap = await messagesCol.get();
       const batch = db.batch();
       snap.docs.forEach(doc => batch.delete(doc.ref));
+      batch.delete(chatDocRef);
+      batch.delete(db.collection('establishments').doc(storeId).collection('customers').doc(cleanPhone.replace(/\//g, '_')));
       await batch.commit();
 
       res.json({ success: true, message: 'Chat resetado com sucesso' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/customers', async (req, res) => {
+    try {
+      const storeId = getStoreId(req);
+      const blockedSnap = await db.collection('establishments').doc(storeId).collection('blocked_contacts').get();
+      const blockedMap = new Map<string, any>();
+      blockedSnap.docs.forEach(doc => blockedMap.set(doc.id, doc.data()));
+
+      const [ordersSnap, chatsSnap, customersSnap, autoProjectsSnap] = await Promise.all([
+        db.collection('establishments').doc(storeId).collection('orders').get(),
+        db.collection('establishments').doc(storeId).collection('chats').get().catch(() => ({ docs: [] as any[] })),
+        db.collection('establishments').doc(storeId).collection('customers').get().catch(() => ({ docs: [] as any[] })),
+        db.collection('automotive_projects').where('establishmentId', '==', storeId).get().catch(() => ({ docs: [] as any[] }))
+      ]);
+
+      const map = new Map<string, any>();
+
+      ordersSnap.docs.forEach(doc => {
+        const o = doc.data();
+        const phone = (o.customerPhone || '').replace(/\D/g, '');
+        if (!phone || phone.length < 10) return;
+        const existing = map.get(phone);
+        const isCompleted = o.status === 'CONCLUIDO' || o.status === 'PRONTO' || o.status === 'CONFIRMADO';
+        const orderTotal = Number(o.total) || 0;
+        const orderDate = o.createdAt || new Date().toISOString();
+
+        if (!existing) {
+          map.set(phone, {
+            phone,
+            name: o.customerName || 'Cliente',
+            ordersCount: 1,
+            completedOrdersCount: isCompleted ? 1 : 0,
+            totalSpent: o.status !== 'CANCELADO' ? orderTotal : 0,
+            lastOrderDate: orderDate,
+            isBlocked: blockedMap.has(phone),
+            blockedAt: blockedMap.get(phone)?.blockedAt
+          });
+        } else {
+          existing.ordersCount += 1;
+          if (isCompleted) existing.completedOrdersCount += 1;
+          if (o.status !== 'CANCELADO') existing.totalSpent += orderTotal;
+          if (new Date(orderDate) > new Date(existing.lastOrderDate)) {
+            existing.lastOrderDate = orderDate;
+            if (o.customerName && o.customerName !== 'Cliente') existing.name = o.customerName;
+          }
+        }
+      });
+
+      for (const doc of [...customersSnap.docs, ...chatsSnap.docs]) {
+        const d = doc.data();
+        const phone = String(d.customerPhone || doc.id || '').replace(/\D/g, '');
+        if (!phone || phone.length < 10) continue;
+        const existing = map.get(phone);
+        const autoCtx = d.automotiveContext || {};
+        const vehicleInfo = [autoCtx.brand, autoCtx.model, autoCtx.year, autoCtx.version].filter(Boolean).join(' ');
+        const ts = d.lastTimestamp || d.lastInteractionAt || d.updatedAt || new Date().toISOString();
+        const nameCandidate = autoCtx.customerName || d.name || d.customerName || 'Cliente WhatsApp';
+
+        if (!existing) {
+          map.set(phone, {
+            phone,
+            name: nameCandidate,
+            ordersCount: autoCtx.projectId ? 1 : 0,
+            completedOrdersCount: 0,
+            totalSpent: 0,
+            lastOrderDate: ts,
+            interactionCount: Number(d.interactionCount || autoCtx.interactionCount || 1),
+            lastMessage: d.lastUserMessage || d.lastMessage || autoCtx.lastUserMessage || '',
+            contextSummary: autoCtx.summary || '',
+            vehicleInfo,
+            projectStatus: autoCtx.stage || '',
+            isBlocked: blockedMap.has(phone),
+            blockedAt: blockedMap.get(phone)?.blockedAt
+          });
+        } else {
+          if (nameCandidate && nameCandidate !== 'Cliente WhatsApp' && (existing.name === 'Cliente' || existing.name === 'Cliente WhatsApp')) {
+            existing.name = nameCandidate;
+          }
+          existing.interactionCount = Math.max(existing.interactionCount || 0, Number(d.interactionCount || autoCtx.interactionCount || 1));
+          if (d.lastUserMessage || d.lastMessage) existing.lastMessage = d.lastUserMessage || d.lastMessage;
+          if (autoCtx.summary) existing.contextSummary = autoCtx.summary;
+          if (vehicleInfo) existing.vehicleInfo = vehicleInfo;
+          if (autoCtx.stage) existing.projectStatus = autoCtx.stage;
+        }
+      }
+
+      for (const doc of autoProjectsSnap.docs) {
+        const p = doc.data();
+        const phone = String(p.phone || '').replace(/\D/g, '');
+        if (!phone || phone.length < 10) continue;
+        const existing = map.get(phone);
+        const vehicleInfo = [p.brand, p.model, p.year, p.version].filter(Boolean).join(' ');
+        const ts = p.updatedAt || p.createdAt || new Date().toISOString();
+
+        if (!existing) {
+          map.set(phone, {
+            phone,
+            name: p.customerName || 'Cliente',
+            ordersCount: 1,
+            completedOrdersCount: p.status === 'Concluído' || p.status === 'Aprovado' ? 1 : 0,
+            totalSpent: 0,
+            lastOrderDate: ts,
+            interactionCount: Number(p.interactionCount || 1),
+            lastMessage: p.lastMessage || p.objective || '',
+            contextSummary: p.conversationSummary || p.objective || '',
+            vehicleInfo,
+            projectStatus: p.status || 'Novo contato',
+            isBlocked: blockedMap.has(phone),
+            blockedAt: blockedMap.get(phone)?.blockedAt
+          });
+        } else {
+          existing.ordersCount = Math.max(existing.ordersCount, 1);
+          if (p.customerName && p.customerName !== 'Cliente WhatsApp') existing.name = p.customerName;
+          if (vehicleInfo) existing.vehicleInfo = vehicleInfo;
+          if (p.status) existing.projectStatus = p.status;
+          if (p.conversationSummary || p.objective) existing.contextSummary = p.conversationSummary || p.objective;
+        }
+      }
+
+      res.json(Array.from(map.values()).sort((a, b) => new Date(b.lastOrderDate).getTime() - new Date(a.lastOrderDate).getTime()));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

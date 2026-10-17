@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
+import { automotivePixelRatio } from '../utils/automotiveRenderQuality';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { MAX_MODEL3D_BYTES, validateGlb, type AutomotiveModel3D } from '../../functions/src/automotiveModel3d';
@@ -120,9 +121,7 @@ export default function AutomotiveImmersiveScene({ progress, accent, model, onRe
     const fail = () => { if (!disposed) { clean(); callbacks.current.onUnavailable?.(); } };
 
     try {
-      const mobile = window.matchMedia('(max-width: 760px)').matches;
-      renderer = new THREE.WebGLRenderer({ antialias: !mobile, alpha: true, powerPreference: 'low-power' });
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, mobile ? 1.25 : 1.5));
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
       renderer.setClearColor(0x050609, 1);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -163,8 +162,8 @@ export default function AutomotiveImmersiveScene({ progress, accent, model, onRe
         new THREE.Vector3(1.7, -0.35, -16), new THREE.Vector3(1.3, 0.35, -22),
         new THREE.Vector3(-1.3, 0.55, -28), new THREE.Vector3(-3, 0, -35),
       ]);
-      const radialSegments = mobile ? 32 : 56;
-      const longitudinalSegments = mobile ? 120 : 180;
+      const radialSegments = 56;
+      const longitudinalSegments = 180;
       const tubeGeometry = new THREE.TubeGeometry(path, longitudinalSegments, 2.16, radialSegments, false);
       const colors = new Float32Array(tubeGeometry.attributes.position.count * 3);
       const tempColor = new THREE.Color();
@@ -191,10 +190,10 @@ export default function AutomotiveImmersiveScene({ progress, accent, model, onRe
         new THREE.Vector2(2.16, -1.3), new THREE.Vector2(2.24, -0.65), new THREE.Vector2(2.4, -0.27),
         new THREE.Vector2(2.45, -0.1), new THREE.Vector2(2.42, 0.03), new THREE.Vector2(2.31, 0.08),
         new THREE.Vector2(2.25, -0.05), new THREE.Vector2(2.2, -0.35), new THREE.Vector2(2.14, -1.3),
-      ], mobile ? 56 : 96), titanium);
+      ], 96), titanium);
       lip.rotation.x = Math.PI / 2;
       mouth.add(lip);
-      const frontLip = new THREE.Mesh(new THREE.TorusGeometry(2.36, 0.055, 12, mobile ? 64 : 112), silver);
+      const frontLip = new THREE.Mesh(new THREE.TorusGeometry(2.36, 0.055, 12, 112), silver);
       frontLip.position.z = 0.07;
       mouth.add(frontLip);
       const outerShell = new THREE.Mesh(new THREE.CylinderGeometry(2.42, 2.24, 1.65, radialSegments, 1, true), blackMetal);
@@ -213,7 +212,7 @@ export default function AutomotiveImmersiveScene({ progress, accent, model, onRe
       };
       for (const angle of [0.35, 2.2, 3.5, 5.35]) {
         const linePath = new THREE.CatmullRomCurve3(Array.from({ length: 91 }, (_, i) => wallPoint(i / 90, angle)));
-        tubeGroup.add(new THREE.Mesh(new THREE.TubeGeometry(linePath, mobile ? 72 : 120, 0.009, 3, false), flowMaterial));
+        tubeGroup.add(new THREE.Mesh(new THREE.TubeGeometry(linePath, 120, 0.009, 3, false), flowMaterial));
         tubeGroup.add(new THREE.Mesh(new THREE.TubeGeometry(linePath, 72, 0.052, 3, false), haloMaterial));
       }
       const flowBeads: { mesh: THREE.Mesh; angle: number; offset: number }[] = [];
@@ -297,6 +296,7 @@ export default function AutomotiveImmersiveScene({ progress, accent, model, onRe
       const resize = () => {
         if (disposed || !renderer) return;
         width = Math.max(1, host.clientWidth); height = Math.max(1, host.clientHeight);
+        renderer.setPixelRatio(automotivePixelRatio(width, height, window.devicePixelRatio, renderer.capabilities.maxTextureSize));
         renderer.setSize(width, height, false); camera.aspect = width / height; camera.updateProjectionMatrix(); dirty = true; wake();
       };
       animate = (now: number) => {
@@ -314,8 +314,8 @@ export default function AutomotiveImmersiveScene({ progress, accent, model, onRe
           const tunnelTravel = ease(0.18, 0.68, p) * 0.97;
           const inside = path.getPointAt(tunnelTravel);
           const lookAhead = path.getPointAt(Math.min(1, tunnelTravel + 0.1));
-          camera.position.copy(new THREE.Vector3(portrait ? 0 : -3.8, portrait ? 0.5 : 0.3, portrait ? 12.8 : 7.8).lerp(inside, enter));
-          cameraTarget.copy(new THREE.Vector3(portrait ? 0 : -2.65, portrait ? 0.7 : 0.15, -5).lerp(lookAhead, enter));
+          camera.position.copy(new THREE.Vector3(portrait ? 0 : -3.8, portrait ? 0.5 : 0.3, portrait ? 15.4 : 7.8).lerp(inside, enter));
+          cameraTarget.copy(new THREE.Vector3(portrait ? 0 : -2.65, portrait ? 3.8 : 0.15, -5).lerp(lookAhead, enter));
           const spread = ease(0.84, 1, p) * 0.72;
           parts.forEach(part => part.object.position.copy(part.base).addScaledVector(part.direction, spread));
           product.rotation.set(-0.09 + ease(0.74, 1, p) * 0.12, -0.18 + ease(0.72, 1, p) * 0.7, 0.14);

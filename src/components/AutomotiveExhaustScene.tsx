@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { automotivePixelRatio } from '../utils/automotiveRenderQuality';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
 interface AutomotiveExhaustSceneProps {
@@ -109,8 +110,7 @@ export default function AutomotiveExhaustScene({ accent, fallbackImage }: Automo
     wakeRef.current = wake;
 
     try {
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'low-power' });
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
       renderer.setClearColor(0x101317, 0);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -353,6 +353,7 @@ export default function AutomotiveExhaustScene({ accent, fallbackImage }: Automo
         const width = host.clientWidth;
         const height = host.clientHeight;
         if (!width || !height) return;
+        renderer.setPixelRatio(automotivePixelRatio(width, height, window.devicePixelRatio, renderer.capabilities.maxTextureSize));
         renderer.setSize(width, height, false);
         camera.aspect = width / height;
         const fieldOfView = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));

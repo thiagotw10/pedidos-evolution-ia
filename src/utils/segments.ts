@@ -72,8 +72,8 @@ export const SEGMENT_CONFIGS: Record<BusinessSegment, SegmentConfig> = {
     ordersTitle: 'Projetos & Orçamentos', ordersNoun: 'Projeto', ordersPluralNoun: 'Projetos', receiptTitle: 'Solicitação de projeto',
     copilotEmoji: '🏁', copilotTitle: 'Consultor de projetos',
     statusLabels: { pending: 'Novo contato', inProgress: 'Análise técnica', dispatched: 'Enviado', ready: 'Pronto', completed: 'Concluído', cancelled: 'Cancelado' },
-    defaultWelcome: 'Olá! Bem-vindo à {loja}. Qual o modelo, ano e versão do seu carro? Vamos organizar seu projeto.',
-    defaultPrompt: 'Colete marca, modelo, ano, versão, modificações, objetivo e CEP. Apresente somente referências cadastradas, sem garantir aplicação. Não invente preço, estoque, potência, legalidade ou prazo. Orçamento, pagamento, compatibilidade e frete exigem confirmação da equipe técnica. Não registre pedidos de compra; organize uma solicitação para análise.',
+    defaultWelcome: 'Olá! Seja muito bem-vindo à {loja} 🏁! Qual é o modelo, ano e versão do seu carro e o que você busca para o seu projeto de performance ou escapamento?',
+    defaultPrompt: 'Atue como consultor especialista de projetos automotivos. Conduza a conversa de forma fluida (1 a 2 perguntas por vez), coletando marca, modelo, ano, versão, modificações atuais, objetivo de ronco/performance, nome e modalidade (Atendimento local na oficina ou Envio nacional com CEP). Salve o contexto da conversa e registre o lead no CRM com registrar_interesse_projeto. Apresente fotos e vídeos de referências reais sem inventar preço, estoque, potência ou prazo.',
     sampleItemName: 'Projeto de escapamento — referência', sampleCategory: 'Porsche 992', samplePrice: 0,
     sampleDescription: 'Descreva aqui o veículo e a configuração real deste projeto. Aplicação sob análise técnica.',
     deliveryTypeLabels: { delivery: 'Consultar envio nacional', pickup: 'Consultar atendimento local' }, hasDeliveryTeam: false, hasDeliveryFee: false

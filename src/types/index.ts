@@ -152,6 +152,7 @@ export interface Establishment {
   aiOutOfHoursAction?: OutOfHoursAction;
   aiOutOfHoursMessage?: string;
   // Subscription & Plan (Mercado Pago PIX)
+  isOwner?: boolean;
   plan?: 'trial' | 'active' | 'expired';
   accountStatus?: 'trial' | 'active_paid' | 'expired';
   trialEndsAt?: string;

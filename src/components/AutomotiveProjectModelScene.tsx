@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { automotivePixelRatio } from '../utils/automotiveRenderQuality';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { MAX_MODEL3D_BYTES, validateGlb } from '../../functions/src/automotiveModel3d';
@@ -152,8 +153,7 @@ export default function AutomotiveProjectModelScene({ accent, model, projectName
     const setup = async () => {
       try {
         if (model.sizeBytes > MAX_MODEL3D_BYTES) throw new Error('O arquivo 3D excede o limite de 20 MB.');
-        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'low-power' });
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
         renderer.setClearColor(0x101317, 0);
         renderer.outputColorSpace = THREE.SRGBColorSpace;
         renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -202,6 +202,7 @@ export default function AutomotiveProjectModelScene({ accent, model, projectName
           if (disposed || !renderer) return;
           const width = Math.max(1, host.clientWidth);
           const height = Math.max(1, host.clientHeight);
+          renderer.setPixelRatio(automotivePixelRatio(width, height, window.devicePixelRatio, renderer.capabilities.maxTextureSize));
           renderer.setSize(width, height, false);
           camera.aspect = width / height;
           camera.updateProjectionMatrix();

@@ -263,3 +263,17 @@ html:has(.auto-storefront), body:has(.auto-storefront), #root:has(.auto-storefro
 }
 
 
+
+/* A visible mute control follows the visitor through all three chapters. */
+.auto-immersion-audio-btn { min-height: 36px; box-shadow: none; }
+.auto-immersion-topline-right>a { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.auto-immersion-unlock-pill { min-height: 44px; animation: none; box-shadow: 0 6px 24px #0005; }
+@media (max-width: 767px) {
+  .auto-immersion-topline>span { max-width: 40%; }
+  .auto-immersion-topline-right { gap: 10px; }
+  .auto-immersion-audio-btn { font-size: 8px; letter-spacing: 0; padding: 5px 9px; gap: 5px; min-height: 36px; }
+  .auto-immersion-topline-right>a { font-size: 7px; gap: 4px; letter-spacing: 0; }
+  .auto-immersion-unlock-pill { max-width: calc(100% - 40px); font-size: 10px; padding: 9px 16px; bottom: 94px; white-space: nowrap; }
+  .auto-immersion-first .auto-immersion-description { color: #c1c6d0; }
+  .auto-immersion-first .auto-immersion-sound { background: #08090b66; padding-inline: 8px; }
+}

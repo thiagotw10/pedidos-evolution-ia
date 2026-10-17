@@ -1,7 +1,7 @@
 import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowDown, ArrowUpRight, Camera, Play, Volume2 } from 'lucide-react';
+import { ArrowDown, ArrowUpRight, Camera, Play, Volume2, VolumeX } from 'lucide-react';
 import type { AutomotiveReference } from './AutomotiveStorefront';
-import { spatialAudio } from '../utils/automotiveSpatialAudio';
+import { spatialAudio, type ExhaustAudioStatus } from '../utils/automotiveSpatialAudio';
 import './automotive-immersive-intro.css';
 
 const ImmersiveScene = lazy(() => import('./AutomotiveImmersiveScene'));
@@ -25,10 +25,11 @@ interface Props {
   modelProject: AutomotiveReference | null;
   onOpenProject: (project: AutomotiveReference, tab: 'photos' | 'video') => void;
   onExploreModel: (project: AutomotiveReference) => void;
+  soundPaused?: boolean;
 }
 
 /** Native scrolling owns the timeline. No wheel interception or page-level animation loop. */
-export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, featuredProject, modelProject, onOpenProject, onExploreModel }: Props) {
+export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, featuredProject, modelProject, onOpenProject, onExploreModel, soundPaused = false }: Props) {
   const root = useRef<HTMLElement>(null);
   const progress = useRef(0);
   const progressLabel = useRef<HTMLSpanElement>(null);
@@ -41,6 +42,8 @@ export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, f
   const [realModel, setRealModel] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const [near, setNear] = useState(false);
+  const [audioStatus, setAudioStatus] = useState<ExhaustAudioStatus>(() => spatialAudio.getStatus());
+  const [muted, setMuted] = useState(() => spatialAudio.isMuted());
   const [isSuspended, setIsSuspended] = useState<boolean>(() => spatialAudio.isSuspended());
 
   const staticMode = reducedMotion || unavailable || shortViewport;
@@ -49,46 +52,43 @@ export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, f
   const sceneFailed = useCallback(() => setUnavailable(true), []);
   const modelReady = useCallback((value: boolean) => setRealModel(value), []);
 
-  // Monitora se o navegador suspendeu o áudio (ex: no trackpad do Chrome/Safari no Mac)
-  useEffect(() => {
-    return spatialAudio.subscribe(suspended => {
-      setIsSuspended(suspended);
-    });
-  }, []);
+  useEffect(() => spatialAudio.subscribeState(status => {
+    setAudioStatus(status); setIsSuspended(spatialAudio.isSuspended()); setMuted(spatialAudio.isMuted());
+  }), []);
 
-  // Desbloqueia o áudio imediatamente em qualquer interação física (click, mousedown, touch, etc.)
   useEffect(() => {
-    const unlock = () => {
+    const project = modelProject || featuredProject;
+    const source = /corvette|chevrolet/i.test(project?.name || '') ? '/audio/corvette_ronco_real.mp3' : '/audio/porsche_ronco_real.mp3';
+    spatialAudio.configure({ source });
+  }, [modelProject?.id, featuredProject?.id]);
+
+  useEffect(() => {
+    spatialAudio.setPaused(soundPaused || staticMode);
+  }, [soundPaused, staticMode]);
+
+  // A real activation gesture unlocks audio; wheel and scroll do not bypass autoplay policy.
+  useEffect(() => {
+    if (staticMode || soundPaused) return;
+    const unlock = (event: Event) => {
+      const rect = root.current?.getBoundingClientRect();
+      if (!rect || rect.bottom <= 0 || rect.top >= window.innerHeight) return;
+      if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
       spatialAudio.unlockOnUserGesture();
     };
+    const events = ['pointerdown', 'touchend', 'click', 'keydown'];
+    events.forEach(event => window.addEventListener(event, unlock, { passive: true, capture: true }));
+    return () => events.forEach(event => window.removeEventListener(event, unlock, true));
+  }, [staticMode, soundPaused]);
 
-    const options = { passive: true, capture: true };
-    window.addEventListener('click', unlock, options);
-    window.addEventListener('pointerdown', unlock, options);
-    window.addEventListener('mousedown', unlock, options);
-    window.addEventListener('touchstart', unlock, options);
-    window.addEventListener('touchmove', unlock, options);
-    window.addEventListener('wheel', unlock, options);
-    window.addEventListener('scroll', unlock, options);
-    window.addEventListener('keydown', unlock, options);
+  useEffect(() => () => spatialAudio.stop(), []);
 
-    return () => {
-      window.removeEventListener('click', unlock, true);
-      window.removeEventListener('pointerdown', unlock, true);
-      window.removeEventListener('mousedown', unlock, true);
-      window.removeEventListener('touchstart', unlock, true);
-      window.removeEventListener('touchmove', unlock, true);
-      window.removeEventListener('wheel', unlock, true);
-      window.removeEventListener('scroll', unlock, true);
-      window.removeEventListener('keydown', unlock, true);
-    };
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      spatialAudio.stop();
-    };
-  }, []);
+  const toggleAudio = () => {
+    if (muted || isSuspended || audioStatus === 'error') {
+      spatialAudio.setMuted(false); setMuted(false); spatialAudio.unlockOnUserGesture();
+    } else {
+      spatialAudio.setMuted(true); setMuted(true);
+    }
+  };
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -101,13 +101,13 @@ export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, f
   useEffect(() => {
     const element = root.current;
     if (!element) return;
-    if (!('IntersectionObserver' in window)) { setNear(true); return; }
+    if (!('IntersectionObserver' in window)) { setNear(true); spatialAudio.setVisible(true); return; }
     const observer = new IntersectionObserver(entries => {
       const isIntersecting = entries.some(entry => entry.isIntersecting);
       spatialAudio.setVisible(isIntersecting);
       if (isIntersecting) { setNear(true); }
-    }, { rootMargin: '150px' });
-    observer.observe(element);
+    }, { rootMargin: '0px' });
+    observer.observe(element.firstElementChild || element);
     return () => observer.disconnect();
   }, []);
 
@@ -115,6 +115,7 @@ export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, f
     const element = root.current;
     if (!element) return;
     let frame = 0;
+    let fromScroll = false;
     const update = () => {
       frame = 0;
       const rect = element.getBoundingClientRect();
@@ -124,7 +125,8 @@ export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, f
       progress.current = p;
 
       // Alimenta continuamente a engine com o scroll e a dinâmica de aceleração
-      spatialAudio.updateProgress(p);
+      spatialAudio.updateProgress(p, fromScroll);
+      fromScroll = false;
 
       element.style.setProperty('--intro-p', p.toFixed(4));
       element.style.setProperty('--intro-first', String(1 - ramp(p, .10, .24)));
@@ -136,12 +138,13 @@ export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, f
       if (nextPhase !== currentPhase.current) { currentPhase.current = nextPhase; setPhase(nextPhase); }
     };
     const request = () => { if (!frame) frame = requestAnimationFrame(update); };
+    const scroll = () => { fromScroll = true; request(); };
     const observer = new ResizeObserver(request);
     observer.observe(element);
-    window.addEventListener('scroll', request, { passive: true });
+    window.addEventListener('scroll', scroll, { passive: true });
     window.addEventListener('resize', request, { passive: true });
     update();
-    return () => { cancelAnimationFrame(frame); observer.disconnect(); window.removeEventListener('scroll', request); window.removeEventListener('resize', request); };
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); window.removeEventListener('scroll', scroll); window.removeEventListener('resize', request); };
   }, [staticMode]);
 
   const goToChapter = (index: number) => {
@@ -166,6 +169,9 @@ export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, f
       <div className="auto-immersion-topline">
         <span><i /> {tagline}</span>
         <div className="auto-immersion-topline-right">
+          {!staticMode && <button type="button" className={`auto-immersion-audio-btn ${muted ? 'is-muted' : !isSuspended ? 'is-active' : ''}`} onClick={toggleAudio} aria-pressed={audioStatus === 'ready'} aria-label={audioStatus === 'error' ? 'Tentar carregar o som novamente' : muted || isSuspended ? 'Ativar som imersivo' : 'Silenciar som imersivo'} title="Ronco interativo: acelere ao rolar e desacelere ao parar">
+            {muted ? <VolumeX size={13} /> : <Volume2 size={13} />}<span>{audioStatus === 'loading' ? 'Carregando som' : audioStatus === 'error' ? 'Tentar som' : muted ? 'Som desligado' : isSuspended ? 'Ativar som' : 'Som ativo'}</span>
+          </button>}
           <a href="#auto-engineering">Pular abertura <ArrowUpRight size={14} /></a>
         </div>
       </div>
@@ -173,7 +179,7 @@ export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, f
       <div className="auto-immersion-copy auto-immersion-first" inert={phase !== 0} aria-hidden={phase !== 0}>
         <p className="auto-immersion-overline">MAIS DO QUE OUVIR.</p>
         <h1>O RONCO<br />COMEÇA<br /><em>AQUI.</em></h1>
-        <p className="auto-immersion-description">Role para entrar no escapamento de titânio<br />e acelerar o fluxo em 3D.</p>
+        <p className="auto-immersion-description">{staticMode ? <>Do acabamento ao ronco.<br />Descubra a sua próxima assinatura.</> : <>Role para entrar. Acelere o som.<br />Pare e sinta o giro baixar.</>}</p>
         <div className="auto-immersion-actions">
           <a className="auto-btn auto-btn-primary" href="#project-form">Criar meu projeto <ArrowUpRight size={17} /></a>
           {featuredProject?.videoUrl && <button className="auto-immersion-sound" type="button" onClick={() => onOpenProject(featuredProject, 'video')}><Play size={13} fill="currentColor" /> Ouvir um projeto real</button>}
@@ -186,7 +192,7 @@ export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, f
         <p className="auto-immersion-description">O caminho do fluxo.<br />A presença do som. A sua personalidade.</p>
       </div>
 
-      {phase === 1 && isSuspended && (
+      {phase === 1 && isSuspended && !muted && !staticMode && (
         <button
           type="button"
           className="auto-immersion-unlock-pill"
@@ -194,7 +200,7 @@ export default function AutomotiveImmersiveIntro({ storeName, tagline, accent, f
           aria-label="Liberar áudio do motor"
         >
           <Volume2 size={14} />
-          <span>Toque ou clique para liberar o som no notebook</span>
+          <span>Toque para ativar o ronco</span>
         </button>
       )}
 

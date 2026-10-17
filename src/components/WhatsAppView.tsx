@@ -43,6 +43,11 @@ interface CustomerContact {
   completedOrdersCount: number;
   totalSpent: number;
   lastOrderDate: string;
+  interactionCount?: number;
+  lastMessage?: string;
+  contextSummary?: string;
+  vehicleInfo?: string;
+  projectStatus?: string;
   isBlocked: boolean;
   blockedAt?: string;
 }
@@ -399,7 +404,6 @@ export const WhatsAppView: React.FC<WhatsAppViewProps> = ({
           </button>
 
           <button
-            style={establishment?.segment === 'AUTOMOTIVE_PARTS' ? { display: 'none' } : undefined}
             onClick={() => {
               setActiveTab('contacts');
               fetchCustomers();
@@ -411,7 +415,11 @@ export const WhatsAppView: React.FC<WhatsAppViewProps> = ({
             }`}
           >
             <Users className="w-3.5 h-3.5" />
-            <span>Base de Clientes ({activeAudienceCount})</span>
+            <span>
+              {establishment?.segment === 'AUTOMOTIVE_PARTS'
+                ? `Contatos & Contexto (${activeAudienceCount})`
+                : `Base de Clientes (${activeAudienceCount})`}
+            </span>
           </button>
         </div>
       </div>
@@ -959,26 +967,38 @@ export const WhatsAppView: React.FC<WhatsAppViewProps> = ({
       )}
 
       {/* TAB 2: CUSTOMERS & AUDIENCE LIST */}
-      {activeTab === 'contacts' && establishment?.segment !== 'AUTOMOTIVE_PARTS' && (
+      {activeTab === 'contacts' && (
         <div className="space-y-6 animate-in fade-in">
           {/* Summary Row */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-5 backdrop-blur-sm">
-              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Clientes com Pedidos</span>
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                {establishment?.segment === 'AUTOMOTIVE_PARTS' ? 'Contatos no WhatsApp' : 'Clientes com Pedidos'}
+              </span>
               <div className="mt-2 text-2xl font-black text-white">{customers.length}</div>
-              <p className="text-xs text-slate-400 mt-0.5">Contatos que já compraram na loja</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {establishment?.segment === 'AUTOMOTIVE_PARTS'
+                  ? 'Interações salvas por estabelecimento'
+                  : 'Contatos que já compraram na loja'}
+              </p>
             </div>
 
             <div className="bg-slate-900/80 border border-emerald-500/30 rounded-2xl p-5 backdrop-blur-sm">
-              <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">Ativos para Disparos</span>
+              <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">
+                {establishment?.segment === 'AUTOMOTIVE_PARTS' ? 'Ativos no CRM / Chat' : 'Ativos para Disparos'}
+              </span>
               <div className="mt-2 text-2xl font-black text-emerald-400">{activeAudienceCount}</div>
-              <p className="text-xs text-slate-400 mt-0.5">Receberão os disparos agendados</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {establishment?.segment === 'AUTOMOTIVE_PARTS'
+                  ? 'Com contexto da conversa salvo'
+                  : 'Receberão os disparos agendados'}
+              </p>
             </div>
 
             <div className="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-5 backdrop-blur-sm">
               <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Removidos / Bloqueados</span>
               <div className="mt-2 text-2xl font-black text-rose-400">{blockedAudienceCount}</div>
-              <p className="text-xs text-slate-400 mt-0.5">Não receberão mensagens de marketing</p>
+              <p className="text-xs text-slate-400 mt-0.5">Opt-out ou bloqueados pelo lojista</p>
             </div>
           </div>
 
@@ -1042,10 +1062,14 @@ export const WhatsAppView: React.FC<WhatsAppViewProps> = ({
                   <tr className="border-b border-slate-800 text-slate-400 font-semibold">
                     <th className="pb-3">Cliente</th>
                     <th className="pb-3">WhatsApp</th>
-                    <th className="pb-3">Pedidos Concluídos</th>
-                    <th className="pb-3">Total Gasto</th>
-                    <th className="pb-3">Último Pedido</th>
-                    <th className="pb-3">Status de Disparo</th>
+                    <th className="pb-3">
+                      {establishment?.segment === 'AUTOMOTIVE_PARTS' ? 'Veículo / Contexto da Conversa' : 'Pedidos Concluídos'}
+                    </th>
+                    <th className="pb-3">
+                      {establishment?.segment === 'AUTOMOTIVE_PARTS' ? 'Etapa CRM / Interações' : 'Total Gasto'}
+                    </th>
+                    <th className="pb-3">Última Interação</th>
+                    <th className="pb-3">Status</th>
                     <th className="pb-3 text-right">Ação</th>
                   </tr>
                 </thead>
@@ -1073,17 +1097,41 @@ export const WhatsAppView: React.FC<WhatsAppViewProps> = ({
                         </a>
                       </td>
 
-                      {/* Orders Count */}
-                      <td className="py-3.5">
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-slate-950 border border-slate-800 font-semibold text-slate-200">
-                          <ShoppingBag className="w-3 h-3 text-emerald-400" />
-                          {contact.completedOrdersCount || contact.ordersCount} pedido(s)
-                        </span>
+                      {/* Orders Count OR Automotive Context */}
+                      <td className="py-3.5 max-w-xs">
+                        {establishment?.segment === 'AUTOMOTIVE_PARTS' ? (
+                          <div className="space-y-0.5">
+                            {contact.vehicleInfo && (
+                              <p className="font-bold text-orange-300 text-xs">{contact.vehicleInfo}</p>
+                            )}
+                            <p className="text-[11px] text-slate-300 line-clamp-2">
+                              {contact.contextSummary || contact.lastMessage || 'Conversa iniciada no WhatsApp'}
+                            </p>
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-slate-950 border border-slate-800 font-semibold text-slate-200">
+                            <ShoppingBag className="w-3 h-3 text-emerald-400" />
+                            {contact.completedOrdersCount || contact.ordersCount} pedido(s)
+                          </span>
+                        )}
                       </td>
 
-                      {/* Total Spent */}
-                      <td className="py-3.5 font-mono font-bold text-emerald-400">
-                        R$ {contact.totalSpent.toFixed(2)}
+                      {/* Total Spent OR CRM Stage */}
+                      <td className="py-3.5">
+                        {establishment?.segment === 'AUTOMOTIVE_PARTS' ? (
+                          <div className="flex flex-col gap-1">
+                            <span className="inline-flex self-start items-center px-2 py-0.5 rounded-md bg-orange-500/15 text-orange-300 border border-orange-500/30 font-bold text-[10px]">
+                              {contact.projectStatus || 'Em qualificação'}
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              {contact.interactionCount || 1} interaç{(contact.interactionCount || 1) === 1 ? 'ão' : 'ões'}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="font-mono font-bold text-emerald-400">
+                            R$ {contact.totalSpent.toFixed(2)}
+                          </span>
+                        )}
                       </td>
 
                       {/* Last Order Date */}

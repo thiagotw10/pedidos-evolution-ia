@@ -307,6 +307,7 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
           modelProject={modelProjects[0] || null}
           onOpenProject={openLightbox}
           onExploreModel={project => setActiveModelId(project.id)}
+          soundPaused={lightbox.isOpen}
         />
 
         <div className="auto-editorial-strip" aria-hidden="true"><span>ENGENHARIA</span><i>✳</i><span>PERSONALIDADE</span><i>✳</i><span>ACÚSTICA</span><i>✳</i><span>ACABAMENTO</span><i>✳</i><span>PERFORMANCE</span></div>

@@ -254,10 +254,10 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
     switch (segConfig.id) {
       case 'AUTOMOTIVE_PARTS':
         return [
-          'Tenho um Porsche 911 série 992. Quais dados precisam para analisar meu projeto?',
-          'Pode mostrar referências de escapamentos?',
-          'Onde fica a oficina de vocês? Qual o endereço para eu levar o carro?',
-          'Quero consultar um projeto com envio para o CEP 50000-000.'
+          'Tenho um Porsche 911 Carrera S 2024 (992) original e quero um escapamento valvulado em Inox 304.',
+          'Pode me mostrar fotos e vídeo do ronco das referências cadastradas?',
+          'Meu nome é Thiago, quero envio nacional para o CEP 50000-000 para a equipe me passar orçamento.',
+          'Onde fica a oficina de vocês? Qual o endereço para eu levar o carro pessoalmente?'
         ];
       case 'VEHICLES':
         return [
@@ -512,13 +512,13 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
                       {msg.orderId && (
                         <div className="mt-3 pt-2.5 border-t border-slate-700/80 flex items-center justify-between gap-2">
                           <span className="text-[11px] font-bold text-emerald-300 flex items-center gap-1">
-                            <OrdersIcon className="w-3.5 h-3.5" /> {segConfig.ordersNoun} Registrado(a) no Painel!
+                            <OrdersIcon className="w-3.5 h-3.5" /> {segConfig.id === 'AUTOMOTIVE_PARTS' ? 'Contexto & Lead Salvos no CRM!' : `${segConfig.ordersNoun} Registrado(a) no Painel!`}
                           </span>
                           <button
                             onClick={onNavigateToOrders}
                             className="text-[10px] underline font-bold text-white hover:text-emerald-300 flex items-center gap-1 cursor-pointer"
                           >
-                            Ver no Gestor <ExternalLink className="w-2.5 h-2.5" />
+                            {segConfig.id === 'AUTOMOTIVE_PARTS' ? 'Ver no CRM' : 'Ver no Gestor'} <ExternalLink className="w-2.5 h-2.5" />
                           </button>
                         </div>
                       )}
