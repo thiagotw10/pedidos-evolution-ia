@@ -64,7 +64,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
   const menuItems = [
     { id: 'orders', label: segConfig.ordersTitle, icon: OrdersIcon },
     { id: 'finance', label: 'Painel Financeiro', icon: TrendingUp },
-    { id: 'billing', label: 'Uso e Créditos', icon: CreditCard },
+    { id: 'billing', label: 'Planos & Créditos IA', icon: CreditCard },
     { id: 'products', label: segConfig.catalogTitle, icon: CatalogIcon },
     { id: 'campaigns', label: 'Disparos & Campanhas', icon: Megaphone },
     { id: 'simulator', label: 'Simulador da IA', icon: MessageSquareCode, badge: 'Testar' },

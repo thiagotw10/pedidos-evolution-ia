@@ -22,6 +22,7 @@ import {
   ArrowLeft
 } from 'lucide-react';
 import { SEGMENT_OPTIONS, getSegmentConfig } from '../utils/segments';
+import { getRecommendedPlanForSegment } from '../utils/subscription';
 
 interface AuthViewProps {
   onAuthSuccess: (storeId: string, email?: string) => void;
@@ -55,6 +56,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
       const snap = await getDoc(estRef);
       
       const segConf = getSegmentConfig(storeSegment);
+      const recommendedPlan = getRecommendedPlanForSegment(segConf.id);
       const cleanInstName = `pedidos_${name.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 15)}_${uid.slice(0, 5)}`;
       const ownReferralCode = `IA-${uid.replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase()}`;
       const storeData = {
@@ -79,8 +81,9 @@ export const AuthView: React.FC<AuthViewProps> = ({
         createdAt: new Date().toISOString(),
         trialEndsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
         plan: 'trial',
+        planTier: recommendedPlan.id,
         accountStatus: 'trial',
-        planPrice: 50
+        planPrice: recommendedPlan.price
       };
 
       if (!snap.exists()) {

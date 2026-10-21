@@ -22,6 +22,7 @@ import {
   Coffee, 
   Flame 
 } from 'lucide-react';
+import { PLAN_TIER_LIST } from '../utils/subscription';
 
 interface HomeViewProps {
   onGoToAuth: (mode: 'login' | 'register') => void;
@@ -88,7 +89,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth }) => {
           {/* Navigation Links */}
           <nav className="hidden md:flex items-center gap-8 text-xs font-semibold text-slate-300">
             <a href="#recursos" className="hover:text-emerald-400 transition">Recursos</a>
-            <a href="#como-funciona" className="hover:text-emerald-400 transition">Como Funciona</a>
+            <a href="#planos" className="hover:text-emerald-400 transition">Planos</a>
             <a href="#comparativo" className="hover:text-emerald-400 transition">Vantagens</a>
             <a href="#depoimentos" className="hover:text-emerald-400 transition">Depoimentos</a>
             <a href="#faq" className="hover:text-emerald-400 transition">Dúvidas</a>
@@ -143,6 +144,9 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth }) => {
 
         {/* Niche Badges */}
         <div className="flex flex-wrap items-center justify-center gap-2 max-w-3xl mx-auto pt-1">
+          <span className="px-3 py-1.5 rounded-full bg-orange-500/15 border border-orange-500/30 text-xs text-orange-300 font-semibold flex items-center gap-1.5 shadow-sm">
+            🏁 Performance & Escapamentos 3D
+          </span>
           <span className="px-3 py-1.5 rounded-full bg-slate-900/90 border border-slate-800 text-xs text-slate-300 font-semibold flex items-center gap-1.5 shadow-sm">
             🚗 Veículos & Concessionárias
           </span>
@@ -572,6 +576,90 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth }) => {
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* 6.5 Pricing & Plans Section */}
+      <section id="planos" className="py-24 px-6 max-w-7xl mx-auto border-t border-slate-800/60 space-y-12">
+        <div className="text-center max-w-2xl mx-auto space-y-3">
+          <span className="text-xs font-bold px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
+            Planos & Investimento
+          </span>
+          <h2 className="text-3xl sm:text-5xl font-black text-white tracking-tight">
+            Planos sob medida para o porte e ticket do seu negócio
+          </h2>
+          <p className="text-sm sm:text-base text-slate-400">
+            Todos os planos incluem <strong>7 dias de teste grátis</strong>, <strong>0% de comissão</strong> sobre suas vendas e <strong>franquia mensal de créditos de IA</strong> já inclusa.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {PLAN_TIER_LIST.map((plan) => (
+            <div
+              key={plan.id}
+              className={`rounded-3xl p-7 border flex flex-col justify-between transition ${
+                plan.highlighted
+                  ? 'bg-slate-900 border-emerald-500/60 shadow-2xl shadow-emerald-950/30 ring-1 ring-emerald-500/30'
+                  : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
+              }`}
+            >
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                    {plan.name}
+                  </span>
+                  {plan.badge && (
+                    <span
+                      className={`text-[10px] font-black px-2.5 py-0.5 rounded-full ${
+                        plan.highlighted
+                          ? 'bg-emerald-500 text-slate-950'
+                          : 'bg-orange-500/20 text-orange-300 border border-orange-500/30'
+                      }`}
+                    >
+                      {plan.badge}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-4xl font-black text-white">R$ {plan.price}</span>
+                  <span className="text-xs text-slate-400 font-semibold">/ mês</span>
+                </div>
+
+                <p className="text-xs text-emerald-300 font-bold mt-2">
+                  + R$ {plan.includedCredits},00 em créditos IA/mês ({plan.estimatedInteractions})
+                </p>
+                <p className="text-xs text-slate-400 mt-1">{plan.targetAudience}</p>
+
+                {plan.setupFeeOptional && (
+                  <div className="mt-3 px-3 py-1.5 rounded-xl bg-orange-500/10 border border-orange-500/25 text-[11px] text-orange-300 font-semibold">
+                    Setup de Implantação 3D & Catálogo (opcional): R$ {plan.setupFeeOptional}
+                  </div>
+                )}
+
+                <ul className="mt-6 space-y-3 border-t border-slate-800 pt-5 text-xs text-slate-300">
+                  {plan.features.map((feat, i) => (
+                    <li key={i} className="flex items-start gap-2.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                      <span>{feat}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <button
+                onClick={() => onGoToAuth('register')}
+                className={`mt-7 w-full py-3.5 px-4 rounded-2xl font-black text-xs flex items-center justify-center gap-2 transition cursor-pointer ${
+                  plan.highlighted
+                    ? 'bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 shadow-lg shadow-emerald-500/25'
+                    : 'bg-slate-800 hover:bg-slate-700 text-white'
+                }`}
+              >
+                <span>Testar 7 Dias Grátis no {plan.name}</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
         </div>
       </section>
 

@@ -154,6 +154,9 @@ export interface Establishment {
   // Subscription & Plan (Mercado Pago PIX)
   isOwner?: boolean;
   plan?: 'trial' | 'active' | 'expired';
+  planTier?: 'essencial' | 'pro' | 'performance';
+  planPrice?: number;
+  aiCreditsBalance?: number;
   accountStatus?: 'trial' | 'active_paid' | 'expired';
   trialEndsAt?: string;
   subscriptionValidUntil?: string;

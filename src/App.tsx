@@ -467,7 +467,11 @@ export default function App() {
             )}
 
             {currentTab === 'billing' && (
-              <BillingView establishmentId={storeId} email={currentUser?.email || sessionUser?.email} />
+              <BillingView
+                establishmentId={storeId}
+                email={currentUser?.email || sessionUser?.email}
+                establishment={establishment}
+              />
             )}
 
             {currentTab === 'products' && (

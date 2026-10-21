@@ -1,18 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  X, 
-  CheckCircle2, 
-  Copy, 
-  AlertCircle, 
-  ShieldCheck, 
-  RefreshCw, 
-  Sparkles, 
-  QrCode,
-  Calendar,
-  Clock
+import {
+  X,
+  CheckCircle2,
+  Copy,
+  ShieldCheck,
+  RefreshCw,
+  Sparkles,
+  QrCode
 } from 'lucide-react';
 import { Establishment } from '../types';
-import { getSubscriptionStatus } from '../utils/subscription';
+import {
+  getSubscriptionStatus,
+  PLAN_TIER_LIST,
+  PLAN_TIERS,
+  PlanTierId,
+  getPlanConfig
+} from '../utils/subscription';
 
 interface SubscriptionModalProps {
   isOpen: boolean;
@@ -25,6 +28,9 @@ interface PixData {
   id: string | number;
   qr_code: string;
   qr_code_base64: string;
+  planName?: string;
+  amount?: number;
+  includedCredits?: number;
 }
 
 export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
@@ -36,11 +42,19 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   if (!isOpen) return null;
 
   const status = getSubscriptionStatus(establishment);
+  const defaultPlan = getPlanConfig(establishment?.planTier, establishment?.segment);
+  const [selectedPlanId, setSelectedPlanId] = useState<PlanTierId>(defaultPlan.id);
+  const selectedPlan = PLAN_TIERS[selectedPlanId] || defaultPlan;
+
   const [pixData, setPixData] = useState<PixData | null>(null);
   const [generating, setGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    setSelectedPlanId(defaultPlan.id);
+  }, [defaultPlan.id]);
 
   // Polling to verify payment approval
   useEffect(() => {
@@ -50,7 +64,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
       try {
         const res = await fetch(`/api/subscription/status/${pixData.id}`);
         const data = await res.json();
-        
+
         if (data.approved || data.status === 'approved') {
           setPaymentSuccess(true);
           clearInterval(interval);
@@ -78,7 +92,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
         body: JSON.stringify({
           establishmentId: establishment.id,
           email: userEmail || establishment.pixKey || 'cliente@iapedido.com.br',
-          name: establishment.name || 'Estabelecimento iaPedido'
+          name: establishment.name || 'Estabelecimento iaPedido',
+          planTier: selectedPlan.id
         })
       });
 
@@ -87,7 +102,10 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
         setPixData({
           id: data.id,
           qr_code: data.qr_code,
-          qr_code_base64: data.qr_code_base64
+          qr_code_base64: data.qr_code_base64,
+          planName: data.planName || selectedPlan.name,
+          amount: data.amount || selectedPlan.price,
+          includedCredits: data.includedCredits || selectedPlan.includedCredits
         });
       } else {
         setErrorMsg(data.error || 'Erro ao gerar QR Code PIX.');
@@ -109,8 +127,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-      <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 shadow-2xl">
-        
+      <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 shadow-2xl my-auto">
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -125,23 +142,27 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
             <Sparkles className="w-6 h-6" />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-white">Plano & Assinatura iaPedido</h2>
-            <p className="text-xs text-slate-400">Gerencie seu acesso e renovações</p>
+            <h2 className="text-xl font-bold text-white">Planos & Assinatura iaPedido</h2>
+            <p className="text-xs text-slate-400">Escolha seu plano com franquia mensal de créditos de IA inclusa</p>
           </div>
         </div>
 
         {/* Status Card */}
         <div className="mb-5 p-4 rounded-2xl bg-slate-950/80 border border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className={`w-3 h-3 rounded-full ${status.isActivePaid ? 'bg-emerald-400' : (status.isTrial ? 'bg-amber-400' : 'bg-rose-500')}`} />
+            <div
+              className={`w-3 h-3 rounded-full ${
+                status.isActivePaid ? 'bg-emerald-400' : status.isTrial ? 'bg-amber-400' : 'bg-rose-500'
+              }`}
+            />
             <div>
               <p className="text-xs text-slate-400 uppercase font-semibold">Status Atual</p>
               <p className="text-sm font-bold text-white">{status.statusLabel}</p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-xs text-slate-400">Valor</p>
-            <p className="text-sm font-bold text-emerald-400">R$ 50,00 / mês</p>
+            <p className="text-xs text-slate-400">{selectedPlan.name}</p>
+            <p className="text-sm font-black text-emerald-400">R$ {selectedPlan.price},00 / mês</p>
           </div>
         </div>
 
@@ -150,31 +171,68 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
             <CheckCircle2 className="w-6 h-6 text-emerald-400 flex-shrink-0" />
             <div>
               <p className="font-bold text-sm">Pagamento Confirmado!</p>
-              <p className="text-xs text-emerald-400/80">Plano ativado por mais 30 dias com sucesso.</p>
+              <p className="text-xs text-emerald-400/80">
+                Plano ativado por 30 dias + R$ {selectedPlan.includedCredits},00 em créditos de IA liberados!
+              </p>
             </div>
+          </div>
+        )}
+
+        {errorMsg && (
+          <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
+            {errorMsg}
           </div>
         )}
 
         {/* PIX Generation / Display */}
         {!pixData ? (
           <div>
-            <div className="space-y-2 mb-6 text-xs text-slate-300">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                <span>Atendimento automático com Inteligência Artificial no WhatsApp</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                <span>Disparo e notificação a motoboys com rota GPS / Waze</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                <span>Módulo financeiro, fluxo de caixa e projeções de faturamento</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                <span>Campanhas promocionais agendadas para clientes que já pediram</span>
-              </div>
+            {/* Plan Selector Tabs */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mb-5">
+              {PLAN_TIER_LIST.map(plan => {
+                const isSelected = selectedPlanId === plan.id;
+                const isRecommended = defaultPlan.id === plan.id;
+                return (
+                  <button
+                    key={plan.id}
+                    type="button"
+                    onClick={() => setSelectedPlanId(plan.id)}
+                    className={`p-3.5 rounded-2xl border text-left transition cursor-pointer ${
+                      isSelected
+                        ? 'bg-emerald-500/15 border-emerald-500/60 shadow-lg'
+                        : 'bg-slate-950/70 border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1 mb-1">
+                      <span className="text-[11px] font-bold text-emerald-400">{plan.name}</span>
+                      {isRecommended && (
+                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-500 text-slate-950">
+                          Recomendado
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xl font-black text-white">
+                      R$ {plan.price}
+                      <span className="text-[11px] font-normal text-slate-400">/mês</span>
+                    </p>
+                    <p className="text-[10px] text-emerald-300 font-semibold mt-1">
+                      +R$ {plan.includedCredits} créditos IA/mês
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-2 mb-6 text-xs text-slate-300">
+              <p className="font-bold text-white text-xs mb-2">
+                Incluso no {selectedPlan.name} ({selectedPlan.estimatedInteractions}):
+              </p>
+              {selectedPlan.features.map((feat, i) => (
+                <div key={i} className="flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+                  <span>{feat}</span>
+                </div>
+              ))}
             </div>
 
             <button
@@ -190,7 +248,9 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
               ) : (
                 <>
                   <QrCode className="w-5 h-5" />
-                  <span>Pagar R$ 50 via PIX (Ativar 30 Dias)</span>
+                  <span>
+                    Pagar R$ {selectedPlan.price} via PIX (Ativar 30 Dias + R$ {selectedPlan.includedCredits} IA)
+                  </span>
                 </>
               )}
             </button>
@@ -199,11 +259,17 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
           <div className="space-y-4">
             <div className="flex flex-col items-center justify-center p-3 rounded-2xl bg-white text-slate-900">
               <img
-                src={pixData.qr_code_base64.startsWith('data:') ? pixData.qr_code_base64 : `data:image/png;base64,${pixData.qr_code_base64}`}
+                src={
+                  pixData.qr_code_base64.startsWith('data:')
+                    ? pixData.qr_code_base64
+                    : `data:image/png;base64,${pixData.qr_code_base64}`
+                }
                 alt="QR Code PIX iaPedido"
                 className="w-44 h-44 object-contain rounded-lg"
               />
-              <p className="text-[11px] font-semibold text-slate-500 mt-1">Escaneie pelo aplicativo do seu banco</p>
+              <p className="text-[11px] font-semibold text-slate-600 mt-1">
+                {pixData.planName} — R$ {pixData.amount},00 (+R$ {pixData.includedCredits} Créditos IA)
+              </p>
             </div>
 
             <div className="space-y-1">
@@ -234,11 +300,11 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                 <span>Aguardando pagamento... Identificação automática</span>
               </div>
               <button
-                onClick={handleGeneratePix}
-                title="Recarregar"
-                className="p-1 text-slate-400 hover:text-white"
+                onClick={() => setPixData(null)}
+                title="Trocar plano"
+                className="text-xs text-slate-300 hover:text-white underline cursor-pointer"
               >
-                <RefreshCw className="w-3.5 h-3.5" />
+                Trocar plano
               </button>
             </div>
           </div>
@@ -253,7 +319,6 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
             Fechar
           </button>
         </div>
-
       </div>
     </div>
   );

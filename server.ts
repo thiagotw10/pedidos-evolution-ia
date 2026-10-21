@@ -1272,7 +1272,7 @@ async function startServer() {
           console.warn(`[WhatsApp Multi-Tenant] 🛑 BLOQUEADO: Assinatura do estabelecimento "${est.name || targetStoreId}" expirada (teste de 7 dias encerrado). Mensagem de ${senderPhone} não será respondida pela IA.`);
           return res.status(200).json({
             status: 'subscription_expired',
-            message: 'Período de teste de 7 dias encerrado. Assinatura de R$ 50/mês necessária.'
+            message: 'Período de teste de 7 dias encerrado. Ative seu plano mensal (a partir de R$ 197/mês) para continuar.'
           });
         }
 
@@ -2743,13 +2743,122 @@ _Bom trabalho e dirija com segurança! 🚀_`;
   });
 
   // ----------------------------------------------------
-  // Mercado Pago PIX Subscription Endpoints (R$ 50/mês)
+  // Mercado Pago PIX Subscription & AI Credits Endpoints
   // ----------------------------------------------------
+  const PLAN_CONFIGS: Record<string, { id: 'essencial' | 'pro' | 'performance'; name: string; price: number; includedCredits: number }> = {
+    essencial: { id: 'essencial', name: 'Plano Essencial', price: 197, includedCredits: 50 },
+    pro: { id: 'pro', name: 'Plano Pro Multimídia', price: 347, includedCredits: 100 },
+    performance: { id: 'performance', name: 'Plano Performance & 3D', price: 497, includedCredits: 180 }
+  };
 
-  // API: Gerar cobrança PIX para assinatura mensal
+  function resolveStorePlan(planTier?: string, segment?: string) {
+    if (planTier && PLAN_CONFIGS[planTier]) return PLAN_CONFIGS[planTier];
+    const norm = String(segment || '').toUpperCase();
+    if (norm === 'AUTOMOTIVE_PARTS') return PLAN_CONFIGS.performance;
+    if (norm.includes('VEIC') || norm.includes('CARRO') || norm.includes('IMOB') || norm.includes('MODA') || norm.includes('ELETRO')) {
+      return PLAN_CONFIGS.pro;
+    }
+    return PLAN_CONFIGS.essencial;
+  }
+
+  app.get('/api/billing/summary', async (req, res) => {
+    try {
+      const storeId = getStoreId(req);
+      const snap = await db.collection('establishments').doc(storeId).get();
+      const est = snap.data() || {};
+      const trialActive = isEstablishmentSubscriptionActive({ ...est, id: storeId }) && est.accountStatus !== 'active_paid' && est.plan !== 'active';
+      const storePlan = resolveStorePlan(est.planTier, est.segment);
+      const usageSnap: any = await db.collection('establishments').doc(storeId).collection('aiUsage').get().catch(() => ({ docs: [] as any[] }));
+      const totalUsed = (usageSnap.docs as any[]).reduce((sum: number, d: any) => sum + Number(d.data()?.estimatedCost || 0), 0);
+      return res.json({
+        trialActive,
+        trialEndsAt: est.trialEndsAt || null,
+        subscriptionValidUntil: est.subscriptionValidUntil || null,
+        plan: est.plan || (trialActive ? 'trial' : 'expired'),
+        accountStatus: est.accountStatus || (trialActive ? 'trial' : 'expired'),
+        planTier: storePlan.id,
+        planName: storePlan.name,
+        monthlyPlatformFee: storePlan.price,
+        includedCredits: storePlan.includedCredits,
+        minTopupBrl: 100,
+        creditsBalance: Number(est.aiCreditsBalance || 0),
+        totalUsed: Number(totalUsed.toFixed(4))
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/billing/credits/pix', async (req, res) => {
+    try {
+      const storeId = req.body.establishmentId || getStoreId(req);
+      const amount = Number(req.body.amount);
+      if (!Number.isFinite(amount) || amount < 100 || amount > 5000) {
+        return res.status(400).json({ error: 'A recarga mínima é de R$ 100 e a máxima é de R$ 5.000.' });
+      }
+      const mpToken = process.env.MP_ACCESS_TOKEN;
+      if (!mpToken) return res.status(500).json({ error: 'Mercado Pago não configurado.' });
+      const { MercadoPagoConfig, Payment } = await import('mercadopago');
+      const payment = new Payment(new MercadoPagoConfig({ accessToken: mpToken, options: { timeout: 10000 } }));
+      const created: any = await payment.create({
+        body: {
+          transaction_amount: Number(amount.toFixed(2)),
+          description: `Recarga de Créditos de IA iaPedido - ${storeId}`,
+          payment_method_id: 'pix',
+          payer: { email: req.body.email || 'cliente@iapedido.com.br' },
+          external_reference: `CREDIT:${storeId}`
+        }
+      });
+      const id = String(created.id);
+      await db.collection('pendingCreditTopups').doc(id).set({
+        establishmentId: storeId,
+        amount,
+        status: 'pending',
+        createdAt: new Date().toISOString()
+      });
+      return res.json({
+        success: true,
+        id,
+        amount,
+        qr_code: created.point_of_interaction?.transaction_data?.qr_code,
+        qr_code_base64: created.point_of_interaction?.transaction_data?.qr_code_base64
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message || 'Falha ao gerar recarga.' });
+    }
+  });
+
+  app.get('/api/billing/credits/status/:paymentId', async (req, res) => {
+    try {
+      const id = req.params.paymentId;
+      const mpToken = process.env.MP_ACCESS_TOKEN;
+      if (!mpToken) return res.status(500).json({ error: 'Mercado Pago não configurado.' });
+      const { MercadoPagoConfig, Payment } = await import('mercadopago');
+      const paymentInfo: any = await new Payment(new MercadoPagoConfig({ accessToken: mpToken, options: { timeout: 10000 } })).get({ id });
+      if (paymentInfo.status === 'approved') {
+        const pendingRef = db.collection('pendingCreditTopups').doc(id);
+        const pending = await pendingRef.get();
+        const topup = pending.data();
+        if (topup?.status !== 'approved' && topup?.establishmentId) {
+          await db.runTransaction(async transaction => {
+            const estRef = db.collection('establishments').doc(topup.establishmentId);
+            const est = await transaction.get(estRef);
+            const balance = Number(est.data()?.aiCreditsBalance || 0);
+            transaction.update(estRef, { aiCreditsBalance: Number((balance + Number(topup.amount || 0)).toFixed(4)), updatedAt: new Date().toISOString() });
+            transaction.set(pendingRef, { status: 'approved', approvedAt: new Date().toISOString() }, { merge: true });
+          });
+        }
+      }
+      return res.json({ id, status: paymentInfo.status, approved: paymentInfo.status === 'approved' });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message || 'Falha ao consultar recarga.' });
+    }
+  });
+
+  // API: Gerar cobrança PIX para assinatura mensal (Essencial R$ 197, Pro R$ 347, Performance R$ 497)
   app.post('/api/subscription/pix', async (req, res) => {
     try {
-      const { establishmentId, email, name } = req.body;
+      const { establishmentId, email, name, planTier } = req.body;
       const storeId = establishmentId || getStoreId(req);
       if (!storeId) {
         return res.status(400).json({ error: 'ID do estabelecimento não fornecido.' });
@@ -2760,30 +2869,36 @@ _Bom trabalho e dirija com segurança! 🚀_`;
         return res.status(500).json({ error: 'Configuração do Mercado Pago (MP_ACCESS_TOKEN) não encontrada no servidor.' });
       }
 
+      const estDoc = await db.collection('establishments').doc(storeId).get();
+      const estData = estDoc.data() || {};
+      const chosenPlan = resolveStorePlan(planTier || estData.planTier, estData.segment);
+
       const { MercadoPagoConfig, Payment } = await import('mercadopago');
       const client = new MercadoPagoConfig({ accessToken: mpToken, options: { timeout: 10000 } });
       const payment = new Payment(client);
 
       const paymentResponse = await payment.create({
         body: {
-          transaction_amount: 50,
-          description: 'Assinatura Mensal iaPedido (30 dias) - Atendimento WhatsApp & IA',
+          transaction_amount: chosenPlan.price,
+          description: `${chosenPlan.name} iaPedido (30 dias + R$ ${chosenPlan.includedCredits} em Créditos IA)`,
           payment_method_id: 'pix',
           payer: {
             email: email || 'cliente@iapedido.com.br',
-            first_name: name || 'Estabelecimento iaPedido'
+            first_name: name || estData.name || 'Estabelecimento iaPedido'
           },
           external_reference: storeId
         }
       });
 
       const paymentId = String(paymentResponse.id);
-      console.log(`[Mercado Pago] PIX Gerado com sucesso! ID: ${paymentId} para loja: ${storeId}`);
+      console.log(`[Mercado Pago] PIX ${chosenPlan.name} (R$ ${chosenPlan.price}) gerado! ID: ${paymentId} para loja: ${storeId}`);
 
-      // Registrar cobrança pendente no Firestore
       await db.collection('pendingSubscriptions').doc(paymentId).set({
         establishmentId: storeId,
-        amount: 50,
+        planTier: chosenPlan.id,
+        planName: chosenPlan.name,
+        amount: chosenPlan.price,
+        includedCredits: chosenPlan.includedCredits,
         status: 'pending',
         payerEmail: email || '',
         createdAt: new Date().toISOString()
@@ -2792,6 +2907,10 @@ _Bom trabalho e dirija com segurança! 🚀_`;
       return res.json({
         success: true,
         id: paymentId,
+        planTier: chosenPlan.id,
+        planName: chosenPlan.name,
+        amount: chosenPlan.price,
+        includedCredits: chosenPlan.includedCredits,
         qr_code: paymentResponse.point_of_interaction?.transaction_data?.qr_code,
         qr_code_base64: paymentResponse.point_of_interaction?.transaction_data?.qr_code_base64
       });
@@ -2800,6 +2919,48 @@ _Bom trabalho e dirija com segurança! 🚀_`;
       return res.status(500).json({ error: err.message || 'Falha ao gerar cobrança PIX.' });
     }
   });
+
+  async function activateStoreSubscriptionLocal(paymentId: string, fallbackStoreId?: string) {
+    const pendingRef = db.collection('pendingSubscriptions').doc(paymentId);
+    await db.runTransaction(async transaction => {
+      const pendingDoc = await transaction.get(pendingRef);
+      const pendingData = pendingDoc.data() || {};
+      if (pendingData.status === 'approved') return;
+
+      const storeId = pendingData.establishmentId || fallbackStoreId;
+      if (!storeId) return;
+
+      const estRef = db.collection('establishments').doc(storeId);
+      const estDoc = await transaction.get(estRef);
+      const estData = estDoc.data() || {};
+
+      const chosenPlan = resolveStorePlan(pendingData.planTier || estData.planTier, estData.segment);
+      const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+      const currentValidUntilMs = estData.subscriptionValidUntil ? new Date(estData.subscriptionValidUntil).getTime() : 0;
+      const baseTime = currentValidUntilMs > Date.now() ? currentValidUntilMs : Date.now();
+      const newValidUntil = new Date(baseTime + thirtyDaysMs).toISOString();
+      const currentCredits = Number(estData.aiCreditsBalance || 0);
+      const bonusCredits = Number(pendingData.includedCredits ?? chosenPlan.includedCredits);
+
+      transaction.set(estRef, {
+        plan: 'active',
+        planTier: chosenPlan.id,
+        planPrice: Number(pendingData.amount || chosenPlan.price),
+        accountStatus: 'active_paid',
+        subscriptionValidUntil: newValidUntil,
+        aiCreditsBalance: Number((currentCredits + bonusCredits).toFixed(4)),
+        lastPaymentDate: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+
+      transaction.set(pendingRef, {
+        status: 'approved',
+        approvedAt: new Date().toISOString()
+      }, { merge: true });
+
+      console.log(`[Mercado Pago] ${chosenPlan.name} da loja ${storeId} ativado até ${newValidUntil} (+R$ ${bonusCredits} créditos IA)!`);
+    });
+  }
 
   // API: Consultar status de pagamento PIX e ativar plano automaticamente
   app.get('/api/subscription/status/:paymentId', async (req, res) => {
@@ -2822,36 +2983,7 @@ _Bom trabalho e dirija com segurança! 🚀_`;
       const isApproved = paymentInfo.status === 'approved';
 
       if (isApproved) {
-        let storeId = paymentInfo.external_reference;
-        if (!storeId) {
-          const pendingDoc = await db.collection('pendingSubscriptions').doc(paymentId).get();
-          storeId = pendingDoc.data()?.establishmentId;
-        }
-
-        if (storeId) {
-          const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-          const estDoc = await db.collection('establishments').doc(storeId).get();
-          const estData = estDoc.data() || {};
-          const currentValidUntilMs = estData.subscriptionValidUntil ? new Date(estData.subscriptionValidUntil).getTime() : 0;
-          const baseTime = currentValidUntilMs > Date.now() ? currentValidUntilMs : Date.now();
-          const newValidUntil = new Date(baseTime + thirtyDaysMs).toISOString();
-
-          await db.collection('establishments').doc(storeId).set({
-            plan: 'active',
-            accountStatus: 'active_paid',
-            subscriptionValidUntil: newValidUntil,
-            lastPaymentDate: new Date().toISOString(),
-            planPrice: 50,
-            updatedAt: new Date().toISOString()
-          }, { merge: true });
-
-          await db.collection('pendingSubscriptions').doc(paymentId).set({
-            status: 'approved',
-            approvedAt: new Date().toISOString()
-          }, { merge: true });
-
-          console.log(`[Mercado Pago] Assinatura da loja ${storeId} ativada por mais 30 dias (até ${newValidUntil})!`);
-        }
+        await activateStoreSubscriptionLocal(paymentId, paymentInfo.external_reference);
       }
 
       return res.json({
@@ -2882,36 +3014,7 @@ _Bom trabalho e dirija com segurança! 🚀_`;
       const paymentInfo = await new Payment(client).get({ id: paymentId }).catch(() => null);
 
       if (paymentInfo && paymentInfo.status === 'approved') {
-        let storeId = paymentInfo.external_reference;
-        if (!storeId) {
-          const pendingDoc = await db.collection('pendingSubscriptions').doc(paymentId).get();
-          storeId = pendingDoc.data()?.establishmentId;
-        }
-
-        if (storeId) {
-          const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-          const estDoc = await db.collection('establishments').doc(storeId).get();
-          const estData = estDoc.data() || {};
-          const currentValidUntilMs = estData.subscriptionValidUntil ? new Date(estData.subscriptionValidUntil).getTime() : 0;
-          const baseTime = currentValidUntilMs > Date.now() ? currentValidUntilMs : Date.now();
-          const newValidUntil = new Date(baseTime + thirtyDaysMs).toISOString();
-
-          await db.collection('establishments').doc(storeId).set({
-            plan: 'active',
-            accountStatus: 'active_paid',
-            subscriptionValidUntil: newValidUntil,
-            lastPaymentDate: new Date().toISOString(),
-            planPrice: 50,
-            updatedAt: new Date().toISOString()
-          }, { merge: true });
-
-          await db.collection('pendingSubscriptions').doc(paymentId).set({
-            status: 'approved',
-            approvedAt: new Date().toISOString()
-          }, { merge: true });
-
-          console.log(`[Subscription Webhook MP] Loja ${storeId} ativada via webhook para o pagamento ${paymentId}!`);
-        }
+        await activateStoreSubscriptionLocal(paymentId, paymentInfo.external_reference);
       }
 
       return res.status(200).send('ok');

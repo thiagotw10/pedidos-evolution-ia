@@ -51,7 +51,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: TrendingUp,
       badge: null
     },
-    { id: 'billing', label: 'Uso e Créditos', icon: CreditCard, badge: null },
+    { id: 'billing', label: 'Planos & Créditos IA', icon: CreditCard, badge: null },
     {
       id: 'products',
       label: segConfig.catalogTitle,
