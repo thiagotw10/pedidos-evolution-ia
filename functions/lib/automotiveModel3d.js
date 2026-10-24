@@ -6,7 +6,7 @@ exports.sanitizeModel3d = sanitizeModel3d;
 exports.model3dUpdate = model3dUpdate;
 exports.model3dForPublic = model3dForPublic;
 exports.validateGlb = validateGlb;
-exports.MAX_MODEL3D_BYTES = 20 * 1024 * 1024;
+exports.MAX_MODEL3D_BYTES = 70 * 1024 * 1024;
 exports.MODEL3D_STORAGE_BUCKET = 'iapedido.firebasestorage.app';
 exports.MAX_MODEL3D_VERTICES = 500_000;
 exports.MAX_MODEL3D_TRIANGLES = 300_000;
@@ -61,7 +61,7 @@ function sanitizeModel3d(value, storeId) {
     if (typeof value.fileName !== 'string' || !value.fileName.trim() || value.fileName.length > 160 || /[\u0000-\u001f/\\]/.test(value.fileName) || !/\.glb$/i.test(value.fileName.trim()))
         invalid('O modelo deve ser um arquivo .glb.');
     if (!uint(value.sizeBytes, exports.MAX_MODEL3D_BYTES) || value.sizeBytes < 28)
-        invalid('O modelo 3D deve ter até 20 MB.');
+        invalid('O modelo 3D deve ter até 70 MB.');
     if (!['photos', 'cad', 'scan'].includes(value.source))
         invalid('Informe a origem do modelo 3D.');
     if (value.referenceImages !== undefined && (!Array.isArray(value.referenceImages) || value.referenceImages.length > 20 || value.referenceImages.some((item) => typeof item !== 'string' || item.length > 2048 || !/^https:\/\//.test(item))))
@@ -99,7 +99,7 @@ function model3dForPublic(value, storeId, galleryImages) {
 /** Validate a mobile-sized, static, self-contained GLB before GLTFLoader sees it. */
 function validateGlb(buffer) {
     if (!(buffer instanceof ArrayBuffer) || buffer.byteLength < 28 || buffer.byteLength > exports.MAX_MODEL3D_BYTES)
-        invalid('Envie um arquivo GLB de até 20 MB.');
+        invalid('Envie um arquivo GLB de até 70 MB.');
     const data = new DataView(buffer);
     if (data.getUint32(0, true) !== 0x46546c67 || data.getUint32(4, true) !== 2 || data.getUint32(8, true) !== buffer.byteLength)
         invalid('Arquivo GLB inválido. Exporte no formato glTF 2.0 binário.');

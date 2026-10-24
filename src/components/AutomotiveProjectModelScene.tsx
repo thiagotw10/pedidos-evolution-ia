@@ -59,11 +59,11 @@ async function fetchModel(url: string, signal: AbortSignal): Promise<ArrayBuffer
   const statedLength = Number(response.headers.get('content-length'));
   if (Number.isFinite(statedLength) && statedLength > MAX_MODEL3D_BYTES) {
     await response.body?.cancel();
-    throw new Error('O arquivo 3D excede o limite de 20 MB.');
+    throw new Error('O arquivo 3D excede o limite de 70 MB.');
   }
   if (!response.body) {
     const buffer = await response.arrayBuffer();
-    if (buffer.byteLength > MAX_MODEL3D_BYTES) throw new Error('O arquivo 3D excede o limite de 20 MB.');
+    if (buffer.byteLength > MAX_MODEL3D_BYTES) throw new Error('O arquivo 3D excede o limite de 70 MB.');
     return buffer;
   }
   const reader = response.body.getReader();
@@ -74,7 +74,7 @@ async function fetchModel(url: string, signal: AbortSignal): Promise<ArrayBuffer
       const { done, value } = await reader.read();
       if (done) break;
       length += value.byteLength;
-      if (length > MAX_MODEL3D_BYTES) { await reader.cancel(); throw new Error('O arquivo 3D excede o limite de 20 MB.'); }
+      if (length > MAX_MODEL3D_BYTES) { await reader.cancel(); throw new Error('O arquivo 3D excede o limite de 70 MB.'); }
       chunks.push(value);
     }
   } finally { reader.releaseLock(); }
@@ -152,7 +152,7 @@ export default function AutomotiveProjectModelScene({ accent, model, projectName
 
     const setup = async () => {
       try {
-        if (model.sizeBytes > MAX_MODEL3D_BYTES) throw new Error('O arquivo 3D excede o limite de 20 MB.');
+        if (model.sizeBytes > MAX_MODEL3D_BYTES) throw new Error('O arquivo 3D excede o limite de 70 MB.');
         renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
         renderer.setClearColor(0x101317, 0);
         renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -360,7 +360,7 @@ export default function AutomotiveProjectModelScene({ accent, model, projectName
         wake();
       } catch (error) {
         if (disposed || controller.signal.aborted) return;
-        const tooLarge = error instanceof Error && error.message.includes('20 MB');
+        const tooLarge = error instanceof Error && (error.message.includes('70 MB') || error.message.includes('20 MB'));
         fail(tooLarge ? error.message : 'Não foi possível abrir este modelo 3D. Consulte as fotos do projeto ou tente novamente.');
       }
     };

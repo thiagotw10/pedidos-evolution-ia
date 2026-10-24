@@ -7,7 +7,7 @@ export interface AutomotiveModel3D {
   referenceImages?: string[];
 }
 
-export const MAX_MODEL3D_BYTES = 20 * 1024 * 1024;
+export const MAX_MODEL3D_BYTES = 70 * 1024 * 1024;
 export const MODEL3D_STORAGE_BUCKET = 'iapedido.firebasestorage.app';
 export const MAX_MODEL3D_VERTICES = 500_000;
 export const MAX_MODEL3D_TRIANGLES = 300_000;
@@ -45,7 +45,7 @@ export function sanitizeModel3d(value: unknown, storeId: string): AutomotiveMode
   if (typeof value.url !== 'string' || value.url.length > 2048) invalid('Endereço do modelo 3D inválido.');
   model3dStoragePath(value.url, storeId);
   if (typeof value.fileName !== 'string' || !value.fileName.trim() || value.fileName.length > 160 || /[\u0000-\u001f/\\]/.test(value.fileName) || !/\.glb$/i.test(value.fileName.trim())) invalid('O modelo deve ser um arquivo .glb.');
-  if (!uint(value.sizeBytes, MAX_MODEL3D_BYTES) || value.sizeBytes < 28) invalid('O modelo 3D deve ter até 20 MB.');
+  if (!uint(value.sizeBytes, MAX_MODEL3D_BYTES) || value.sizeBytes < 28) invalid('O modelo 3D deve ter até 70 MB.');
   if (!['photos', 'cad', 'scan'].includes(value.source)) invalid('Informe a origem do modelo 3D.');
   if (value.referenceImages !== undefined && (!Array.isArray(value.referenceImages) || value.referenceImages.length > 20 || value.referenceImages.some((item: unknown) => typeof item !== 'string' || item.length > 2048 || !/^https:\/\//.test(item)))) invalid('Fotos de referência do modelo inválidas.');
   return {
@@ -77,7 +77,7 @@ export function model3dForPublic(value: unknown, storeId: string, galleryImages?
 
 /** Validate a mobile-sized, static, self-contained GLB before GLTFLoader sees it. */
 export function validateGlb(buffer: ArrayBuffer): void {
-  if (!(buffer instanceof ArrayBuffer) || buffer.byteLength < 28 || buffer.byteLength > MAX_MODEL3D_BYTES) invalid('Envie um arquivo GLB de até 20 MB.');
+  if (!(buffer instanceof ArrayBuffer) || buffer.byteLength < 28 || buffer.byteLength > MAX_MODEL3D_BYTES) invalid('Envie um arquivo GLB de até 70 MB.');
   const data = new DataView(buffer);
   if (data.getUint32(0, true) !== 0x46546c67 || data.getUint32(4, true) !== 2 || data.getUint32(8, true) !== buffer.byteLength) invalid('Arquivo GLB inválido. Exporte no formato glTF 2.0 binário.');
   let offset = 12;
