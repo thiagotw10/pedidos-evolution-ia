@@ -9,6 +9,7 @@ import {
   buildTrackedCampaignLink,
   MetaCapiConfig
 } from './metaCapi';
+import { sendWhatsAppMessage } from './whatsappSender';
 
 export const AUTOMOTIVE_STAGES = ['Novo contato', 'Qualificação', 'Análise técnica', 'Orçamento enviado', 'Aprovado', 'Em execução', 'Enviado', 'Concluído', 'Cancelado'];
 const stages = AUTOMOTIVE_STAGES;
@@ -874,6 +875,133 @@ export function registerAutomotiveRoutes(app: Express, db: admin.firestore.Fires
       res.json({ success: true, changes });
     } catch {
       res.status(403).json({ error: 'Não foi possível atualizar este projeto.' });
+    }
+  });
+
+  // Pausar IA para um projeto/contato específico (Human Takeover)
+  app.post('/api/automotive/projects/:id/pause-ai', async (req, res) => {
+    try {
+      const projectRef = db.collection('automotive_projects').doc(String(req.params.id));
+      const projectSnap = await projectRef.get();
+      const projectData = projectSnap.data();
+      if (!projectSnap.exists || projectData?.establishmentId !== res.locals.uid) {
+        return res.status(403).json({ error: 'Projeto não encontrado.' });
+      }
+      const storeId = res.locals.uid;
+      const durationMinutes = req.body.durationMinutes !== undefined ? (req.body.durationMinutes === null ? null : Number(req.body.durationMinutes)) : 120;
+      const pausedUntil = durationMinutes ? new Date(Date.now() + durationMinutes * 60 * 1000).toISOString() : null;
+      const pausePayload = {
+        aiPaused: true,
+        aiPausedUntil: pausedUntil,
+        aiPausedReason: req.body.reason || 'manual_crm_takeover',
+        aiPausedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      await projectRef.update(pausePayload);
+      if (projectData?.phone) {
+        for (const cand of normalizeBrPhoneVariants(projectData.phone)) {
+          await db.collection('establishments').doc(storeId).collection('chats').doc(cand).set({
+            aiPaused: true,
+            aiPausedUntil: pausedUntil,
+            aiPausedReason: 'manual_crm_takeover',
+            aiPausedAt: new Date().toISOString()
+          }, { merge: true });
+        }
+      }
+      return res.json({ success: true, aiPaused: true, aiPausedUntil: pausedUntil });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Retomar IA para um projeto/contato
+  app.post('/api/automotive/projects/:id/resume-ai', async (req, res) => {
+    try {
+      const projectRef = db.collection('automotive_projects').doc(String(req.params.id));
+      const projectSnap = await projectRef.get();
+      const projectData = projectSnap.data();
+      if (!projectSnap.exists || projectData?.establishmentId !== res.locals.uid) {
+        return res.status(403).json({ error: 'Projeto não encontrado.' });
+      }
+      const storeId = res.locals.uid;
+      const resumePayload = {
+        aiPaused: false,
+        aiPausedUntil: null,
+        aiResumedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      await projectRef.update(resumePayload);
+      if (projectData?.phone) {
+        for (const cand of normalizeBrPhoneVariants(projectData.phone)) {
+          await db.collection('establishments').doc(storeId).collection('chats').doc(cand).set({
+            aiPaused: false,
+            aiPausedUntil: null,
+            aiResumedAt: new Date().toISOString()
+          }, { merge: true });
+        }
+      }
+      return res.json({ success: true, aiPaused: false });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Enviar proposta técnica/comercial formatada via WhatsApp oficial
+  app.post('/api/automotive/projects/:id/send-proposal', async (req, res) => {
+    try {
+      const storeId = res.locals.uid;
+      const projectRef = db.collection('automotive_projects').doc(String(req.params.id));
+      const projectSnap = await projectRef.get();
+      const projectData = projectSnap.data();
+      if (!projectSnap.exists || projectData?.establishmentId !== storeId) {
+        return res.status(403).json({ error: 'Projeto não encontrado.' });
+      }
+
+      const estSnap = await db.collection('establishments').doc(storeId).get();
+      const est = estSnap.data() || {};
+      const evoUrl = (process.env.EVOLUTION_API_URL || est.evolutionApiUrl || 'http://86.48.23.152:8081').replace(/\/$/, '');
+      const evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
+      const evoInst = (est.evolutionInstanceName || `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`).trim();
+
+      const targetPhone = projectData?.phone;
+      if (!targetPhone) return res.status(400).json({ error: 'Telefone do cliente não cadastrado.' });
+
+      const proposalText = req.body.proposalText;
+      if (!proposalText || !proposalText.trim()) {
+        return res.status(400).json({ error: 'Texto da proposta não informado.' });
+      }
+
+      const sendResult = await sendWhatsAppMessage(evoUrl, evoKey, evoInst, targetPhone, proposalText.trim());
+      if (!sendResult.success) {
+        return res.status(500).json({ error: sendResult.error || 'Falha ao enviar mensagem pelo WhatsApp.' });
+      }
+
+      // Salva no histórico de mensagens do chat
+      for (const cand of normalizeBrPhoneVariants(targetPhone)) {
+        await db.collection('establishments').doc(storeId).collection('chats').doc(cand).collection('messages').add({
+          sender: 'assistant',
+          author: 'Pedro (Proposta Oficial)',
+          text: proposalText.trim(),
+          timestamp: new Date().toISOString()
+        });
+        await db.collection('establishments').doc(storeId).collection('chats').doc(cand).set({
+          lastMessage: proposalText.trim(),
+          lastMessageAt: new Date().toISOString()
+        }, { merge: true });
+      }
+
+      const quoteValue = req.body.quoteValue ? Number(req.body.quoteValue) : projectData.quoteValue;
+      await projectRef.update({
+        status: 'Orçamento enviado',
+        quote: proposalText.trim(),
+        ...(quoteValue ? { quoteValue } : {}),
+        proposalSentAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+
+      return res.json({ success: true, message: 'Proposta enviada no WhatsApp com sucesso!' });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
     }
   });
 

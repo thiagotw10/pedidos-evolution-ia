@@ -1939,15 +1939,7 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
     const estDoc = await db.collection('establishments').doc(storeId).get();
     const est = estDoc.data() || {};
 
-    // Check if this is an Admin / Owner message (Self-Chat on the connected device or Owner's phone)
-    const isAdmin = isOwnerAdminMessage(fromMe, remoteJid, phone, infoChat, infoSender, est);
-
-    if (fromMe && !isAdmin) {
-      console.log(`[Evolution Webhook] Ignorando mensagem enviada por mim para cliente (fromMe)`);
-      return res.status(200).json({ status: 'ignored_from_me' });
-    }
-
-    // Extract message content (handles Evolution Go Message and Node message)
+    // Extract message content early (handles Evolution Go Message and Node message)
     const msgContent = messageData.Message || messageData.message || messageData.msg || {};
     let text = msgContent.conversation || 
                  msgContent.extendedTextMessage?.text || 
@@ -1955,6 +1947,59 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
                  messageData.conversation ||
                  messageData.text ||
                  messageData.body || '';
+
+    // Check if this is an Admin / Owner message (Self-Chat on the connected device or Owner's phone)
+    const isAdmin = isOwnerAdminMessage(fromMe, remoteJid, phone, infoChat, infoSender, est);
+
+    if (fromMe && !isAdmin) {
+      // O atendente humano (Pedro) enviou uma mensagem para o cliente pelo WhatsApp.
+      // Pausa a IA automaticamente por 2 horas (ou configuração da loja) para não interromper a conversa humana.
+      const autoPauseMin = Number(est.aiAutoPauseMinutes || 120);
+      const pausedUntil = new Date(Date.now() + autoPauseMin * 60 * 1000).toISOString();
+      console.log(`[Human Takeover] Atendente/Pedro enviou mensagem manual para ${phone}. IA pausada por ${autoPauseMin} min (até ${pausedUntil}).`);
+
+      try {
+        await db.collection('establishments').doc(storeId).collection('chats').doc(phone).set({
+          aiPaused: true,
+          aiPausedUntil: pausedUntil,
+          aiPausedReason: 'owner_whatsapp_message',
+          aiPausedAt: new Date().toISOString(),
+          lastHumanInterventionAt: new Date().toISOString(),
+          lastMessage: text || '[Mídia enviada pelo atendente]',
+          lastMessageAt: new Date().toISOString(),
+          lastSender: 'human_attendant'
+        }, { merge: true });
+
+        if (text.trim()) {
+          await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
+            sender: 'assistant',
+            author: 'Pedro (Humano)',
+            text: text.trim(),
+            timestamp: new Date().toISOString()
+          });
+        }
+
+        const projsSnap = await db.collection('automotive_projects')
+          .where('establishmentId', '==', storeId)
+          .where('phone', '==', phone)
+          .limit(1)
+          .get().catch(() => null);
+
+        if (projsSnap && !projsSnap.empty) {
+          await projsSnap.docs[0].ref.update({
+            aiPaused: true,
+            aiPausedUntil: pausedUntil,
+            aiPausedReason: 'owner_whatsapp_message',
+            lastHumanInterventionAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          });
+        }
+      } catch (err: any) {
+        console.warn('[Human Takeover Error]:', err.message);
+      }
+
+      return res.status(200).json({ status: 'ignored_from_me_ai_paused', phone, pausedUntil });
+    }
 
     const audioMsg = msgContent.audioMessage || msgContent.AudioMessage;
     const imageMsg = msgContent.imageMessage || msgContent.ImageMessage;
@@ -2258,6 +2303,47 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
     const pushName = info.PushName || messageData.pushName || '';
 
     console.log(`[Evolution Webhook] Processando mensagem de ${phone} (${pushName || 'Sem nome'}): ${text ? `"${text.slice(0, 50)}..."` : (mediaPart ? `[Mídia: ${mediaPart.mimeType}]` : '[Vazio]')}`);
+
+    // Human Takeover Gate: se a IA estiver pausada para este contato (Pedro no controle), registra mensagem sem chamar o bot
+    const chatDoc = await db.collection('establishments').doc(storeId).collection('chats').doc(phone).get().catch(() => null);
+    const chatData = chatDoc?.data() || {};
+    const isAiPaused = chatData.aiPaused && (!chatData.aiPausedUntil || new Date(chatData.aiPausedUntil).getTime() > Date.now());
+
+    if (isAiPaused) {
+      console.log(`[Human Takeover] ⏸️ IA PAUSADA para ${phone} (Pedro no controle até ${chatData.aiPausedUntil || 'reativação manual'}). Mensagem registrada sem disparar IA.`);
+      
+      const incomingText = text || (mediaPart ? `[Mídia: ${mediaPart.mimeType}]` : '[Mensagem]');
+      await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
+        sender: 'user',
+        text: incomingText,
+        timestamp: new Date().toISOString()
+      });
+      await db.collection('establishments').doc(storeId).collection('chats').doc(phone).set({
+        lastMessage: incomingText,
+        lastMessageAt: new Date().toISOString(),
+        unreadByHuman: true
+      }, { merge: true });
+
+      try {
+        const projsSnap = await db.collection('automotive_projects')
+          .where('establishmentId', '==', storeId)
+          .where('phone', '==', phone)
+          .limit(1)
+          .get();
+        if (!projsSnap.empty) {
+          await projsSnap.docs[0].ref.update({
+            lastMessage: incomingText,
+            updatedAt: new Date().toISOString()
+          });
+        }
+      } catch {}
+
+      return res.status(200).json({
+        status: 'ai_paused_for_human',
+        phone,
+        pausedUntil: chatData.aiPausedUntil || null
+      });
+    }
 
     // Jev Security Gate: customer text is untrusted and must be screened before Gemini.
     if (text.trim() && !mediaPart) {
