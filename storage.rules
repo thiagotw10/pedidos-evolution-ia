@@ -6,7 +6,7 @@ service firebase.storage {
       allow create, update: if request.auth != null
         && request.auth.uid == establishmentId
         && fileName.matches('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.glb$')
-        && request.resource.size <= 20 * 1024 * 1024
+        && request.resource.size <= 70 * 1024 * 1024
         && request.resource.contentType == 'model/gltf-binary';
       allow delete: if request.auth != null && request.auth.uid == establishmentId;
     }
