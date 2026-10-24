@@ -59,7 +59,7 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Right Controls */}
       <div className="flex items-center gap-2 sm:gap-2.5 flex-shrink-0">
         {/* PWA Download / Install App Button (Desktop only in header, mobile has dedicated banner and drawer) */}
-        {onOpenInstallModal && establishment?.segment !== 'AUTOMOTIVE_PARTS' && (
+        {onOpenInstallModal && (
           <button
             onClick={onOpenInstallModal}
             title="Instalar Aplicativo iaPedido no Celular (PWA)"

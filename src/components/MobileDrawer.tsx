@@ -153,7 +153,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
         </div>
 
         {/* PWA Install Button in Drawer */}
-        {onOpenInstallModal && establishment?.segment !== 'AUTOMOTIVE_PARTS' && (
+        {onOpenInstallModal && (
           <button
             onClick={() => {
               onClose();

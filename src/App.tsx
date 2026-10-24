@@ -441,11 +441,11 @@ export default function App() {
           />
 
           {/* PWA Install & Push Notification Banner */}
-          {establishment?.segment !== 'AUTOMOTIVE_PARTS' && <PwaInstallBanner
+          <PwaInstallBanner
             establishmentId={storeId} 
             onOpenModal={() => setIsPwaInstallModalOpen(true)}
             deferredPrompt={deferredPrompt}
-          />}
+          />
 
           <main className="flex-1 pb-24 md:pb-16 min-w-0 w-full overflow-x-hidden">
             {currentTab === 'orders' && establishment?.segment === 'AUTOMOTIVE_PARTS' && <AutomotiveProjects />}

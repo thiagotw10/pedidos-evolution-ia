@@ -2210,18 +2210,22 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
         if (isAiPaused) {
             console.log(`[Human Takeover] ⏸️ IA PAUSADA para ${phone} (Pedro no controle até ${chatData.aiPausedUntil || 'reativação manual'}). Mensagem registrada sem disparar IA.`);
             const incomingText = text || (mediaPart ? `[Mídia: ${mediaPart.mimeType}]` : '[Mensagem]');
+            const nowIso = new Date().toISOString();
             await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
                 sender: 'user',
                 text: incomingText,
-                timestamp: new Date().toISOString(),
+                timestamp: nowIso,
                 mediaUrl: mediaPart?.mimeType.startsWith('image/') ? (mediaPart.data.startsWith('http') ? mediaPart.data : `data:${mediaPart.mimeType};base64,${mediaPart.data}`) : null,
                 audioUrl: mediaPart?.mimeType.startsWith('audio/') ? (mediaPart.data.startsWith('http') ? mediaPart.data : `data:${mediaPart.mimeType};base64,${mediaPart.data}`) : null
             });
             await db.collection('establishments').doc(storeId).collection('chats').doc(phone).set({
                 lastMessage: incomingText,
-                lastMessageAt: new Date().toISOString(),
+                lastMessageAt: nowIso,
+                lastSender: 'user',
                 unreadByHuman: true
             }, { merge: true });
+            let customerName = chatData.customerName || pushName || phone;
+            let matchedProjectId = '';
             try {
                 const projsSnap = await db.collection('automotive_projects')
                     .where('establishmentId', '==', storeId)
@@ -2229,13 +2233,26 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
                     .limit(1)
                     .get();
                 if (!projsSnap.empty) {
-                    await projsSnap.docs[0].ref.update({
+                    const pDoc = projsSnap.docs[0];
+                    const pData = pDoc.data();
+                    customerName = pData.customerName || customerName;
+                    matchedProjectId = pDoc.id;
+                    await pDoc.ref.update({
                         lastMessage: incomingText,
-                        updatedAt: new Date().toISOString()
+                        unreadByHuman: true,
+                        updatedAt: nowIso
                     });
                 }
             }
-            catch { }
+            catch (pErr) {
+                console.warn('[Human Takeover Proj Update Error]:', pErr);
+            }
+            // 🔔 Disparo Web Push no celular de Pedro (funciona em segundo plano e com app fechado)
+            sendAlertPushNotification(storeId, {
+                title: `💬 ${customerName} no WhatsApp`,
+                body: `(Atendimento com você): "${incomingText.slice(0, 90)}"`,
+                url: `/?tab=orders&projectId=${matchedProjectId}`
+            }).catch(err => console.warn('[Human Takeover Push Error]:', err));
             return res.status(200).json({
                 status: 'ai_paused_for_human',
                 phone,

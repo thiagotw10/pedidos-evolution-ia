@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 import { auth, db } from '../lib/firebase';
 import { collection, query, orderBy, limitToLast, onSnapshot } from 'firebase/firestore';
+import { subscribeToPushNotifications } from '../utils/pwaNotifications';
 
 const stages = [
   'Novo contato',
@@ -377,6 +378,16 @@ export function AutomotiveProjects() {
     senderName: string;
   } | null>(null);
 
+  // References for live notification tracking & deduplication
+  const projectsRef = useRef(projects);
+  projectsRef.current = projects;
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+
+  const isInitialSnapshotRef = useRef(true);
+  const mountTimeRef = useRef(Date.now());
+  const lastNotifiedAtRef = useRef<Record<string, string>>({});
+
   // Proposal modal state
   const [proposalModalOpen, setProposalModalOpen] = useState(false);
   const [proposalDraft, setProposalDraft] = useState('');
@@ -473,59 +484,109 @@ export function AutomotiveProjects() {
 
   // Global listener for new incoming customer messages to trigger sound chime + browser push + in-app toast
   useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().catch(() => {});
-    }
-
     const currentUid = auth.currentUser?.uid;
     if (!currentUid) return;
 
+    // Garante que o Web Push Service Worker esteja registrado para receber notificações quando fechado
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'granted') {
+        subscribeToPushNotifications(currentUid).catch(() => {});
+      } else if (Notification.permission === 'default') {
+        Notification.requestPermission().then(perm => {
+          if (perm === 'granted') {
+            subscribeToPushNotifications(currentUid).catch(() => {});
+          }
+        }).catch(() => {});
+      }
+    }
+
     const chatsCol = collection(db, 'establishments', currentUid, 'chats');
     const unsub = onSnapshot(chatsCol, snap => {
+      // Ignora o primeiro lote de documentos já existentes no carregamento inicial
+      if (isInitialSnapshotRef.current) {
+        isInitialSnapshotRef.current = false;
+        // Popula as timestamps já existentes para não notificar histórico antigo
+        snap.docs.forEach(doc => {
+          const d = doc.data();
+          if (d.lastMessageAt) {
+            lastNotifiedAtRef.current[doc.id] = d.lastMessageAt;
+          }
+        });
+        return;
+      }
+
       snap.docChanges().forEach(change => {
         if (change.type === 'added' || change.type === 'modified') {
           const chatData = change.doc.data();
           const lastMsg = chatData.lastMessage || '';
           const lastSender = chatData.lastSender;
+          const lastMsgAt = chatData.lastMessageAt;
           const phone = change.doc.id;
 
-          const matchedProject = projects.find(p => normalizeBrPhoneVariants(p.phone).includes(phone));
-          const isCurrentChatOpen = selected && normalizeBrPhoneVariants(selected.phone).includes(phone);
+          // 1. Apenas notifica se a mensagem for do CLIENTE (user)
+          // Se foi Pedro ou a IA que falou, NUNCA notifica!
+          if (lastSender !== 'user') return;
 
-          if ((chatData.unreadByHuman || lastSender === 'user') && (!isCurrentChatOpen || document.hidden)) {
-            playWhatsAppChime();
+          // 2. Não re-notifica a mesma mensagem que já foi notificada
+          if (lastMsgAt && lastNotifiedAtRef.current[phone] === lastMsgAt) return;
+          if (lastMsgAt) {
+            lastNotifiedAtRef.current[phone] = lastMsgAt;
+          }
 
-            const contactName = matchedProject?.customerName || chatData.customerName || 'Cliente';
-            if ('Notification' in window && Notification.permission === 'granted') {
-              try {
-                const notif = new Notification(`💬 ${contactName} no WhatsApp`, {
-                  body: lastMsg || 'Nova mensagem recebida',
-                  icon: '/favicon.ico'
-                });
-                notif.onclick = () => {
-                  window.focus();
-                  if (matchedProject) handleSelectProject(matchedProject);
-                };
-              } catch {}
-            }
+          // 3. Ignora mensagens muito antigas (mais de 2 minutos antes do carregamento)
+          if (lastMsgAt && new Date(lastMsgAt).getTime() < mountTimeRef.current - 120000) return;
 
-            if (matchedProject) {
-              setIncomingMessageAlert({
-                project: matchedProject,
-                text: lastMsg,
-                senderName: contactName
+          const currentProjects = projectsRef.current;
+          const currentSelected = selectedRef.current;
+          const matchedProject = currentProjects.find(p => normalizeBrPhoneVariants(p.phone).includes(phone));
+          const isCurrentChatOpen = currentSelected && normalizeBrPhoneVariants(currentSelected.phone).includes(phone);
+
+          // 4. Se a conversa já estiver aberta na tela do Pedro E a janela estiver em primeiro plano,
+          // não exibe toast flutuante (pois a mensagem já entra no balão do chat em tempo real)
+          if (isCurrentChatOpen && !document.hidden) {
+            return;
+          }
+
+          // Dispara som de mensagem do WhatsApp
+          playWhatsAppChime();
+
+          const contactName = matchedProject?.customerName || chatData.customerName || 'Cliente';
+
+          // Dispara notificação nativa do sistema operacional / navegador (especialmente quando minimizado / em segundo plano)
+          if ('Notification' in window && Notification.permission === 'granted') {
+            try {
+              const notif = new Notification(`💬 ${contactName} no WhatsApp`, {
+                body: lastMsg || 'Nova mensagem recebida',
+                icon: '/icon-192.png',
+                badge: '/icon-192.png',
+                tag: `chat-${phone}`
               });
-              setTimeout(() => {
-                setIncomingMessageAlert(curr => (curr?.project.id === matchedProject.id ? null : curr));
-              }, 7000);
-            }
+              notif.onclick = () => {
+                window.focus();
+                if (matchedProject) handleSelectProject(matchedProject);
+              };
+            } catch {}
+          }
+
+          // Exibe o card toast flutuante elegante dentro do app
+          if (matchedProject) {
+            setIncomingMessageAlert({
+              project: matchedProject,
+              text: lastMsg,
+              senderName: contactName
+            });
+            setTimeout(() => {
+              setIncomingMessageAlert(curr => (curr?.project.id === matchedProject.id ? null : curr));
+            }, 8000);
           }
         }
       });
+    }, (err) => {
+      console.warn('[Chats Snapshot Error]:', err);
     });
 
     return () => unsub();
-  }, [projects, selected?.id]);
+  }, []);
 
   async function loadProjectConversation(project: Project) {
     setLoadingConversation(true);
@@ -1593,7 +1654,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                   {selected.customerName ? selected.customerName.charAt(0).toUpperCase() : 'C'}
                 </div>
 
-                {/* Contact Name & Online / Vehicle Subtitle */}
+                {/* Contact Name & Status (Comigo vs Com a IA) */}
                 <div
                   onClick={() => setShowSpecsDrawer(true)}
                   className="cursor-pointer min-w-0"
@@ -1602,10 +1663,21 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                   <h3 className="font-semibold text-sm sm:text-base text-[#e9edef] truncate max-w-[130px] sm:max-w-xs leading-tight">
                     {selected.customerName || 'Cliente'}
                   </h3>
-                  <div className="flex items-center gap-1.5 text-[11px] text-[#8696a0] truncate mt-0.5">
-                    <span className="w-2 h-2 rounded-full bg-[#00a884] inline-block animate-pulse shrink-0" />
-                    <span className="truncate">
-                      online · {selected.brand} {selected.model} {selected.year && `(${selected.year})`}
+                  <div className="flex items-center gap-1.5 text-[11px] truncate mt-0.5">
+                    {isAiCurrentlyPaused(selected) ? (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40 text-[10px] shrink-0">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                        <span>Comigo</span>
+                        <span className="text-amber-400/80 font-normal hidden sm:inline">({formatRemainingPause(selected)})</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40 text-[10px] shrink-0">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        <span>Com a IA</span>
+                      </span>
+                    )}
+                    <span className="text-[#8696a0] truncate">
+                      · {selected.brand} {selected.model} {selected.year && `(${selected.year})`}
                     </span>
                   </div>
                 </div>
@@ -1619,22 +1691,22 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                     type="button"
                     disabled={busy}
                     onClick={() => handleResumeAi(selected)}
-                    className="px-2.5 py-1 rounded-full bg-[#00a884]/20 hover:bg-[#00a884]/30 text-[#00a884] border border-[#00a884]/40 text-xs font-semibold flex items-center gap-1 transition cursor-pointer active:scale-95 disabled:opacity-50"
-                    title={`IA pausada. Tempo restante: ${formatRemainingPause(selected)}`}
+                    className="px-2.5 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer active:scale-95 disabled:opacity-50"
+                    title="Você está atendendo. Clique para devolver o atendimento para a IA"
                   >
-                    <Play className="w-3 h-3 fill-current" />
-                    <span className="hidden sm:inline">Retomar IA</span>
-                    <span className="sm:hidden">IA</span>
+                    <Play className="w-3.5 h-3.5 fill-current text-emerald-400" />
+                    <span className="hidden sm:inline">Devolver p/ IA</span>
+                    <span className="sm:hidden">Devolver IA</span>
                   </button>
                 ) : (
                   <button
                     type="button"
                     disabled={busy}
                     onClick={() => handlePauseAi(selected, 60)}
-                    className="px-2.5 py-1 rounded-full bg-[#182229] hover:bg-[#202c33] text-amber-300 border border-amber-500/40 text-xs font-semibold flex items-center gap-1 transition cursor-pointer active:scale-95 disabled:opacity-50"
-                    title="Pausar IA por 1 hora e assumir conversa manualmente"
+                    className="px-2.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer active:scale-95 disabled:opacity-50"
+                    title="Pausar a IA por 1 hora e assumir o controle da conversa"
                   >
-                    <Pause className="w-3 h-3" />
+                    <Pause className="w-3.5 h-3.5 text-amber-400" />
                     <span className="hidden sm:inline">Assumir Conversa</span>
                     <span className="sm:hidden">Assumir</span>
                   </button>
@@ -1680,6 +1752,43 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                 </button>
               </div>
             </div>
+
+            {/* Top Status Bar: Comigo vs Com a IA */}
+            {isAiCurrentlyPaused(selected) ? (
+              <div className="bg-amber-500/15 border-b border-amber-500/25 px-3.5 py-1.5 flex items-center justify-between text-xs text-amber-200 z-10 shrink-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                  <span className="font-bold truncate">Atendimento com você:</span>
+                  <span className="text-amber-300/90 text-[11px] truncate hidden sm:inline">
+                    A IA está pausada ({formatRemainingPause(selected)}).
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleResumeAi(selected)}
+                  className="text-[11px] font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 shrink-0 transition cursor-pointer"
+                >
+                  <Play className="w-3 h-3 fill-current" /> Retomar IA
+                </button>
+              </div>
+            ) : (
+              <div className="bg-emerald-950/40 border-b border-emerald-500/20 px-3.5 py-1.5 flex items-center justify-between text-xs text-emerald-200 z-10 shrink-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                  <span className="font-bold truncate">Com a IA:</span>
+                  <span className="text-emerald-300/90 text-[11px] truncate hidden sm:inline">
+                    O assistente virtual está respondendo automaticamente.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handlePauseAi(selected, 60)}
+                  className="text-[11px] font-bold text-amber-300 hover:text-amber-200 flex items-center gap-1 shrink-0 transition cursor-pointer"
+                >
+                  <Pause className="w-3 h-3" /> Assumir
+                </button>
+              </div>
+            )}
 
             {/* Chat Body - Authentic WhatsApp Wallpaper & Bubbles */}
             <div

@@ -1118,6 +1118,8 @@ function registerAutomotiveRoutes(app, db) {
                 await db.collection('establishments').doc(storeId).collection('chats').doc(cand).set({
                     lastMessage: messageText,
                     lastMessageAt: nowIso,
+                    lastSender: 'assistant',
+                    unreadByHuman: false,
                     aiPaused: true,
                     aiPausedUntil: new Date(Date.now() + 60 * 60 * 1000).toISOString()
                 }, { merge: true });
@@ -1261,6 +1263,8 @@ Retorne ESTRITAMENTE um objeto JSON no formato:
                 await db.collection('establishments').doc(storeId).collection('chats').doc(cand).set({
                     lastMessage: textNote,
                     lastMessageAt: nowIso,
+                    lastSender: 'assistant',
+                    unreadByHuman: false,
                     aiPaused: true,
                     aiPausedUntil: new Date(Date.now() + 60 * 60 * 1000).toISOString()
                 }, { merge: true });
@@ -1332,6 +1336,8 @@ Retorne ESTRITAMENTE um objeto JSON no formato:
                 await db.collection('establishments').doc(storeId).collection('chats').doc(cand).set({
                     lastMessage: displayText,
                     lastMessageAt: nowIso,
+                    lastSender: 'assistant',
+                    unreadByHuman: false,
                     aiPaused: true,
                     aiPausedUntil: new Date(Date.now() + 60 * 60 * 1000).toISOString()
                 }, { merge: true });
