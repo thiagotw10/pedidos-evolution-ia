@@ -2111,6 +2111,75 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
     }
 
     // ----------------------------------------------------
+    // ⏳ STALE / HISTORY MESSAGE GUARD (Anti-Avalanche ao Ligar o Agente)
+    // ----------------------------------------------------
+    // Quando a instância do WhatsApp é iniciada ou reconectada, o WhatsApp sincroniza
+    // mensagens antigas não lidas que chegaram enquanto o agente estava desligado.
+    // Se a mensagem tiver mais de 2 minutos, salvamos no CRM mas NÃO DISPARAMOS A IA!
+    const rawMsgTime = messageData.messageTimestamp || 
+                       info.Timestamp || 
+                       info.timestamp || 
+                       messageData.Timestamp || 
+                       messageData.timestamp ||
+                       messageData.date_time ||
+                       body.date_time;
+
+    let msgAgeMs = 0;
+    if (rawMsgTime) {
+      const numTime = typeof rawMsgTime === 'number' ? rawMsgTime : (!isNaN(Number(rawMsgTime)) ? Number(rawMsgTime) : new Date(rawMsgTime).getTime());
+      if (!isNaN(numTime) && numTime > 0) {
+        const msgTimeMs = numTime < 10000000000 ? numTime * 1000 : numTime;
+        msgAgeMs = now - msgTimeMs;
+      }
+    }
+
+    const MAX_INBOUND_MESSAGE_AGE_MS = 2.5 * 60 * 1000; // 2.5 minutos
+    const isStaleHistoryMessage = msgAgeMs > MAX_INBOUND_MESSAGE_AGE_MS;
+
+    if (isStaleHistoryMessage && !fromMe && !isAdmin) {
+      console.log(`[Evolution Webhook] ⏳ Mensagem retroativa de ${phone} enviada há ${Math.round(msgAgeMs / 1000)}s (enquanto o agente estava desligado). Registrada no CRM sem disparar resposta de IA.`);
+
+      const historyText = text || (audioMsg ? '[Áudio recebido enquanto agente desligado]' : (imageMsg ? '[Imagem recebida enquanto agente desligado]' : '[Mensagem WhatsApp]'));
+      const originalSentIso = new Date(now - msgAgeMs).toISOString();
+
+      try {
+        await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
+          sender: 'user',
+          text: historyText,
+          timestamp: originalSentIso,
+          isOfflineCatchup: true
+        });
+
+        await db.collection('establishments').doc(storeId).collection('chats').doc(phone).set({
+          customerPhone: phone,
+          lastMessage: historyText,
+          lastMessageAt: originalSentIso,
+          unreadByHuman: true
+        }, { merge: true });
+
+        const projsSnap = await db.collection('automotive_projects')
+          .where('establishmentId', '==', storeId)
+          .where('phone', '==', phone)
+          .limit(1)
+          .get();
+        if (!projsSnap.empty) {
+          await projsSnap.docs[0].ref.update({
+            lastMessage: historyText,
+            updatedAt: originalSentIso
+          });
+        }
+      } catch (historyErr: any) {
+        console.warn('[Stale Message Catchup Error]:', historyErr.message);
+      }
+
+      return res.status(200).json({
+        status: 'ignored_stale_history_message',
+        phone,
+        ageSeconds: Math.round(msgAgeMs / 1000)
+      });
+    }
+
+    // ----------------------------------------------------
     // 👨‍🍳 ADMIN CO-PILOT (Gestão da Loja pelo WhatsApp do Lojista)
     // ----------------------------------------------------
     if (isAdmin) {
@@ -3936,7 +4005,8 @@ app.all(['/api/evolution/connect', '/api/evolution/qr'], async (req, res) => {
             ignoreGroups: true,
             alwaysOnline: false,
             readMessages: false,
-            ignoreStatus: true
+            ignoreStatus: true,
+            syncFullHistory: false
           }
         })
       });
@@ -4090,7 +4160,8 @@ app.post('/api/evolution/pair', async (req, res) => {
               ignoreGroups: true,
               alwaysOnline: false,
               readMessages: false,
-              ignoreStatus: true
+              ignoreStatus: true,
+              syncFullHistory: false
             }
           })
         });
