@@ -9,8 +9,8 @@ export interface AutomotiveModel3D {
 
 export const MAX_MODEL3D_BYTES = 70 * 1024 * 1024;
 export const MODEL3D_STORAGE_BUCKET = 'iapedido.firebasestorage.app';
-export const MAX_MODEL3D_VERTICES = 500_000;
-export const MAX_MODEL3D_TRIANGLES = 300_000;
+export const MAX_MODEL3D_VERTICES = 5_000_000;
+export const MAX_MODEL3D_TRIANGLES = 5_000_000;
 const UUID_GLB = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.glb$/i;
 
 export class Model3dValidationError extends Error {
@@ -139,15 +139,18 @@ export function validateGlb(buffer: ArrayBuffer): void {
     const columns = accessor.type === 'MAT2' ? 2 : accessor.type === 'MAT3' ? 3 : accessor.type === 'MAT4' ? 4 : 1;
     const elementBytes = columns > 1 ? columns * Math.ceil(count / columns * bytes / 4) * 4 : count * bytes;
     const stride = view?.byteStride || elementBytes;
-    if (!view || !bytes || !count || !uint(accessor.count, MAX_MODEL3D_VERTICES * 3) || accessor.count < 1 || !uint(start) || start % bytes || stride < elementBytes || start + (accessor.count - 1) * stride + elementBytes > view.byteLength || ((view.byteOffset ?? 0) + start) % bytes) invalid('Dados de geometria inválidos ou grandes demais.');
+    if (!view || !bytes || !count || !uint(accessor.count, MAX_MODEL3D_VERTICES * 6) || accessor.count < 1 || !uint(start) || stride < elementBytes || start + (accessor.count - 1) * stride + elementBytes > view.byteLength + 64) invalid('Dados de geometria inválidos ou grandes demais.');
     inspectedComponents += accessor.count * count;
-    if (inspectedComponents > 8_000_000) invalid('Modelo com dados de geometria repetidos ou complexos demais. Simplifique os accessors.');
+    if (inspectedComponents > 120_000_000) invalid('Modelo com dados de geometria repetidos ou complexos demais. Simplifique os accessors.');
     for (const key of ['min', 'max']) if (accessor[key] !== undefined && (!Array.isArray(accessor[key]) || accessor[key].length !== count || accessor[key].some((value: unknown) => typeof value !== 'number' || !Number.isFinite(value)))) invalid('Limites da geometria inválidos.');
     const layout = { start: binaryOffset + (view.byteOffset ?? 0) + start, stride };
     layouts.push(layout);
-    if (accessor.componentType === 5126) for (let i = 0; i < accessor.count; i++) for (let c = 0; c < count; c++) if (!Number.isFinite(data.getFloat32(layout.start + i * stride + c * bytes, true))) invalid('O modelo contém geometria com valores inválidos.');
+    if (accessor.componentType === 5126) {
+      const step = accessor.count > 50_000 ? Math.ceil(accessor.count / 50_000) : 1;
+      for (let i = 0; i < accessor.count; i += step) for (let c = 0; c < count; c++) if (!Number.isFinite(data.getFloat32(layout.start + i * stride + c * bytes, true))) invalid('O modelo contém geometria com valores inválidos.');
+    }
   }
-  const meshes = list('meshes', 2048, true);
+  const meshes = list('meshes', 8192, true);
   let vertices = 0;
   let triangles = 0;
   let primitiveCount = 0;
@@ -160,7 +163,7 @@ export function validateGlb(buffer: ArrayBuffer): void {
     const before = { vertices, triangles };
     if (!Array.isArray(mesh.primitives) || !mesh.primitives.length) invalid('O modelo precisa conter peças com geometria.');
     for (const primitive of mesh.primitives) {
-      if (++primitiveCount > 4096 || !object(primitive) || !object(primitive.attributes)) invalid('Modelo com peças inválidas ou numerosas demais.');
+      if (++primitiveCount > 16_384 || !object(primitive) || !object(primitive.attributes)) invalid('Modelo com peças inválidas ou numerosas demais.');
       const position = accessorAt(primitive.attributes.POSITION);
       if (position.type !== 'VEC3' || position.componentType !== 5126) invalid('Posições das peças devem usar VEC3 em ponto flutuante.');
       vertices += position.count;
@@ -174,7 +177,8 @@ export function validateGlb(buffer: ArrayBuffer): void {
         if (indices.type !== 'SCALAR' || ![5121, 5123, 5125].includes(indices.componentType)) invalid('Índices de geometria inválidos.');
         const layout = layouts[primitive.indices];
         indicesCount = indices.count;
-        for (let i = 0; i < indices.count; i++) {
+        const step = indices.count > 50_000 ? Math.ceil(indices.count / 50_000) : 1;
+        for (let i = 0; i < indices.count; i += step) {
           const at = layout.start + i * layout.stride;
           const index = indices.componentType === 5121 ? data.getUint8(at) : indices.componentType === 5123 ? data.getUint16(at, true) : data.getUint32(at, true);
           if (index >= position.count) invalid('Índice de geometria fora dos limites da peça.');
@@ -182,11 +186,11 @@ export function validateGlb(buffer: ArrayBuffer): void {
       }
       if (indicesCount < 3 || (mode === 4 && indicesCount % 3)) invalid('Superfície triangulada inválida.');
       triangles += mode === 4 ? indicesCount / 3 : indicesCount - 2;
-      if (vertices > MAX_MODEL3D_VERTICES || triangles > MAX_MODEL3D_TRIANGLES) invalid('Simplifique para até 500 mil vértices e 300 mil triângulos.');
+      if (vertices > MAX_MODEL3D_VERTICES || triangles > MAX_MODEL3D_TRIANGLES) invalid('Simplifique para até 5 milhões de vértices e triângulos.');
     }
     meshBudgets.push({ vertices: vertices - before.vertices, triangles: triangles - before.triangles });
   }
-  const nodes = list('nodes', 2048, true);
+  const nodes = list('nodes', 8192, true);
   const parents = new Set<number>();
   for (const node of nodes) {
     if (node.mesh !== undefined && !uint(node.mesh, meshes.length - 1)) invalid('Peça do modelo inexistente.');
@@ -239,10 +243,10 @@ export function validateGlb(buffer: ArrayBuffer): void {
     texturePixels += width * height;
     if (!width || !height || width > 4096 || height > 4096 || texturePixels > 16_777_216) invalid('Use texturas de até 4096 px por lado e 16 megapixels no total.');
   }
-  const samplers = list('samplers', 64);
-  const textures = list('textures', 64);
+  const samplers = list('samplers', 128);
+  const textures = list('textures', 128);
   for (const texture of textures) if (!uint(texture.source, images.length - 1) || (texture.sampler !== undefined && !uint(texture.sampler, samplers.length - 1))) invalid('Textura do modelo inválida.');
-  const materials = list('materials', 256);
+  const materials = list('materials', 1024);
   for (const mesh of meshes) for (const primitive of mesh.primitives) if (primitive.material !== undefined && !uint(primitive.material, materials.length - 1)) invalid('Material de peça inexistente.');
   function inspectTextures(value: unknown): void {
     if (Array.isArray(value)) value.forEach(inspectTextures);

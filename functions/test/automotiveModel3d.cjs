@@ -107,12 +107,12 @@ test('absent model field preserves association, explicit null clears and gallery
 });
 test('caps repeated accessors before excessive synchronous scans and budgets all loaded scenes', () => {
   const larger = extra => glb(d => {
-    d.buffers[0].byteLength = 3_000_006;
-    d.bufferViews[0].byteLength = 3_000_000;
-    d.bufferViews[1].byteOffset = 3_000_000;
-    d.accessors[0].count = 250_000;
+    d.buffers[0].byteLength = 30_000_006;
+    d.bufferViews[0].byteLength = 30_000_000;
+    d.bufferViews[1].byteOffset = 30_000_000;
+    d.accessors[0].count = 2_000_000;
     extra(d);
-  }, () => {}, 3_000_008);
-  assert.throws(() => validateGlb(larger(d => d.accessors.push(...Array.from({ length: 12 }, () => ({ ...d.accessors[0] }))))));
+  }, () => {}, 30_000_008);
+  assert.throws(() => validateGlb(larger(d => d.accessors.push(...Array.from({ length: 45 }, () => ({ ...d.accessors[0] }))))));
   assert.throws(() => validateGlb(larger(d => d.scenes = [{ nodes: [0] }, { nodes: [0] }, { nodes: [0] }])));
 });

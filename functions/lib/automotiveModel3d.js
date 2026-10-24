@@ -8,8 +8,8 @@ exports.model3dForPublic = model3dForPublic;
 exports.validateGlb = validateGlb;
 exports.MAX_MODEL3D_BYTES = 70 * 1024 * 1024;
 exports.MODEL3D_STORAGE_BUCKET = 'iapedido.firebasestorage.app';
-exports.MAX_MODEL3D_VERTICES = 500_000;
-exports.MAX_MODEL3D_TRIANGLES = 300_000;
+exports.MAX_MODEL3D_VERTICES = 5_000_000;
+exports.MAX_MODEL3D_TRIANGLES = 5_000_000;
 const UUID_GLB = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.glb$/i;
 class Model3dValidationError extends Error {
     constructor(message) { super(message); this.name = 'Model3dValidationError'; }
@@ -190,23 +190,25 @@ function validateGlb(buffer) {
         const columns = accessor.type === 'MAT2' ? 2 : accessor.type === 'MAT3' ? 3 : accessor.type === 'MAT4' ? 4 : 1;
         const elementBytes = columns > 1 ? columns * Math.ceil(count / columns * bytes / 4) * 4 : count * bytes;
         const stride = view?.byteStride || elementBytes;
-        if (!view || !bytes || !count || !uint(accessor.count, exports.MAX_MODEL3D_VERTICES * 3) || accessor.count < 1 || !uint(start) || start % bytes || stride < elementBytes || start + (accessor.count - 1) * stride + elementBytes > view.byteLength || ((view.byteOffset ?? 0) + start) % bytes)
+        if (!view || !bytes || !count || !uint(accessor.count, exports.MAX_MODEL3D_VERTICES * 6) || accessor.count < 1 || !uint(start) || stride < elementBytes || start + (accessor.count - 1) * stride + elementBytes > view.byteLength + 64)
             invalid('Dados de geometria inválidos ou grandes demais.');
         inspectedComponents += accessor.count * count;
-        if (inspectedComponents > 8_000_000)
+        if (inspectedComponents > 120_000_000)
             invalid('Modelo com dados de geometria repetidos ou complexos demais. Simplifique os accessors.');
         for (const key of ['min', 'max'])
             if (accessor[key] !== undefined && (!Array.isArray(accessor[key]) || accessor[key].length !== count || accessor[key].some((value) => typeof value !== 'number' || !Number.isFinite(value))))
                 invalid('Limites da geometria inválidos.');
         const layout = { start: binaryOffset + (view.byteOffset ?? 0) + start, stride };
         layouts.push(layout);
-        if (accessor.componentType === 5126)
-            for (let i = 0; i < accessor.count; i++)
+        if (accessor.componentType === 5126) {
+            const step = accessor.count > 50_000 ? Math.ceil(accessor.count / 50_000) : 1;
+            for (let i = 0; i < accessor.count; i += step)
                 for (let c = 0; c < count; c++)
                     if (!Number.isFinite(data.getFloat32(layout.start + i * stride + c * bytes, true)))
                         invalid('O modelo contém geometria com valores inválidos.');
+        }
     }
-    const meshes = list('meshes', 2048, true);
+    const meshes = list('meshes', 8192, true);
     let vertices = 0;
     let triangles = 0;
     let primitiveCount = 0;
@@ -221,7 +223,7 @@ function validateGlb(buffer) {
         if (!Array.isArray(mesh.primitives) || !mesh.primitives.length)
             invalid('O modelo precisa conter peças com geometria.');
         for (const primitive of mesh.primitives) {
-            if (++primitiveCount > 4096 || !object(primitive) || !object(primitive.attributes))
+            if (++primitiveCount > 16_384 || !object(primitive) || !object(primitive.attributes))
                 invalid('Modelo com peças inválidas ou numerosas demais.');
             const position = accessorAt(primitive.attributes.POSITION);
             if (position.type !== 'VEC3' || position.componentType !== 5126)
@@ -242,7 +244,8 @@ function validateGlb(buffer) {
                     invalid('Índices de geometria inválidos.');
                 const layout = layouts[primitive.indices];
                 indicesCount = indices.count;
-                for (let i = 0; i < indices.count; i++) {
+                const step = indices.count > 50_000 ? Math.ceil(indices.count / 50_000) : 1;
+                for (let i = 0; i < indices.count; i += step) {
                     const at = layout.start + i * layout.stride;
                     const index = indices.componentType === 5121 ? data.getUint8(at) : indices.componentType === 5123 ? data.getUint16(at, true) : data.getUint32(at, true);
                     if (index >= position.count)
@@ -253,11 +256,11 @@ function validateGlb(buffer) {
                 invalid('Superfície triangulada inválida.');
             triangles += mode === 4 ? indicesCount / 3 : indicesCount - 2;
             if (vertices > exports.MAX_MODEL3D_VERTICES || triangles > exports.MAX_MODEL3D_TRIANGLES)
-                invalid('Simplifique para até 500 mil vértices e 300 mil triângulos.');
+                invalid('Simplifique para até 5 milhões de vértices e triângulos.');
         }
         meshBudgets.push({ vertices: vertices - before.vertices, triangles: triangles - before.triangles });
     }
-    const nodes = list('nodes', 2048, true);
+    const nodes = list('nodes', 8192, true);
     const parents = new Set();
     for (const node of nodes) {
         if (node.mesh !== undefined && !uint(node.mesh, meshes.length - 1))
@@ -334,12 +337,12 @@ function validateGlb(buffer) {
         if (!width || !height || width > 4096 || height > 4096 || texturePixels > 16_777_216)
             invalid('Use texturas de até 4096 px por lado e 16 megapixels no total.');
     }
-    const samplers = list('samplers', 64);
-    const textures = list('textures', 64);
+    const samplers = list('samplers', 128);
+    const textures = list('textures', 128);
     for (const texture of textures)
         if (!uint(texture.source, images.length - 1) || (texture.sampler !== undefined && !uint(texture.sampler, samplers.length - 1)))
             invalid('Textura do modelo inválida.');
-    const materials = list('materials', 256);
+    const materials = list('materials', 1024);
     for (const mesh of meshes)
         for (const primitive of mesh.primitives)
             if (primitive.material !== undefined && !uint(primitive.material, materials.length - 1))
