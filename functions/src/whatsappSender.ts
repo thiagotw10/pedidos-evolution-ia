@@ -163,8 +163,38 @@ export async function sendWhatsAppMedia(
     if (discovered) activeToken = discovered;
 
     const apiKeyToUse = evoKey || activeToken;
+    const isHttpUrl = mediaUrlOrBase64.startsWith('http://') || mediaUrlOrBase64.startsWith('https://');
+    // Evolution GO requires raw base64 without "data:image/...;base64,"
+    const cleanMedia = isHttpUrl ? mediaUrlOrBase64 : (mediaUrlOrBase64.split(';base64,').pop() || mediaUrlOrBase64).trim();
 
-    // 1. Try Evolution API v1/v2: /message/sendMedia/{instance}
+    // 1. Try Evolution Go: /send/media (primary for Evolution Go server)
+    try {
+      const resGo = await fetch(`${evoUrl}/send/media`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: activeToken
+        },
+        body: JSON.stringify({
+          number: finalPhone,
+          type: type,
+          url: cleanMedia,
+          caption: caption || '',
+          delay: 500
+        }),
+        signal: AbortSignal.timeout(20000)
+      });
+
+      if (resGo.ok) {
+        const data = await resGo.json().catch(() => ({}));
+        return { success: true, data };
+      }
+      console.warn(`[sendWhatsAppMedia] Evolution Go /send/media status: ${resGo.status}`);
+    } catch (e: any) {
+      console.warn('[sendWhatsAppMedia Go failed]:', e.message);
+    }
+
+    // 2. Fallback to Evolution API v1/v2: /message/sendMedia/{instance}
     try {
       const resV2 = await fetch(`${evoUrl}/message/sendMedia/${activeToken}`, {
         method: 'POST',
@@ -180,44 +210,17 @@ export async function sendWhatsAppMedia(
             media: mediaUrlOrBase64
           }
         }),
-        signal: AbortSignal.timeout(18000)
+        signal: AbortSignal.timeout(20000)
       });
 
       if (resV2.ok) {
         const data = await resV2.json().catch(() => ({}));
         return { success: true, data };
       }
-    } catch (e: any) {
-      console.warn('[sendWhatsAppMedia v2 failed]:', e.message);
-    }
-
-    // 2. Try Evolution Go: /send/media
-    try {
-      const resGo = await fetch(`${evoUrl}/send/media`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          apikey: activeToken
-        },
-        body: JSON.stringify({
-          number: finalPhone,
-          type: type,
-          url: mediaUrlOrBase64,
-          caption: caption,
-          delay: 500
-        }),
-        signal: AbortSignal.timeout(18000)
-      });
-
-      if (resGo.ok) {
-        const data = await resGo.json().catch(() => ({}));
-        return { success: true, data };
-      }
-
-      const errText = await resGo.text().catch(() => '');
+      const errText = await resV2.text().catch(() => '');
       return { success: false, error: errText };
-    } catch (err: any) {
-      return { success: false, error: err.message };
+    } catch (e: any) {
+      return { success: false, error: e.message };
     }
   } catch (err: any) {
     return { success: false, error: err.message };
@@ -245,8 +248,37 @@ export async function sendWhatsAppAudio(
     if (discovered) activeToken = discovered;
 
     const apiKeyToUse = evoKey || activeToken;
+    const isHttpUrl = base64Audio.startsWith('http://') || base64Audio.startsWith('https://');
+    // Evolution GO requires raw base64 without "data:audio/...;base64,"
+    const cleanAudio = isHttpUrl ? base64Audio : (base64Audio.split(';base64,').pop() || base64Audio).trim();
 
-    // 1. Try Evolution API v1/v2 native WhatsApp Audio endpoint: /message/sendWhatsAppAudio/{instance}
+    // 1. Try Evolution Go: /send/media (primary for Evolution Go server)
+    try {
+      const resGo = await fetch(`${evoUrl}/send/media`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: activeToken
+        },
+        body: JSON.stringify({
+          number: finalPhone,
+          type: 'audio',
+          url: cleanAudio,
+          delay: 500
+        }),
+        signal: AbortSignal.timeout(20000)
+      });
+
+      if (resGo.ok) {
+        const data = await resGo.json().catch(() => ({}));
+        return { success: true, data };
+      }
+      console.warn(`[sendWhatsAppAudio] Evolution Go /send/media status: ${resGo.status}`);
+    } catch (e: any) {
+      console.warn('[sendWhatsAppAudio Go failed]:', e.message);
+    }
+
+    // 2. Fallback to Evolution API v1/v2 native WhatsApp Audio endpoint: /message/sendWhatsAppAudio/{instance}
     try {
       const resAudio = await fetch(`${evoUrl}/message/sendWhatsAppAudio/${activeToken}`, {
         method: 'POST',
@@ -267,12 +299,11 @@ export async function sendWhatsAppAudio(
         const data = await resAudio.json().catch(() => ({}));
         return { success: true, data };
       }
-      console.warn(`[sendWhatsAppAudio] /message/sendWhatsAppAudio status: ${resAudio.status}`);
     } catch (e: any) {
       console.warn('[sendWhatsAppAudio v2 failed]:', e.message);
     }
 
-    // 2. Try Evolution API v1/v2 /message/sendMedia/{instance} (mediatype: audio)
+    // 3. Fallback to Evolution API v1/v2 /message/sendMedia/{instance} (mediatype: audio)
     try {
       const resMedia = await fetch(`${evoUrl}/message/sendMedia/${activeToken}`, {
         method: 'POST',
@@ -294,33 +325,8 @@ export async function sendWhatsAppAudio(
         const data = await resMedia.json().catch(() => ({}));
         return { success: true, data };
       }
-    } catch (e: any) {
-      console.warn('[sendWhatsAppAudio v2 sendMedia failed]:', e.message);
-    }
 
-    // 3. Try Evolution Go: /send/media
-    try {
-      const resGo = await fetch(`${evoUrl}/send/media`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          apikey: activeToken
-        },
-        body: JSON.stringify({
-          number: finalPhone,
-          type: 'audio',
-          url: base64Audio,
-          delay: 500
-        }),
-        signal: AbortSignal.timeout(18000)
-      });
-
-      if (resGo.ok) {
-        const data = await resGo.json().catch(() => ({}));
-        return { success: true, data };
-      }
-
-      const errText = await resGo.text().catch(() => '');
+      const errText = await resMedia.text().catch(() => '');
       return { success: false, error: errText };
     } catch (err: any) {
       return { success: false, error: err.message };
@@ -329,4 +335,3 @@ export async function sendWhatsAppAudio(
     return { success: false, error: err.message };
   }
 }
-
