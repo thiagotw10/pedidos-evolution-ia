@@ -2,6 +2,13 @@ import { Express } from 'express';
 import admin from 'firebase-admin';
 import crypto from 'crypto';
 import { isLegacyFoodSample } from './catalogPolicy';
+import {
+  TrafficAttribution,
+  extractTrafficAttribution,
+  sendMetaConversionEvent,
+  buildTrackedCampaignLink,
+  MetaCapiConfig
+} from './metaCapi';
 
 export const AUTOMOTIVE_STAGES = ['Novo contato', 'Qualificação', 'Análise técnica', 'Orçamento enviado', 'Aprovado', 'Em execução', 'Enviado', 'Concluído', 'Cancelado'];
 const stages = AUTOMOTIVE_STAGES;
@@ -27,6 +34,7 @@ export interface AutomotiveConversationContext {
   interactionCount?: number;
   lastUserMessage?: string;
   lastAssistantMessage?: string;
+  trafficAttribution?: TrafficAttribution | null;
   updatedAt?: string;
 }
 
@@ -400,6 +408,7 @@ export async function saveAutomotiveContactAndSyncCrm(params: {
   toolArgs?: Partial<AutomotiveConversationContext>;
   catalog?: Array<{ id: string; name: string }>;
   forceRegisterProject?: boolean;
+  attribution?: TrafficAttribution | null;
 }): Promise<{
   context: AutomotiveConversationContext;
   project?: any;
@@ -415,7 +424,8 @@ export async function saveAutomotiveContactAndSyncCrm(params: {
     replyText,
     toolArgs,
     catalog = [],
-    forceRegisterProject = false
+    forceRegisterProject = false,
+    attribution = null
   } = params;
 
   const cleanPhone = String(customerPhone || '').replace(/\D/g, '') || customerPhone;
@@ -588,6 +598,13 @@ export async function saveAutomotiveContactAndSyncCrm(params: {
           updatedAt: nowIso
         };
 
+        if (attribution) {
+          updatedFields.trafficSource = attribution.trafficSource;
+          if (attribution.campaignName) updatedFields.campaignName = attribution.campaignName;
+          if (attribution.adName) updatedFields.adName = attribution.adName;
+          updatedFields.utmData = attribution;
+        }
+
         await matchedDoc.ref.set(updatedFields, { merge: true });
         mergedCtx.projectId = matchedDoc.id;
         mergedCtx.stage = nextStatus;
@@ -610,7 +627,14 @@ export async function saveAutomotiveContactAndSyncCrm(params: {
           delivery: mergedCtx.delivery || 'A definir',
           references: mergedReferences,
           status: computedStage,
-          source: 'whatsapp_ai',
+          source: attribution?.trafficSource ? 'paid_traffic' : 'whatsapp_ai',
+          trafficSource: attribution?.trafficSource || 'ORGANIC',
+          campaignName: attribution?.campaignName || 'Contato Direto WhatsApp',
+          adName: attribution?.adName || '',
+          utmData: attribution || null,
+          quoteValue: 0,
+          commissionPercent: 4,
+          commissionValue: 0,
           conversationSummary: mergedCtx.summary,
           lastMessage: String(incomingText || '').slice(0, 400),
           lastAssistantReply: String(replyText || '').slice(0, 400),
@@ -629,6 +653,30 @@ export async function saveAutomotiveContactAndSyncCrm(params: {
         isNewProject = true;
         if (computedStage === 'Análise técnica') {
           justQualified = true;
+        }
+      }
+
+      // Disparar evento Lead via Meta Conversions API (CAPI) se qualificado ou novo lead de tráfego
+      if ((isNewProject && (attribution?.trafficSource === 'META_ADS' || Boolean(attribution))) || justQualified) {
+        try {
+          const estSnap = await db.collection('establishments').doc(establishmentId).get();
+          const estData = estSnap.data() || {};
+          if (estData.metaCapiEnabled && estData.metaPixelId && estData.metaApiAccessToken) {
+            void sendMetaConversionEvent({
+              pixelId: estData.metaPixelId,
+              accessToken: estData.metaApiAccessToken,
+              testEventCode: estData.metaTestEventCode,
+              enabled: true
+            }, {
+              eventName: 'Lead',
+              customerPhone: cleanPhone,
+              customerName: mergedCtx.customerName,
+              contentName: `${mergedCtx.brand || ''} ${mergedCtx.model || ''} - ${mergedCtx.objective || 'Escapamento/Performance'}`.trim(),
+              contentCategory: 'Performance Automotiva'
+            });
+          }
+        } catch (capiErr: any) {
+          console.warn('[Meta CAPI Lead Warning]:', capiErr.message);
         }
       }
     } catch (crmErr: any) {
@@ -757,16 +805,278 @@ export function registerAutomotiveRoutes(app: Express, db: admin.firestore.Fires
   app.patch('/api/automotive/projects/:id', async (req, res) => {
     try {
       const ref = db.collection('automotive_projects').doc(String(req.params.id));
-      const allowed = ['customerName', 'brand', 'model', 'year', 'version', 'modifications', 'objective', 'cep', 'delivery', 'notes', 'quote', 'freight', 'leadTime', 'tracking', 'status'];
-      const changes: Record<string, string> = {};
-      for (const key of allowed) if (typeof req.body[key] === 'string') changes[key] = req.body[key].slice(0, 3000);
-      if (changes.status && !stages.includes(changes.status)) return res.status(400).json({ error: 'Etapa inválida.' });
+      const allowed = [
+        'customerName', 'brand', 'model', 'year', 'version', 'modifications',
+        'objective', 'cep', 'delivery', 'notes', 'quote', 'quoteValue',
+        'commissionPercent', 'commissionValue', 'freight', 'leadTime',
+        'tracking', 'status', 'trafficSource', 'campaignName', 'adName'
+      ];
+      const changes: Record<string, any> = {};
+      for (const key of allowed) {
+        if (typeof req.body[key] === 'string') {
+          changes[key] = req.body[key].slice(0, 3000);
+        } else if (typeof req.body[key] === 'number') {
+          changes[key] = req.body[key];
+        }
+      }
+
+      // Auto-recalculate commission if quoteValue is present
+      const quoteVal = Number(changes.quoteValue ?? req.body.quoteValue ?? 0);
+      const commPct = Number(changes.commissionPercent ?? req.body.commissionPercent ?? 4);
+      if (quoteVal > 0) {
+        changes.quoteValue = quoteVal;
+        changes.commissionPercent = commPct;
+        changes.commissionValue = Number(((quoteVal * commPct) / 100).toFixed(2));
+      }
+
+      if (changes.status && !stages.includes(changes.status)) {
+        return res.status(400).json({ error: 'Etapa inválida.' });
+      }
+
+      let previousData: any = null;
       await db.runTransaction(async tx => {
         const snap = await tx.get(ref);
-        if (snap.data()?.establishmentId !== res.locals.uid) throw new Error('FORBIDDEN');
+        previousData = snap.data();
+        if (previousData?.establishmentId !== res.locals.uid) throw new Error('FORBIDDEN');
         tx.update(ref, { ...changes, updatedAt: new Date().toISOString() });
       });
+
+      // Disparar evento Purchase no Meta Conversions API (CAPI) ao aprovar/concluir o projeto
+      const becomesApproved = (changes.status === 'Aprovado' || changes.status === 'Concluído') &&
+                              previousData?.status !== 'Aprovado' && previousData?.status !== 'Concluído';
+
+      if (becomesApproved) {
+        try {
+          const estSnap = await db.collection('establishments').doc(res.locals.uid).get();
+          const estData = estSnap.data() || {};
+          if (estData.metaCapiEnabled && estData.metaPixelId && estData.metaApiAccessToken) {
+            const finalValue = Number(changes.quoteValue || previousData.quoteValue || 0);
+            void sendMetaConversionEvent({
+              pixelId: estData.metaPixelId,
+              accessToken: estData.metaApiAccessToken,
+              testEventCode: estData.metaTestEventCode,
+              enabled: true
+            }, {
+              eventName: 'Purchase',
+              customerPhone: previousData.phone,
+              customerName: changes.customerName || previousData.customerName,
+              value: finalValue > 0 ? finalValue : 1500, // fallback de valor razoável para escape
+              currency: 'BRL',
+              contentName: `${changes.brand || previousData.brand || ''} ${changes.model || previousData.model || ''} - ${changes.objective || previousData.objective || 'Escapamento/Performance'}`.trim(),
+              contentCategory: 'Venda de Escapamento / Performance'
+            });
+          }
+        } catch (capiErr: any) {
+          console.warn('[Meta CAPI Purchase Warning]:', capiErr.message);
+        }
+      }
+
+      res.json({ success: true, changes });
+    } catch {
+      res.status(403).json({ error: 'Não foi possível atualizar este projeto.' });
+    }
+  });
+
+  // ----------------------------------------------------
+  // ROTAS DE GESTÃO DE TRÁFEGO PAGO, ROI & COMISSÃO
+  // ----------------------------------------------------
+
+  // 1. Estatísticas de Tráfego Pago & Comissão
+  app.get('/api/automotive/traffic/stats', async (_req, res) => {
+    try {
+      const storeId = res.locals.uid;
+      const projectsSnap = await db.collection('automotive_projects')
+        .where('establishmentId', '==', storeId)
+        .get();
+
+      const projects = projectsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      let totalLeads = projects.length;
+      let paidLeads = 0;
+      let qualifiedLeads = 0;
+      let quotesSent = 0;
+      let closedSales = 0;
+      let totalRevenue = 0;
+      let totalCommission = 0;
+
+      const campaignsMap: Record<string, {
+        campaignName: string;
+        leads: number;
+        qualified: number;
+        closed: number;
+        revenue: number;
+        commission: number;
+      }> = {};
+
+      for (const p of projects as any[]) {
+        const isPaid = p.trafficSource === 'META_ADS' || p.trafficSource === 'GOOGLE_ADS' || p.source === 'paid_traffic';
+        if (isPaid) paidLeads++;
+
+        const isQualified = ['Análise técnica', 'Orçamento enviado', 'Aprovado', 'Em execução', 'Enviado', 'Concluído'].includes(p.status);
+        if (isQualified) qualifiedLeads++;
+
+        if (['Orçamento enviado', 'Aprovado', 'Em execução', 'Enviado', 'Concluído'].includes(p.status)) quotesSent++;
+
+        const isClosed = ['Aprovado', 'Em execução', 'Enviado', 'Concluído'].includes(p.status);
+        if (isClosed) {
+          closedSales++;
+          const val = Number(p.quoteValue || 0);
+          totalRevenue += val;
+          const comm = Number(p.commissionValue || ((val * Number(p.commissionPercent || 4)) / 100) || 0);
+          totalCommission += comm;
+        }
+
+        const cName = p.campaignName || (isPaid ? 'Campanha Anúncio Meta' : 'Orgânico / Direto');
+        if (!campaignsMap[cName]) {
+          campaignsMap[cName] = {
+            campaignName: cName,
+            leads: 0,
+            qualified: 0,
+            closed: 0,
+            revenue: 0,
+            commission: 0
+          };
+        }
+        campaignsMap[cName].leads++;
+        if (isQualified) campaignsMap[cName].qualified++;
+        if (isClosed) {
+          campaignsMap[cName].closed++;
+          const val = Number(p.quoteValue || 0);
+          campaignsMap[cName].revenue += val;
+          campaignsMap[cName].commission += Number(p.commissionValue || ((val * Number(p.commissionPercent || 4)) / 100) || 0);
+        }
+      }
+
+      res.json({
+        totalLeads,
+        paidLeads,
+        qualifiedLeads,
+        quotesSent,
+        closedSales,
+        totalRevenue: Number(totalRevenue.toFixed(2)),
+        totalCommission: Number(totalCommission.toFixed(2)),
+        conversionRate: paidLeads > 0 ? Number(((closedSales / paidLeads) * 100).toFixed(1)) : 0,
+        campaigns: Object.values(campaignsMap)
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || 'Erro ao carregar estatísticas de tráfego.' });
+    }
+  });
+
+  // 2. Configurações de Meta CAPI do Estabelecimento
+  app.get('/api/automotive/traffic/config', async (_req, res) => {
+    try {
+      const storeId = res.locals.uid;
+      const doc = await db.collection('establishments').doc(storeId).get();
+      const d = doc.data() || {};
+      res.json({
+        metaPixelId: d.metaPixelId || '',
+        metaApiAccessToken: d.metaApiAccessToken ? '••••••••' + d.metaApiAccessToken.slice(-6) : '',
+        metaCapiEnabled: Boolean(d.metaCapiEnabled),
+        metaTestEventCode: d.metaTestEventCode || '',
+        defaultCommissionPercent: d.defaultCommissionPercent ?? 4
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/automotive/traffic/config', async (req, res) => {
+    try {
+      const storeId = res.locals.uid;
+      const {
+        metaPixelId,
+        metaApiAccessToken,
+        metaCapiEnabled,
+        metaTestEventCode,
+        defaultCommissionPercent
+      } = req.body;
+
+      const updateData: Record<string, any> = {
+        metaCapiEnabled: Boolean(metaCapiEnabled),
+        defaultCommissionPercent: Number(defaultCommissionPercent || 4)
+      };
+
+      if (metaPixelId !== undefined) updateData.metaPixelId = String(metaPixelId || '').trim();
+      if (metaApiAccessToken && !metaApiAccessToken.includes('••••')) {
+        updateData.metaApiAccessToken = String(metaApiAccessToken).trim();
+      }
+      if (metaTestEventCode !== undefined) updateData.metaTestEventCode = String(metaTestEventCode || '').trim();
+
+      await db.collection('establishments').doc(storeId).set(updateData, { merge: true });
       res.json({ success: true });
-    } catch { res.status(403).json({ error: 'Não foi possível atualizar este projeto.' }); }
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // 3. Teste de Disparo ao vivo da Meta Conversions API
+  app.post('/api/automotive/traffic/test-capi', async (req, res) => {
+    try {
+      const storeId = res.locals.uid;
+      const doc = await db.collection('establishments').doc(storeId).get();
+      const d = doc.data() || {};
+
+      const pixelId = req.body.metaPixelId || d.metaPixelId;
+      const token = (req.body.metaApiAccessToken && !req.body.metaApiAccessToken.includes('••••'))
+        ? req.body.metaApiAccessToken
+        : d.metaApiAccessToken;
+      const testCode = req.body.metaTestEventCode ?? d.metaTestEventCode;
+
+      if (!pixelId || !token) {
+        return res.status(400).json({ error: 'Preencha o Pixel ID e o Access Token antes de testar.' });
+      }
+
+      const result = await sendMetaConversionEvent({
+        pixelId,
+        accessToken: token,
+        testEventCode: testCode,
+        enabled: true
+      }, {
+        eventName: 'Lead',
+        customerPhone: '5511999998888',
+        customerName: 'Piloto Teste Performance',
+        contentName: 'Downpipe Inox 304 - Teste Meta CAPI'
+      });
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({ success: true, fbtrace_id: result.fbtrace_id });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // 4. Gerador de Links de Anúncios Rastreados
+  app.post('/api/automotive/traffic/generate-link', async (req, res) => {
+    try {
+      const storeId = res.locals.uid;
+      const doc = await db.collection('establishments').doc(storeId).get();
+      const d = doc.data() || {};
+
+      const phone = String(d.whatsappNumber || d.phone || '').replace(/\D/g, '');
+      if (!phone) {
+        return res.status(400).json({ error: 'Configure o WhatsApp da sua loja nas configurações primeiro.' });
+      }
+
+      const { campaignKey, carOrProduct, offerText, customGreeting } = req.body;
+      if (!campaignKey) {
+        return res.status(400).json({ error: 'Informe a identificação da campanha.' });
+      }
+
+      const generated = buildTrackedCampaignLink({
+        phone,
+        campaignKey,
+        carOrProduct,
+        offerText,
+        customGreeting
+      });
+
+      res.json(generated);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
   });
 }

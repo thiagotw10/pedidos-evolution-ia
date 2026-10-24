@@ -5,6 +5,7 @@ import admin from 'firebase-admin';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 import { registerAutomotiveRoutes, saveAutomotiveContactAndSyncCrm, AutomotiveConversationContext } from './automotive';
+import { extractTrafficAttribution } from './metaCapi';
 import { registerCarVideoStudioRoutes } from './carVideoStudio';
 import { visibleForSegment } from './catalogPolicy';
 import { MAX_MODEL3D_BYTES, MODEL3D_STORAGE_BUCKET, Model3dValidationError, model3dForPublic, model3dStoragePath, model3dUpdate, validateGlb } from './automotiveModel3d';
@@ -941,6 +942,9 @@ async function processAiCustomerMessage(
   const estDoc = await db.collection('establishments').doc(establishmentId).get();
   const establishment = estDoc.data() || {};
 
+  const { cleanText, attribution } = extractTrafficAttribution(incomingText);
+  const textForAi = cleanText || incomingText;
+
   const customerMemorySnap = await customerMemoryRef(establishmentId, customerPhone).get().catch(() => null);
   const customerMemory = customerMemorySnap?.data() || {};
 
@@ -1759,11 +1763,12 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
         establishmentId,
         customerPhone,
         customerName: customerNameParam,
-        incomingText: chatDisplayMsg,
+        incomingText: textForAi || chatDisplayMsg,
         replyText,
         toolArgs: automotiveToolArgs,
         catalog: products.map((p: any) => ({ id: p.id, name: p.name })),
-        forceRegisterProject: forceRegisterAutomotive
+        forceRegisterProject: forceRegisterAutomotive,
+        attribution
       });
 
       const ctx = autoSync.context;
@@ -1772,11 +1777,12 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
       }
 
       if (autoSync.isNewProject || autoSync.justQualified) {
+        const sourceBadge = attribution?.campaignName ? `[${attribution.campaignName}]` : '';
         sendAlertPushNotification(establishmentId, {
           title: autoSync.justQualified
-            ? `🏁 Projeto Qualificado no WhatsApp: ${ctx.brand || ''} ${ctx.model || ''}`.trim()
-            : `🏁 Novo Lead de Performance: ${ctx.customerName || customerPhone}`,
-          body: `${ctx.summary || incomingText}`.slice(0, 120),
+            ? `🏁 Projeto Qualificado ${sourceBadge}: ${ctx.brand || ''} ${ctx.model || ''}`.trim()
+            : `🎯 Lead de Performance ${sourceBadge}: ${ctx.customerName || customerPhone}`.trim(),
+          body: `${ctx.summary || textForAi || incomingText}`.slice(0, 120),
           url: '/?tab=orders'
         }).catch(() => {});
       }

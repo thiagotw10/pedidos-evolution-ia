@@ -14,7 +14,9 @@ import {
   X,
   Bot,
   FileText,
-  Wrench
+  Wrench,
+  DollarSign,
+  Target
 } from 'lucide-react';
 import { auth } from '../lib/firebase';
 
@@ -56,6 +58,12 @@ type Project = {
   freight?: string;
   leadTime?: string;
   tracking?: string;
+  trafficSource?: 'META_ADS' | 'GOOGLE_ADS' | 'SITE' | 'ORGANIC' | string;
+  campaignName?: string;
+  adName?: string;
+  quoteValue?: number;
+  commissionPercent?: number;
+  commissionValue?: number;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -367,6 +375,16 @@ export function AutomotiveProjects() {
                         <Flame className="w-2.5 h-2.5" /> Qualificado
                       </span>
                     )}
+                    {(p.trafficSource === 'META_ADS' || p.campaignName) && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                        <Target className="w-2.5 h-2.5" /> Anúncio: {p.campaignName || 'Meta Ads'}
+                      </span>
+                    )}
+                    {Number(p.quoteValue || 0) > 0 && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        <DollarSign className="w-2.5 h-2.5" /> R$ {Number(p.quoteValue).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -565,6 +583,74 @@ export function AutomotiveProjects() {
                     ))}
                   </select>
                 </label>
+
+                {/* Financial Quote & Commission Section */}
+                <div className="p-3.5 rounded-xl bg-slate-900 border border-cyan-500/30 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+                      <DollarSign className="w-3.5 h-3.5" /> Financeiro & Comissão por Venda
+                    </span>
+                    {selected.trafficSource && (
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        {selected.trafficSource} {selected.campaignName ? `(${selected.campaignName})` : ''}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block text-xs text-slate-300">
+                      Valor do Projeto (R$)
+                      <input
+                        type="number"
+                        step="50"
+                        min="0"
+                        value={selected.quoteValue ?? ''}
+                        onChange={e => {
+                          const val = Number(e.target.value);
+                          const commPct = selected.commissionPercent ?? 4;
+                          setSelected({
+                            ...selected,
+                            quoteValue: val,
+                            commissionValue: Number(((val * commPct) / 100).toFixed(2))
+                          });
+                        }}
+                        placeholder="Ex: 3800.00"
+                        className="block w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 mt-1 text-white text-xs font-bold font-mono"
+                      />
+                    </label>
+
+                    <label className="block text-xs text-slate-300">
+                      % Comissão Acordada
+                      <input
+                        type="number"
+                        step="0.5"
+                        min="0"
+                        max="50"
+                        value={selected.commissionPercent ?? 4}
+                        onChange={e => {
+                          const commPct = Number(e.target.value);
+                          const val = selected.quoteValue ?? 0;
+                          setSelected({
+                            ...selected,
+                            commissionPercent: commPct,
+                            commissionValue: Number(((val * commPct) / 100).toFixed(2))
+                          });
+                        }}
+                        placeholder="Ex: 4"
+                        className="block w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 mt-1 text-white text-xs font-bold font-mono"
+                      />
+                    </label>
+                  </div>
+
+                  {Number(selected.quoteValue || 0) > 0 && (
+                    <div className="p-2.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-between text-xs">
+                      <span className="text-emerald-300 font-semibold">Sua Comissão nesta Venda:</span>
+                      <span className="text-emerald-400 font-bold text-sm font-mono">
+                        R$ {Number(selected.commissionValue || ((Number(selected.quoteValue) * Number(selected.commissionPercent || 4)) / 100)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  )}
+                </div>
 
                 {(
                   [

@@ -1,5 +1,6 @@
 import express from 'express';
 import { registerAutomotiveRoutes, saveAutomotiveContactAndSyncCrm, AutomotiveConversationContext } from './functions/src/automotive';
+import { extractTrafficAttribution } from './functions/src/metaCapi';
 import { MAX_MODEL3D_BYTES, MODEL3D_STORAGE_BUCKET, Model3dValidationError, model3dStoragePath, model3dUpdate, validateGlb } from './functions/src/automotiveModel3d';
 import fs from 'fs';
 import path from 'path';
@@ -614,6 +615,9 @@ async function processAiCustomerMessage(
   const estDoc = await db.collection('establishments').doc(establishmentId).get();
   const establishment = estDoc.data() || {};
 
+  const { cleanText, attribution } = extractTrafficAttribution(incomingText);
+  const textForAi = cleanText || incomingText;
+
   const safePhone = customerPhone.replace(/\D/g, '') || customerPhone;
   const customerMemorySnap = await db.collection('establishments').doc(establishmentId).collection('customers').doc(safePhone).get().catch(() => null);
   const customerMemory = customerMemorySnap?.data() || {};
@@ -854,7 +858,7 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
     // Add current user message
     contents.push({
       role: 'user',
-      parts: [{ text: incomingText }]
+      parts: [{ text: textForAi }]
     });
 
     const activeTools = isAutomotive
@@ -1018,22 +1022,24 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
         establishmentId,
         customerPhone,
         customerName: customerNameParam,
-        incomingText,
+        incomingText: textForAi,
         replyText,
         toolArgs: automotiveToolArgs,
         catalog: products.map((p: any) => ({ id: p.id, name: p.name })),
-        forceRegisterProject: forceRegisterAutomotive
+        forceRegisterProject: forceRegisterAutomotive,
+        attribution
       });
       const ctx = autoSync.context;
       if (autoSync.project) {
         createdOrder = autoSync.project;
       }
       if (autoSync.isNewProject || autoSync.justQualified) {
+        const sourceBadge = attribution?.campaignName ? `[${attribution.campaignName}]` : '';
         sendAlertPushNotification(establishmentId, {
           title: autoSync.justQualified
-            ? `🏁 Projeto Qualificado no WhatsApp: ${ctx.brand || ''} ${ctx.model || ''}`.trim()
-            : `🏁 Novo Lead de Performance: ${ctx.customerName || customerPhone}`,
-          body: `${ctx.summary || incomingText}`.slice(0, 120),
+            ? `🏁 Projeto Qualificado ${sourceBadge}: ${ctx.brand || ''} ${ctx.model || ''}`.trim()
+            : `🎯 Lead de Performance ${sourceBadge}: ${ctx.customerName || customerPhone}`.trim(),
+          body: `${ctx.summary || textForAi}`.slice(0, 120),
           url: '/?tab=orders'
         }).catch(() => {});
       }

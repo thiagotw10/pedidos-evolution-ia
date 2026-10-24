@@ -13,7 +13,8 @@ import {
   Home,
   Shirt,
   Package,
-  CreditCard
+  CreditCard,
+  Target
 } from 'lucide-react';
 import { Establishment } from '../types';
 import { getSegmentConfig, getSegmentCatalogIcon, getSegmentOrdersIcon } from '../utils/segments';
@@ -44,6 +45,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: OrdersIcon,
       badge: pendingOrdersCount > 0 ? pendingOrdersCount : null,
       badgeColor: 'bg-emerald-500 text-black font-bold animate-pulse'
+    },
+    {
+      id: 'traffic',
+      label: 'Tráfego & Comissão',
+      icon: Target,
+      badge: 'Meta CAPI',
+      badgeColor: 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
     },
     {
       id: 'finance',

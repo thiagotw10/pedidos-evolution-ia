@@ -19,6 +19,7 @@ import { SettingsView } from './components/SettingsView';
 import { CampaignsView } from './components/CampaignsView';
 import { FinanceView } from './components/FinanceView';
 import { BillingView } from './components/BillingView';
+import { TrafficGrowthView } from './components/TrafficGrowthView';
 import { PublicStorefront } from './components/PublicStorefront';
 import { AuthView } from './components/AuthView';
 import { HomeView } from './components/HomeView';
@@ -456,6 +457,13 @@ export default function App() {
                 couriers={establishment?.couriers || []}
                 establishmentName={establishment?.name || 'iaPedido'}
                 establishment={establishment}
+              />
+            )}
+
+            {currentTab === 'traffic' && (
+              <TrafficGrowthView
+                establishment={establishment}
+                onNavigateToProjects={() => setCurrentTab('orders')}
               />
             )}
 
