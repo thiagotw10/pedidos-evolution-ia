@@ -17,7 +17,14 @@ cache/
 # Arquivos de ambiente e segredos
 .env
 .env.*
+*.env
+**/.env*
 !.env.example
+!**/.env.example
+service-account*.json
+credentials*.json
+*.pem
+*.key
 
 # Logs e arquivos temporários
 logs/
