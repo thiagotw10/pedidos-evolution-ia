@@ -1811,7 +1811,7 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
             ? `🏁 Projeto Qualificado ${sourceBadge}: ${ctx.brand || ''} ${ctx.model || ''}`.trim()
             : `🎯 Lead de Performance ${sourceBadge}: ${ctx.customerName || customerPhone}`.trim(),
           body: `${ctx.summary || textForAi || incomingText}`.slice(0, 120),
-          url: '/?tab=orders'
+          url: `/?tab=automotive&projectId=${autoSync.project?.id || ''}`
         }).catch(() => {});
       }
 

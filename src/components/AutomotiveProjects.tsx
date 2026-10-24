@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import {
   MessageSquare,
   Globe,
@@ -24,7 +24,8 @@ import {
   Clock,
   ChevronRight
 } from 'lucide-react';
-import { auth } from '../lib/firebase';
+import { auth, db } from '../lib/firebase';
+import { collection, query, orderBy, limitToLast, onSnapshot } from 'firebase/firestore';
 
 const stages = [
   'Novo contato',
@@ -123,6 +124,18 @@ export function getCountryBadge(country?: string): { flag: string; label: string
   }
 }
 
+export function normalizeBrPhoneVariants(phone: string): string[] {
+  const clean = String(phone || '').replace(/\D/g, '');
+  if (!clean) return [];
+  const variants = new Set<string>([clean]);
+  if (clean.startsWith('55') && (clean.length === 12 || clean.length === 13)) {
+    variants.add(clean.slice(2));
+  } else if (!clean.startsWith('55') && (clean.length === 10 || clean.length === 11)) {
+    variants.add(`55${clean}`);
+  }
+  return Array.from(variants);
+}
+
 type ConversationMessage = {
   id: string;
   sender: 'user' | 'assistant' | 'system';
@@ -143,10 +156,14 @@ export function AutomotiveProjects() {
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban');
 
+  // Mobile modal tab switcher ('chat' | 'specs')
+  const [mobileModalTab, setMobileModalTab] = useState<'chat' | 'specs'>('chat');
+
   // Conversation history state for the selected project
   const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([]);
   const [conversationContext, setConversationContext] = useState<any>(null);
   const [loadingConversation, setLoadingConversation] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Translation states
   const [translations, setTranslations] = useState<Record<string, { text: string; loading: boolean }>>({});
@@ -197,6 +214,58 @@ export function AutomotiveProjects() {
     void refresh();
   }, []);
 
+  // Deep Link PWA Handler: Ao clicar na notificação push no celular, abre direto o projeto
+  useEffect(() => {
+    if (projects.length === 0) return;
+    const params = new URLSearchParams(window.location.search);
+    const targetId = params.get('projectId') || params.get('project');
+    if (targetId && (!selected || selected.id !== targetId)) {
+      const found = projects.find(p => p.id === targetId || p.id.startsWith(targetId));
+      if (found) {
+        handleSelectProject(found);
+      }
+    }
+  }, [projects]);
+
+  // Auto-scroll para a mensagem mais recente
+  useEffect(() => {
+    if (conversationMessages.length > 0) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [conversationMessages.length]);
+
+  // Sincronização em tempo real (onSnapshot) da conversa do cliente e da IA
+  useEffect(() => {
+    if (!selected) return;
+    const currentUid = auth.currentUser?.uid;
+    if (!currentUid) return;
+
+    const variants = normalizeBrPhoneVariants(selected.phone);
+    if (!variants.includes(selected.phone)) variants.push(selected.phone);
+    const targetPhone = variants[0] || selected.phone;
+    if (!targetPhone) return;
+
+    const messagesCol = collection(db, 'establishments', currentUid, 'chats', targetPhone, 'messages');
+    const q = query(messagesCol, orderBy('timestamp', 'asc'), limitToLast(60));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      if (!snapshot.empty) {
+        const liveMsgs: ConversationMessage[] = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...(doc.data() as any)
+        }));
+        setConversationMessages(liveMsgs);
+        setLoadingConversation(false);
+      }
+    }, (err) => {
+      console.warn('[Firestore Live Chat Sync Warn]:', err);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [selected?.id, selected?.phone]);
+
   async function loadProjectConversation(project: Project) {
     setLoadingConversation(true);
     setConversationMessages([]);
@@ -221,6 +290,7 @@ export function AutomotiveProjects() {
     });
     setActionSuccess('');
     setDirectMessageText('');
+    setMobileModalTab('chat');
     const initialLang = (project.detectedLanguage && project.detectedLanguage !== 'pt')
       ? project.detectedLanguage
       : (project.country === 'ES' || project.country === 'MX' ? 'es' : (project.country === 'DE' ? 'de' : (project.country && project.country !== 'BR' ? 'en' : 'pt')));
@@ -1146,9 +1216,38 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
               </div>
             </div>
 
+            {/* Mobile Tab Switcher (PWA Mobile Experience) */}
+            <div className="lg:hidden flex items-center bg-slate-950 p-1 rounded-2xl border border-white/10">
+              <button
+                type="button"
+                onClick={() => setMobileModalTab('chat')}
+                className={`flex-1 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer ${
+                  mobileModalTab === 'chat'
+                    ? 'bg-emerald-500 text-slate-950 shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span>Chat ao Vivo ({conversationMessages.length})</span>
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobileModalTab('specs')}
+                className={`flex-1 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer ${
+                  mobileModalTab === 'specs'
+                    ? 'bg-orange-400 text-black shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Car className="w-4 h-4" />
+                <span>Ficha & Orçamento</span>
+              </button>
+            </div>
+
             <div className="grid lg:grid-cols-2 gap-6">
               {/* Left Column: Project & Commercial CRM Fields */}
-              <div className="space-y-4">
+              <div className={`space-y-4 ${mobileModalTab === 'chat' ? 'hidden lg:block' : 'block'}`}>
                 <div className="p-4 rounded-xl bg-slate-950 border border-white/10 space-y-2">
                   <p className="text-xs font-bold uppercase tracking-wider text-orange-300 flex items-center gap-1.5">
                     <Car className="w-3.5 h-3.5" /> Escopo & Interesse do Cliente
@@ -1400,18 +1499,44 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                 ))}
               </div>
 
-              {/* Right Column: WhatsApp History & AI Context Transcript */}
-              <div className="flex flex-col rounded-2xl bg-slate-950 border border-white/10 p-4 space-y-4">
-                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              {/* Right Column: Live WhatsApp History & Real-time Live Chat */}
+              <div className={`flex flex-col rounded-2xl bg-slate-950 border border-white/10 p-4 space-y-4 ${mobileModalTab === 'specs' ? 'hidden lg:flex' : 'flex'}`}>
+                <div className="flex items-center justify-between border-b border-white/10 pb-3 flex-wrap gap-2">
                   <div className="flex items-center gap-2">
-                    <Bot className="w-4 h-4 text-emerald-400" />
-                    <h3 className="font-bold text-sm text-white">
-                      Histórico da Conversa WhatsApp
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                    </span>
+                    <h3 className="font-bold text-sm text-white flex items-center gap-1.5">
+                      <Bot className="w-4 h-4 text-emerald-400" />
+                      Conversa ao Vivo WhatsApp
                     </h3>
                   </div>
-                  <span className="text-[11px] text-emerald-400 font-semibold">
-                    {conversationMessages.length} mensagem(s)
-                  </span>
+
+                  <div className="flex items-center gap-2">
+                    {isAiCurrentlyPaused(selected) ? (
+                      <button
+                        type="button"
+                        onClick={() => handleResumeAi(selected)}
+                        className="px-2.5 py-1 rounded-xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-black font-bold text-[10px] flex items-center gap-1 transition cursor-pointer border border-emerald-500/30 shadow-sm"
+                      >
+                        <Play className="w-2.5 h-2.5" />
+                        <span>Reativar IA</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handlePauseAi(selected, 60)}
+                        className="px-2.5 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black font-bold text-[10px] flex items-center gap-1 transition cursor-pointer border border-amber-500/30 shadow-sm"
+                      >
+                        <Pause className="w-2.5 h-2.5" />
+                        <span>Assumir Conversa</span>
+                      </button>
+                    )}
+                    <span className="text-[11px] text-emerald-400 font-semibold">
+                      {conversationMessages.length} msg(s)
+                    </span>
+                  </div>
                 </div>
 
                 {/* Context Summary Box */}
@@ -1519,6 +1644,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                       </p>
                     </div>
                   )}
+                  <div ref={messagesEndRef} />
                 </div>
 
                 {/* LIVE HUMAN CHAT INPUT BOX (PEDRO) */}
