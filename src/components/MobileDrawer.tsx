@@ -21,7 +21,8 @@ import {
   Home,
   Shirt,
   Package,
-  CreditCard
+  CreditCard,
+  Target
 } from 'lucide-react';
 import { Establishment } from '../types';
 import { getSubscriptionStatus } from '../utils/subscription';
@@ -63,6 +64,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
 
   const menuItems = [
     { id: 'orders', label: segConfig.ordersTitle, icon: OrdersIcon },
+    { id: 'traffic', label: 'Tráfego & Comissão', icon: Target, badge: 'Meta CAPI' },
     { id: 'finance', label: 'Painel Financeiro', icon: TrendingUp },
     { id: 'billing', label: 'Planos & Créditos IA', icon: CreditCard },
     { id: 'products', label: segConfig.catalogTitle, icon: CatalogIcon },

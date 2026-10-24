@@ -37,7 +37,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   const tabs = [
     {
       id: 'orders',
-      label: segConfig.id === 'AUTOMOTIVE_PARTS' ? 'Projetos' : segConfig.id === 'VEHICLES' ? 'Propostas' : segConfig.id === 'REAL_ESTATE' ? 'Leads' : 'Pedidos',
+      label: segConfig.id === 'AUTOMOTIVE_PARTS' ? 'Orçamentos' : segConfig.id === 'VEHICLES' ? 'Propostas' : segConfig.id === 'REAL_ESTATE' ? 'Leads' : 'Pedidos',
       icon: OrdersIcon,
       badge: pendingOrdersCount > 0 ? pendingOrdersCount : null
     },
@@ -49,7 +49,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
     },
     {
       id: 'products',
-      label: segConfig.shortLabel ? segConfig.shortLabel.split(' ')[0] : 'Catálogo',
+      label: segConfig.id === 'AUTOMOTIVE_PARTS' ? 'Vitrine' : (segConfig.shortLabel ? segConfig.shortLabel.split(' ')[0] : 'Catálogo'),
       icon: CatalogIcon,
       badge: null
     },
@@ -62,7 +62,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   ];
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur-xl border-t border-slate-800/90 px-3 py-1.5 flex items-center justify-around shadow-2xl pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur-xl border-t border-slate-800/90 px-3 pt-2 pb-[max(0.65rem,env(safe-area-inset-bottom))] flex items-center justify-around shadow-2xl">
       {tabs.filter(tab => establishment?.segment !== 'AUTOMOTIVE_PARTS' || !['finance', 'campaigns'].includes(tab.id)).map(tab => {
         const Icon = tab.icon;
         const isActive = currentTab === tab.id;

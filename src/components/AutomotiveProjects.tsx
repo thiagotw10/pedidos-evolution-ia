@@ -1094,7 +1094,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
   }
 
   return (
-    <section className="max-w-7xl mx-auto p-4 sm:p-8 text-slate-100 space-y-6">
+    <section className="max-w-7xl mx-auto p-3.5 sm:p-8 text-slate-100 space-y-5 sm:space-y-6 w-full min-w-0 overflow-x-hidden">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -1572,7 +1572,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
             className="w-full h-full md:max-w-5xl md:h-[94vh] bg-[#0b141a] md:rounded-2xl shadow-2xl flex flex-col overflow-hidden border-0 md:border md:border-[#222e35] relative"
           >
             {/* Top WhatsApp Mobile / Web Header */}
-            <div className="bg-[#202c33] text-[#e9edef] px-3 sm:px-4 py-2.5 flex items-center justify-between border-b border-[#222e35] shrink-0 z-20">
+            <div className="bg-[#202c33] text-[#e9edef] px-3 sm:px-4 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] flex items-center justify-between border-b border-[#222e35] shrink-0 z-20">
               {/* Left: Back button + Avatar + Contact Name / Status */}
               <div className="flex items-center gap-2.5 min-w-0">
                 <button
@@ -1842,7 +1842,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
             </div>
 
             {/* Bottom WhatsApp Mobile / Web Input Bar */}
-            <div className="bg-[#202c33] p-2 sm:p-2.5 flex flex-col gap-1.5 border-t border-[#222e35] shrink-0 z-20">
+            <div className="bg-[#202c33] p-2 sm:p-2.5 pb-[max(0.65rem,env(safe-area-inset-bottom))] flex flex-col gap-1.5 border-t border-[#222e35] shrink-0 z-20">
               {/* Hidden file input for image upload */}
               <input
                 type="file"
@@ -2266,22 +2266,35 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
             handleSelectProject(incomingMessageAlert.project);
             setIncomingMessageAlert(null);
           }}
-          className="fixed top-4 left-1/2 -translate-x-1/2 z-60 bg-[#202c33] border border-[#00a884] text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 cursor-pointer hover:bg-[#2a3942] transition animate-in slide-in-from-top duration-300 max-w-sm w-full mx-auto"
+          className="fixed top-3.5 sm:top-5 left-3.5 right-3.5 sm:left-auto sm:right-6 sm:w-96 z-50 bg-[#202c33]/95 backdrop-blur-xl border border-[#00a884] text-white p-3.5 rounded-2xl shadow-2xl shadow-black/80 flex items-center gap-3 cursor-pointer hover:bg-[#2a3942] active:scale-[0.98] transition-all animate-in slide-in-from-top-4 duration-300 ring-2 ring-[#00a884]/25"
         >
           <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-400 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow">
             {incomingMessageAlert.senderName.charAt(0).toUpperCase()}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-1">
               <h4 className="font-bold text-xs text-[#e9edef] truncate">{incomingMessageAlert.senderName}</h4>
-              <span className="text-[10px] text-[#00a884] font-semibold flex items-center gap-1">
+              <span className="text-[10px] text-[#00a884] font-semibold flex items-center gap-1 shrink-0">
                 <Bell className="w-2.5 h-2.5" /> Agora
               </span>
             </div>
             <p className="text-xs text-[#8696a0] truncate mt-0.5">{incomingMessageAlert.text}</p>
           </div>
-          <div className="p-1 rounded-full bg-[#00a884]/20 text-[#00a884] text-[10px] font-bold px-2 py-0.5 shrink-0">
-            Abrir
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="px-2.5 py-1 rounded-full bg-[#00a884]/20 hover:bg-[#00a884]/30 text-[#00a884] text-[11px] font-bold transition">
+              Abrir
+            </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIncomingMessageAlert(null);
+              }}
+              className="p-1 text-[#8696a0] hover:text-white rounded-full hover:bg-white/10 transition cursor-pointer"
+              title="Fechar notificação"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
       )}

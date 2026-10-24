@@ -28,23 +28,28 @@ export const Header: React.FC<HeaderProps> = ({
   onSignOut
 }) => {
   return (
-    <header className="h-16 sm:h-[72px] bg-slate-900/80 border-b border-slate-800/80 px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4 backdrop-blur-md sticky top-0 z-30">
+    <header className="h-16 sm:h-[72px] bg-slate-900/90 border-b border-slate-800/80 px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-3 sm:gap-4 backdrop-blur-xl sticky top-0 z-30 pt-[max(0rem,env(safe-area-inset-top))] min-w-0 w-full">
       {/* Store Info */}
-      <div className="flex items-center gap-2.5 sm:gap-4 min-w-0 flex-1 sm:flex-initial mr-2">
+      <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0 flex-1 sm:flex-initial">
         <button 
           onClick={onOpenSettings}
-          className="flex items-center gap-2 sm:gap-3 group text-left transition hover:opacity-90 cursor-pointer min-w-0"
+          className="flex items-center gap-2.5 sm:gap-3 group text-left transition hover:opacity-90 cursor-pointer min-w-0 max-w-full"
         >
-          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-slate-800 border border-slate-700/80 flex items-center justify-center text-emerald-400 group-hover:border-emerald-500/50 transition flex-shrink-0">
-            <Store className="w-4 h-4 sm:w-5 sm:h-5" />
+          <div className="w-10 h-10 rounded-xl bg-slate-800/90 border border-slate-700/80 flex items-center justify-center text-emerald-400 group-hover:border-emerald-500/50 transition shrink-0 shadow-sm">
+            <Store className="w-5 h-5" />
           </div>
-          <div className="min-w-0">
-            <h2 className="text-sm sm:text-base font-black text-white flex items-center gap-1.5 truncate">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm sm:text-base font-black text-white flex items-center gap-1.5 min-w-0">
               <span className="truncate">{establishment?.name || 'Estabelecimento'}</span>
-              <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0"></span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 shadow-sm shadow-emerald-500/50" />
             </h2>
+            <p className="text-[10px] text-slate-400 sm:hidden truncate flex items-center gap-1 mt-0.5">
+              <span className="text-emerald-400 font-semibold">• Online</span>
+              <span className="text-slate-600">|</span>
+              <span className="truncate">{establishment?.segment === 'AUTOMOTIVE_PARTS' ? 'Oficina & Performance' : 'Painel de Vendas'}</span>
+            </p>
             <p className="text-[10px] sm:text-xs text-slate-400 hidden sm:flex items-center gap-1.5 truncate">
-              <Clock className="w-3 h-3 text-slate-500" />
+              <Clock className="w-3 h-3 text-slate-500 shrink-0" />
               <span className="truncate">{establishment?.operatingHours || 'Aberto hoje'}</span>
             </p>
           </div>
@@ -115,9 +120,9 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onOpenMenu}
             title="Abrir Menu"
-            className="md:hidden p-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/80 transition cursor-pointer"
+            className="md:hidden w-10 h-10 rounded-xl bg-slate-800/90 hover:bg-slate-700 active:scale-95 text-slate-300 hover:text-white border border-slate-700/80 transition cursor-pointer flex items-center justify-center shrink-0 shadow-sm"
           >
-            <Menu className="w-4 h-4" />
+            <Menu className="w-5 h-5" />
           </button>
         )}
       </div>

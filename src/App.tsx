@@ -426,7 +426,7 @@ export default function App() {
         />
 
         {/* Main Content Area */}
-        <div className="flex-1 flex flex-col h-screen overflow-y-auto">
+        <div className="flex-1 flex flex-col h-screen min-w-0 w-full overflow-x-hidden overflow-y-auto">
           <Header
             establishment={establishment}
             soundEnabled={soundEnabled}
@@ -447,7 +447,7 @@ export default function App() {
             deferredPrompt={deferredPrompt}
           />}
 
-          <main className="flex-1 pb-24 md:pb-16">
+          <main className="flex-1 pb-24 md:pb-16 min-w-0 w-full overflow-x-hidden">
             {currentTab === 'orders' && establishment?.segment === 'AUTOMOTIVE_PARTS' && <AutomotiveProjects />}
             {currentTab === 'orders' && establishment?.segment !== 'AUTOMOTIVE_PARTS' && (
               <OrdersView

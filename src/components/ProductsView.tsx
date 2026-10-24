@@ -432,7 +432,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
   };
 
   return (
-    <div className="p-3 sm:p-6 md:p-8 space-y-4 sm:space-y-6 max-w-7xl mx-auto">
+    <div className="p-3.5 sm:p-6 md:p-8 space-y-4 sm:space-y-6 max-w-7xl mx-auto w-full min-w-0 overflow-x-hidden">
       {/* Top Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div>
@@ -447,17 +447,17 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5 w-full sm:w-auto">
+        <div className="flex flex-wrap sm:flex-nowrap items-stretch sm:items-center gap-2 sm:gap-2.5 w-full sm:w-auto">
           {automotive && (
             <>
               <button
                 type="button"
                 onClick={() => handleOpenStudio(filteredProducts[0] || products[0] || null)}
-                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:brightness-110 text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 transition cursor-pointer shadow-lg shadow-indigo-600/25 whitespace-nowrap"
+                className="flex-1 sm:flex-initial px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:brightness-110 active:scale-95 text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition cursor-pointer shadow-lg shadow-indigo-600/25 whitespace-nowrap min-w-0"
                 title="Criar vídeo de apresentação com influencer virtual ou locução"
               >
-                <Sparkles className="w-4 h-4 text-amber-300" />
-                <span>Estúdio Vídeo IA</span>
+                <Sparkles className="w-4 h-4 text-amber-300 shrink-0" />
+                <span className="truncate">Estúdio Vídeo IA</span>
               </button>
 
               <button
@@ -467,20 +467,20 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                   setInstagramParseError('');
                   setInstagramParsedData(null);
                 }}
-                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-gradient-to-r from-pink-500 via-rose-500 to-amber-500 hover:brightness-110 text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 transition cursor-pointer shadow-lg shadow-pink-500/20 whitespace-nowrap"
+                className="flex-1 sm:flex-initial px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-pink-500 via-rose-500 to-amber-500 hover:brightness-110 active:scale-95 text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition cursor-pointer shadow-lg shadow-pink-500/20 whitespace-nowrap min-w-0"
               >
-                <Instagram className="w-4 h-4" />
-                <span>Importar do Instagram</span>
+                <Instagram className="w-4 h-4 shrink-0" />
+                <span className="truncate">Importar Instagram</span>
               </button>
             </>
           )}
 
           <button
             onClick={handleOpenAddModal}
-            className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition cursor-pointer shadow-lg shadow-emerald-500/20 whitespace-nowrap"
+            className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition cursor-pointer shadow-lg shadow-emerald-500/20 whitespace-nowrap"
           >
-            <Plus className="w-4 h-4 stroke-[3]" />
-            <span>{segConfig.itemAddLabel}</span>
+            <Plus className="w-4 h-4 stroke-[3] shrink-0" />
+            <span className="truncate">{segConfig.itemAddLabel}</span>
           </button>
         </div>
       </div>
