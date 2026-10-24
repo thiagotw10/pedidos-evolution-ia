@@ -22,7 +22,16 @@ import {
   Columns,
   List,
   Clock,
-  ChevronRight
+  ChevronRight,
+  ArrowLeft,
+  CheckCheck,
+  Paperclip,
+  Smile,
+  MoreVertical,
+  Phone,
+  Video,
+  Mic,
+  Image as ImageIcon
 } from 'lucide-react';
 import { auth, db } from '../lib/firebase';
 import { collection, query, orderBy, limitToLast, onSnapshot } from 'firebase/firestore';
@@ -136,6 +145,38 @@ export function normalizeBrPhoneVariants(phone: string): string[] {
   return Array.from(variants);
 }
 
+export function formatWhatsAppTime(isoString?: string): string {
+  if (!isoString) return '';
+  const date = new Date(isoString);
+  return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+export function renderWhatsAppFormattedText(text: string) {
+  if (!text) return null;
+  const lines = text.split('\n');
+  return (
+    <div className="space-y-1">
+      {lines.map((line, lineIdx) => {
+        const parts = line.split(/(\*[^*]+\*)/g);
+        return (
+          <p key={lineIdx} className="leading-relaxed whitespace-pre-wrap">
+            {parts.map((part, i) => {
+              if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
+                return (
+                  <strong key={i} className="font-bold text-white">
+                    {part.slice(1, -1)}
+                  </strong>
+                );
+              }
+              return <span key={i}>{part}</span>;
+            })}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 type ConversationMessage = {
   id: string;
   sender: 'user' | 'assistant' | 'system';
@@ -158,6 +199,7 @@ export function AutomotiveProjects() {
 
   // Mobile modal tab switcher ('chat' | 'specs')
   const [mobileModalTab, setMobileModalTab] = useState<'chat' | 'specs'>('chat');
+  const [showSpecsDrawer, setShowSpecsDrawer] = useState(false);
 
   // Conversation history state for the selected project
   const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([]);
@@ -291,6 +333,7 @@ export function AutomotiveProjects() {
     setActionSuccess('');
     setDirectMessageText('');
     setMobileModalTab('chat');
+    setShowSpecsDrawer(false);
     const initialLang = (project.detectedLanguage && project.detectedLanguage !== 'pt')
       ? project.detectedLanguage
       : (project.country === 'ES' || project.country === 'MX' ? 'es' : (project.country === 'DE' ? 'de' : (project.country && project.country !== 'BR' ? 'en' : 'pt')));
@@ -1076,301 +1119,273 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
         </div>
       )}
 
-      {/* Detail & Conversation Context Modal */}
+      {/* 100% WhatsApp Authentic Experience & Slide-over Drawer */}
       {selected && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex justify-center items-center p-3 sm:p-5">
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex justify-center items-center p-0 md:p-4">
           <div
             role="dialog"
             aria-modal="true"
-            aria-label="Detalhes do projeto"
-            className="bg-slate-900 border border-white/10 rounded-3xl p-5 sm:p-7 max-w-5xl w-full max-h-[94vh] overflow-y-auto space-y-5 shadow-2xl"
+            aria-label="WhatsApp Chat"
+            className="w-full h-full md:max-w-5xl md:h-[94vh] bg-[#0b141a] md:rounded-2xl shadow-2xl flex flex-col overflow-hidden border-0 md:border md:border-[#222e35] relative"
           >
-            {/* Modal Top Header */}
-            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b border-white/10 pb-4">
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-orange-400/20 text-orange-300 border border-orange-400/30">
-                    Protocolo #{selected.id.slice(0, 8)}
-                  </span>
-                  {selected.source === 'whatsapp_ai' ? (
-                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                      Origem: Agente Chatbot WhatsApp
-                    </span>
-                  ) : (
-                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                      Origem: Vitrine Pública
-                    </span>
-                  )}
-                  {selected.trafficSource === 'META_ADS' && (
-                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 flex items-center gap-1">
-                      <Target className="w-3 h-3" /> Campanha: {selected.campaignName || 'Meta Ads'}
-                    </span>
-                  )}
-                </div>
-                <h2 className="font-bold text-2xl mt-2 text-white">
-                  {selected.brand} {selected.model} {selected.year && `· ${selected.year}`}
-                </h2>
-                <p className="text-slate-400 text-xs sm:text-sm mt-1">
-                  Cliente: <strong className="text-slate-200">{selected.customerName}</strong> · Telefone:{' '}
-                  <span className="font-mono text-slate-300">{selected.phone}</span>
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2 flex-wrap">
-                {selected.phone && (
-                  <a
-                    href={buildWhatsAppDirectUrl(selected)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition no-underline"
-                  >
-                    <MessageSquare className="w-3.5 h-3.5" />
-                    <span>WhatsApp Web</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                )}
+            {/* Top WhatsApp Mobile / Web Header */}
+            <div className="bg-[#202c33] text-[#e9edef] px-3 sm:px-4 py-2.5 flex items-center justify-between border-b border-[#222e35] shrink-0 z-20">
+              {/* Left: Back button + Avatar + Contact Name / Status */}
+              <div className="flex items-center gap-2.5 min-w-0">
                 <button
-                  disabled={busy}
+                  type="button"
                   onClick={() => setSelected(null)}
-                  className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold cursor-pointer"
+                  className="p-1 -ml-1 text-[#aebac1] hover:text-white rounded-full hover:bg-white/5 cursor-pointer transition"
+                  title="Voltar para a lista de projetos"
                 >
-                  Fechar
+                  <ArrowLeft className="w-5 h-5" />
                 </button>
-              </div>
-            </div>
 
-            {/* HUMAN TAKEOVER / AI CONTROL BAR */}
-            <div className="p-4 rounded-2xl bg-slate-950 border border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
+                {/* Profile Circle Avatar */}
                 <div
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                    isAiCurrentlyPaused(selected)
-                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                      : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                  }`}
+                  onClick={() => setShowSpecsDrawer(true)}
+                  className="w-10 h-10 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-400 text-white font-bold flex items-center justify-center text-sm ring-1 ring-white/10 shrink-0 cursor-pointer shadow-sm select-none"
+                  title="Ver ficha técnica"
                 >
-                  {isAiCurrentlyPaused(selected) ? <Pause className="w-5 h-5" /> : <Bot className="w-5 h-5" />}
+                  {selected.customerName ? selected.customerName.charAt(0).toUpperCase() : 'C'}
                 </div>
-                <div>
-                  <h4 className="text-xs font-bold text-white flex items-center gap-2">
-                    {isAiCurrentlyPaused(selected) ? (
-                      <span className="text-amber-300 flex items-center gap-1">
-                        <Pause className="w-3.5 h-3.5" /> Atendimento Humano Ativo (Pedro no controle)
-                      </span>
-                    ) : (
-                      <span className="text-emerald-300 flex items-center gap-1">
-                        <Bot className="w-3.5 h-3.5" /> IA Atendendo e Respondendo
-                      </span>
-                    )}
-                  </h4>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    {isAiCurrentlyPaused(selected)
-                      ? `A IA está silenciada para este cliente. Tempo restante: ${formatRemainingPause(selected)}`
-                      : 'Se você responder no WhatsApp ou assumir a conversa abaixo, a IA pausa automaticamente.'}
-                  </p>
+
+                {/* Contact Name & Online / Vehicle Subtitle */}
+                <div
+                  onClick={() => setShowSpecsDrawer(true)}
+                  className="cursor-pointer min-w-0"
+                  title="Clique para ver a ficha técnica e orçamento"
+                >
+                  <h3 className="font-semibold text-sm sm:text-base text-[#e9edef] truncate max-w-[130px] sm:max-w-xs leading-tight">
+                    {selected.customerName || 'Cliente'}
+                  </h3>
+                  <div className="flex items-center gap-1.5 text-[11px] text-[#8696a0] truncate mt-0.5">
+                    <span className="w-2 h-2 rounded-full bg-[#00a884] inline-block animate-pulse shrink-0" />
+                    <span className="truncate">
+                      online · {selected.brand} {selected.model} {selected.year && `(${selected.year})`}
+                    </span>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 flex-wrap">
+              {/* Right: Actions, AI Toggle & Specs Drawer Trigger */}
+              <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                {/* AI / Takeover Toggle Button */}
                 {isAiCurrentlyPaused(selected) ? (
                   <button
                     type="button"
                     disabled={busy}
                     onClick={() => handleResumeAi(selected)}
-                    className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                    className="px-2.5 py-1 rounded-full bg-[#00a884]/20 hover:bg-[#00a884]/30 text-[#00a884] border border-[#00a884]/40 text-xs font-semibold flex items-center gap-1 transition cursor-pointer active:scale-95 disabled:opacity-50"
+                    title={`IA pausada. Tempo restante: ${formatRemainingPause(selected)}`}
                   >
-                    <Play className="w-3.5 h-3.5 fill-current" />
-                    <span>Retomar IA Agora</span>
+                    <Play className="w-3 h-3 fill-current" />
+                    <span className="hidden sm:inline">Retomar IA</span>
+                    <span className="sm:hidden">IA</span>
                   </button>
                 ) : (
-                  <>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => handlePauseAi(selected, 60)}
-                      className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 font-bold text-xs flex items-center gap-1 transition cursor-pointer"
-                    >
-                      <Pause className="w-3 h-3" />
-                      <span>Pausar 1h</span>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => handlePauseAi(selected, 240)}
-                      className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 font-bold text-xs flex items-center gap-1 transition cursor-pointer"
-                    >
-                      <Pause className="w-3 h-3" />
-                      <span>Pausar 4h</span>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => handlePauseAi(selected, null)}
-                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1 transition cursor-pointer"
-                    >
-                      <Pause className="w-3 h-3" />
-                      <span>Até reativar</span>
-                    </button>
-                  </>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => handlePauseAi(selected, 60)}
+                    className="px-2.5 py-1 rounded-full bg-[#182229] hover:bg-[#202c33] text-amber-300 border border-amber-500/40 text-xs font-semibold flex items-center gap-1 transition cursor-pointer active:scale-95 disabled:opacity-50"
+                    title="Pausar IA por 1 hora e assumir conversa manualmente"
+                  >
+                    <Pause className="w-3 h-3" />
+                    <span className="hidden sm:inline">Assumir Conversa</span>
+                    <span className="sm:hidden">Assumir</span>
+                  </button>
                 )}
+
+                {/* Direct External WhatsApp Links */}
+                {selected.phone && (
+                  <a
+                    href={buildWhatsAppDirectUrl(selected)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-1.5 text-[#aebac1] hover:text-[#00a884] transition rounded-full hover:bg-white/5"
+                    title="Abrir WhatsApp oficial"
+                  >
+                    <Phone className="w-4 h-4" />
+                  </a>
+                )}
+
+                {/* Specs Drawer Button */}
+                <button
+                  type="button"
+                  onClick={() => setShowSpecsDrawer(prev => !prev)}
+                  className={`px-2.5 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer active:scale-95 ${
+                    showSpecsDrawer
+                      ? 'bg-orange-400 text-black shadow-md'
+                      : 'bg-[#2a3942] hover:bg-[#32424b] text-[#e9edef]'
+                  }`}
+                  title="Abrir/Fechar Ficha Técnica e Orçamento"
+                >
+                  <Car className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Ficha & Orçamento</span>
+                  <span className="sm:hidden">Ficha</span>
+                </button>
+
+                {/* Close Button */}
+                <button
+                  type="button"
+                  onClick={() => setSelected(null)}
+                  className="p-1.5 text-[#aebac1] hover:text-white transition rounded-full hover:bg-white/5 cursor-pointer"
+                  title="Fechar"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
             </div>
 
-            {/* Mobile Tab Switcher (PWA Mobile Experience) */}
-            <div className="lg:hidden flex items-center bg-slate-950 p-1 rounded-2xl border border-white/10">
-              <button
-                type="button"
-                onClick={() => setMobileModalTab('chat')}
-                className={`flex-1 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer ${
-                  mobileModalTab === 'chat'
-                    ? 'bg-emerald-500 text-slate-950 shadow-md'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <MessageSquare className="w-4 h-4" />
-                <span>Chat ao Vivo ({conversationMessages.length})</span>
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setMobileModalTab('specs')}
-                className={`flex-1 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer ${
-                  mobileModalTab === 'specs'
-                    ? 'bg-orange-400 text-black shadow-md'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <Car className="w-4 h-4" />
-                <span>Ficha & Orçamento</span>
-              </button>
+            {/* Chat Body - Authentic WhatsApp Wallpaper & Bubbles */}
+            <div
+              className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2.5 relative flex flex-col scrollbar-thin"
+              style={{
+                backgroundColor: '#0b141a',
+                backgroundImage: 'radial-gradient(rgba(255, 255, 255, 0.035) 1.5px, transparent 1.5px)',
+                backgroundSize: '18px 18px'
+              }}
+            >
+              {/* WhatsApp Encryption Security Banner */}
+              <div className="flex justify-center my-1">
+                <div className="bg-[#182229] border border-[#222e35] text-[#ffd279] text-[11px] px-3.5 py-1 rounded-lg max-w-sm text-center shadow-sm leading-tight select-none">
+                  🔒 As mensagens e chamadas são protegidas com a criptografia de ponta a ponta.
+                </div>
+              </div>
+
+              {/* Lead Summary Pill (if AI recorded summary) */}
+              {(selected.conversationSummary || conversationContext?.summary) && (
+                <div className="flex justify-center my-1">
+                  <div className="bg-[#182229]/95 border border-[#00a884]/40 text-[#e9edef] text-[11px] px-3.5 py-1 rounded-full shadow flex items-center gap-1.5 max-w-md">
+                    <Sparkles className="w-3 h-3 text-[#00a884] shrink-0" />
+                    <span className="truncate">
+                      <strong>Resumo IA:</strong> {conversationContext?.summary || selected.conversationSummary}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Date Separator Pill */}
+              <div className="flex justify-center my-1.5">
+                <span className="bg-[#182229] text-[#8696a0] text-[10px] font-semibold px-2.5 py-0.5 rounded-md uppercase tracking-wider select-none">
+                  Hoje
+                </span>
+              </div>
+
+              {/* Conversation Messages */}
+              {loadingConversation ? (
+                <div className="text-center py-16 text-[#8696a0] text-xs animate-pulse">
+                  Carregando conversa do WhatsApp...
+                </div>
+              ) : conversationMessages.length > 0 ? (
+                conversationMessages.map(msg => {
+                  const isCustomer = msg.sender === 'user';
+                  const isHumanAttendant = msg.author?.includes('Pedro') || msg.author?.includes('Humano');
+
+                  if (isCustomer) {
+                    // Customer Inbound Bubble (WhatsApp Dark Mode Inbound: #202c33)
+                    return (
+                      <div key={msg.id} className="flex flex-col items-start">
+                        <div className="bg-[#202c33] text-[#e9edef] rounded-2xl rounded-tl-sm px-3.5 py-2 max-w-[88%] sm:max-w-[70%] shadow-sm relative border border-white/5 space-y-1">
+                          <span className="text-[11px] font-bold text-[#53bdeb] block mb-0.5">
+                            {selected.customerName || 'Cliente'}
+                          </span>
+
+                          {msg.mediaUrl && (
+                            <div className="my-1 rounded-xl overflow-hidden border border-white/10">
+                              <img src={msg.mediaUrl} alt="Mídia enviada" className="w-full max-h-72 object-cover rounded-xl" />
+                            </div>
+                          )}
+
+                          <div className="text-xs sm:text-[13px] leading-relaxed">
+                            {renderWhatsAppFormattedText(msg.text)}
+                          </div>
+
+                          {/* Quick translation button & timestamp */}
+                          <div className="pt-1 border-t border-white/5 flex items-center justify-between gap-3 text-[10px]">
+                            <button
+                              type="button"
+                              disabled={translations[msg.id]?.loading}
+                              onClick={() => handleTranslateMessage(msg.id, msg.text)}
+                              className="text-[#53bdeb] hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                            >
+                              <Globe className="w-3 h-3 text-[#53bdeb]" />
+                              <span>{translations[msg.id]?.loading ? 'Traduzindo…' : 'Traduzir para Português'}</span>
+                            </button>
+                            <span className="text-[#8696a0] text-[10px]">
+                              {formatWhatsAppTime(msg.timestamp)}
+                            </span>
+                          </div>
+
+                          {/* Translated text card if clicked */}
+                          {translations[msg.id]?.text && (
+                            <div className="mt-1.5 p-2 bg-[#111b21] rounded-lg border border-cyan-500/30 text-xs text-cyan-200">
+                              <p className="text-[10px] font-bold text-cyan-400 flex items-center gap-1 mb-0.5">
+                                <Sparkles className="w-3 h-3" /> Tradução IA (Português):
+                              </p>
+                              <p className="whitespace-pre-line leading-relaxed">{translations[msg.id].text}</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // Outbound Bubble (Pedro IA or Human: WhatsApp Dark Mode Outbound: #005c4b)
+                  return (
+                    <div key={msg.id} className="flex flex-col items-end">
+                      <div className="bg-[#005c4b] text-[#e9edef] rounded-2xl rounded-tr-sm px-3.5 py-2 max-w-[88%] sm:max-w-[70%] shadow-sm relative space-y-1">
+                        <div className="text-[10px] font-semibold text-[#25d366] opacity-90 mb-0.5 flex items-center gap-1">
+                          {isHumanAttendant ? '👨‍💼 Pedro (Atendimento Humano)' : '🤖 Pedro (Consultor IA)'}
+                        </div>
+
+                        {msg.mediaUrl && (
+                          <div className="my-1 rounded-xl overflow-hidden shadow-inner border border-emerald-400/20">
+                            <img src={msg.mediaUrl} alt="Mídia do projeto" className="w-full max-h-80 object-cover rounded-xl" />
+                          </div>
+                        )}
+
+                        <div className="text-xs sm:text-[13px] leading-relaxed">
+                          {renderWhatsAppFormattedText(msg.text)}
+                        </div>
+
+                        {/* Timestamp & Double Blue Checks */}
+                        <div className="flex items-center justify-end gap-1 mt-0.5 text-right">
+                          <span className="text-[10px] text-[#e9edef]/70">
+                            {formatWhatsAppTime(msg.timestamp)}
+                          </span>
+                          <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center py-16 space-y-2 text-[#8696a0]">
+                  <MessageSquare className="w-10 h-10 mx-auto opacity-30 text-[#00a884]" />
+                  <p className="text-xs">
+                    {selected.lastMessage
+                      ? `Última mensagem: "${selected.lastMessage}"`
+                      : 'Nenhuma mensagem recente gravada. Envie uma mensagem abaixo para abrir o contato no WhatsApp!'}
+                  </p>
+                </div>
+              )}
+              <div ref={messagesEndRef} />
             </div>
 
-            <div className="grid lg:grid-cols-2 gap-6">
-              {/* Left Column: Project & Commercial CRM Fields */}
-              <div className={`space-y-4 ${mobileModalTab === 'chat' ? 'hidden lg:block' : 'block'}`}>
-                <div className="p-4 rounded-xl bg-slate-950 border border-white/10 space-y-2">
-                  <p className="text-xs font-bold uppercase tracking-wider text-orange-300 flex items-center gap-1.5">
-                    <Car className="w-3.5 h-3.5" /> Escopo & Interesse do Cliente
-                  </p>
-                  <p className="text-sm text-slate-200 whitespace-pre-line">{selected.objective}</p>
-                  <p className="text-xs text-slate-400 pt-1">
-                    Referências:{' '}
-                    {(selected.references || []).map(r => r.name).join(', ') || 'A definir'}
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    Modalidade: {selected.delivery || 'A definir'} · CEP: {selected.cep || 'Não informado'}
-                  </p>
-                </div>
-
-                {/* Qualification Fields */}
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="block text-xs text-slate-300">
-                    Cliente
-                    <input
-                      type="text"
-                      value={selected.customerName || ''}
-                      onChange={e => setSelected({ ...selected, customerName: e.target.value })}
-                      className="block w-full bg-slate-800 rounded-xl p-2.5 mt-1 text-white text-xs border border-white/5 focus:border-orange-400 focus:outline-none"
-                    />
-                  </label>
-                  <label className="block text-xs text-slate-300">
-                    CEP / ZIP Code
-                    <input
-                      type="text"
-                      value={selected.zipCode || selected.cep || ''}
-                      onChange={e => setSelected({ ...selected, cep: e.target.value, zipCode: e.target.value })}
-                      placeholder="CEP (BR) ou ZIP Internacional"
-                      className="block w-full bg-slate-800 rounded-xl p-2.5 mt-1 text-white text-xs border border-white/5 focus:border-orange-400 focus:outline-none"
-                    />
-                  </label>
-                  <label className="block text-xs text-slate-300">
-                    País de Origem
+            {/* Bottom WhatsApp Mobile / Web Input Bar */}
+            <div className="bg-[#202c33] p-2 sm:p-2.5 flex flex-col gap-1.5 border-t border-[#222e35] shrink-0 z-20">
+              {/* International Translation Quick Bar */}
+              {(selected.country !== 'BR' || directMessageTargetLang !== 'pt') && (
+                <div className="flex items-center justify-between px-2 text-[11px] text-[#8696a0]">
+                  <div className="flex items-center gap-1.5">
+                    <Globe className="w-3 h-3 text-[#00a884]" />
+                    <span>Traduzir mensagem para:</span>
                     <select
-                      value={selected.country || 'BR'}
-                      onChange={e => {
-                        const newCountry = e.target.value;
-                        const autoCurr = newCountry === 'BR' ? 'BRL' : (['ES', 'DE', 'FR', 'IT', 'PT'].includes(newCountry) ? 'EUR' : (newCountry === 'GB' ? 'GBP' : 'USD'));
-                        const autoLang = ['BR', 'PT'].includes(newCountry) ? 'pt' : (['ES', 'MX'].includes(newCountry) ? 'es' : (newCountry === 'DE' ? 'de' : 'en'));
-                        setSelected({
-                          ...selected,
-                          country: newCountry,
-                          currency: selected.currency || autoCurr,
-                          detectedLanguage: selected.detectedLanguage || autoLang
-                        });
-                      }}
-                      className="block w-full bg-slate-800 rounded-xl p-2.5 mt-1 text-white text-xs border border-white/5 focus:border-orange-400 focus:outline-none"
-                    >
-                      <option value="BR">🇧🇷 Brasil (BR)</option>
-                      <option value="US">🇺🇸 Estados Unidos (US)</option>
-                      <option value="ES">🇪🇸 Espanha (ES)</option>
-                      <option value="DE">🇩🇪 Alemanha (DE)</option>
-                      <option value="PT">🇵🇹 Portugal (PT)</option>
-                      <option value="GB">🇬🇧 Reino Unido (GB)</option>
-                      <option value="IT">🇮🇹 Itália (IT)</option>
-                      <option value="FR">🇫🇷 França (FR)</option>
-                      <option value="MX">🇲🇽 México (MX)</option>
-                      <option value="AE">🇦🇪 Emirados Árabes (AE)</option>
-                      <option value="INTL">🌐 Outro / Internacional</option>
-                    </select>
-                  </label>
-                  <label className="block text-xs text-slate-300">
-                    Moeda do Orçamento
-                    <select
-                      value={selected.currency || 'BRL'}
-                      onChange={e => setSelected({ ...selected, currency: e.target.value })}
-                      className="block w-full bg-slate-800 rounded-xl p-2.5 mt-1 text-white text-xs border border-white/5 focus:border-orange-400 focus:outline-none font-bold"
-                    >
-                      <option value="BRL">R$ - Real Brasileiro (BRL)</option>
-                      <option value="USD">$ - Dólar Americano (USD)</option>
-                      <option value="EUR">€ - Euro (EUR)</option>
-                      <option value="GBP">£ - Libra Esterlina (GBP)</option>
-                    </select>
-                  </label>
-                  <label className="block text-xs text-slate-300">
-                    Marca
-                    <input
-                      type="text"
-                      value={selected.brand || ''}
-                      onChange={e => setSelected({ ...selected, brand: e.target.value })}
-                      className="block w-full bg-slate-800 rounded-xl p-2.5 mt-1 text-white text-xs border border-white/5 focus:border-orange-400 focus:outline-none"
-                    />
-                  </label>
-                  <label className="block text-xs text-slate-300">
-                    Modelo
-                    <input
-                      type="text"
-                      value={selected.model || ''}
-                      onChange={e => setSelected({ ...selected, model: e.target.value })}
-                      className="block w-full bg-slate-800 rounded-xl p-2.5 mt-1 text-white text-xs border border-white/5 focus:border-orange-400 focus:outline-none"
-                    />
-                  </label>
-                  <label className="block text-xs text-slate-300">
-                    Ano
-                    <input
-                      type="text"
-                      value={selected.year || ''}
-                      onChange={e => setSelected({ ...selected, year: e.target.value })}
-                      className="block w-full bg-slate-800 rounded-xl p-2.5 mt-1 text-white text-xs border border-white/5 focus:border-orange-400 focus:outline-none"
-                    />
-                  </label>
-                  <label className="block text-xs text-slate-300">
-                    Versão / Motor
-                    <input
-                      type="text"
-                      value={selected.version || ''}
-                      onChange={e => setSelected({ ...selected, version: e.target.value })}
-                      className="block w-full bg-slate-800 rounded-xl p-2.5 mt-1 text-white text-xs border border-white/5 focus:border-orange-400 focus:outline-none"
-                    />
-                  </label>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="block text-xs text-slate-300">
-                    Idioma de Comunicação
-                    <select
-                      value={selected.detectedLanguage || 'pt'}
-                      onChange={e => setSelected({ ...selected, detectedLanguage: e.target.value })}
-                      className="block w-full bg-slate-800 rounded-xl p-2.5 mt-1 text-white text-xs border border-white/10"
+                      value={directMessageTargetLang}
+                      onChange={e => setDirectMessageTargetLang(e.target.value)}
+                      className="bg-[#182229] border border-[#2a3942] rounded px-1.5 py-0.5 text-[#e9edef] text-[11px] focus:outline-none"
                     >
                       <option value="pt">🇧🇷 Português</option>
                       <option value="en">🇺🇸 English</option>
@@ -1379,370 +1394,351 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                       <option value="fr">🇫🇷 Français</option>
                       <option value="it">🇮🇹 Italiano</option>
                     </select>
-                  </label>
-                  <label className="block text-xs text-slate-300">
-                    Etapa do Funil
-                    <select
-                      value={selected.status}
-                      onChange={e => setSelected({ ...selected, status: e.target.value })}
-                      className="block w-full bg-slate-800 rounded-xl p-2.5 mt-1 text-xs text-white border border-white/10 font-bold"
+                  </div>
+                  {directMessageTargetLang !== 'pt' && (
+                    <button
+                      type="button"
+                      disabled={translatingDirectMessage || !directMessageText.trim()}
+                      onClick={handleTranslateDirectMessage}
+                      className="text-[#00a884] font-semibold text-[11px] hover:underline flex items-center gap-1 disabled:opacity-40 cursor-pointer"
                     >
-                      {stages.map(s => (
-                        <option key={s}>{s}</option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
-                {/* Financial Quote & Official WhatsApp Proposal Section */}
-                <div className="p-4 rounded-2xl bg-slate-950 border border-cyan-500/30 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
-                      <DollarSign className="w-3.5 h-3.5" /> Orçamento & Proposta ({selected.currency || 'BRL'})
-                    </span>
-                    {selected.proposalSentAt && (
-                      <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" /> Proposta enviada em{' '}
-                        {new Date(selected.proposalSentAt).toLocaleDateString('pt-BR')}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="block text-xs text-slate-300">
-                      Valor ({selected.currency || 'BRL'})
-                      <input
-                        type="number"
-                        step="50"
-                        min="0"
-                        value={selected.quoteValue ?? ''}
-                        onChange={e => {
-                          const val = Number(e.target.value);
-                          const commPct = selected.commissionPercent ?? 4;
-                          setSelected({
-                            ...selected,
-                            quoteValue: val,
-                            commissionValue: Number(((val * commPct) / 100).toFixed(2))
-                          });
-                        }}
-                        placeholder={`Ex: ${selected.currency === 'USD' ? '3800.00' : '15000.00'}`}
-                        className="block w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 mt-1 text-white text-xs font-bold font-mono"
-                      />
-                    </label>
-
-                    <label className="block text-xs text-slate-300">
-                      % Comissão Estimada
-                      <input
-                        type="number"
-                        step="0.5"
-                        min="0"
-                        max="50"
-                        value={selected.commissionPercent ?? 4}
-                        onChange={e => {
-                          const commPct = Number(e.target.value);
-                          const val = selected.quoteValue ?? 0;
-                          setSelected({
-                            ...selected,
-                            commissionPercent: commPct,
-                            commissionValue: Number(((val * commPct) / 100).toFixed(2))
-                          });
-                        }}
-                        placeholder="Ex: 4"
-                        className="block w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 mt-1 text-white text-xs font-bold font-mono"
-                      />
-                    </label>
-                  </div>
-
-                  {Number(selected.quoteValue || 0) > 0 && (
-                    <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/25 flex items-center justify-between text-xs">
-                      <span className="text-emerald-300 font-semibold">Comissão Técnica da Venda:</span>
-                      <span className="text-emerald-400 font-bold text-sm font-mono">
-                        {formatProjectCurrency(
-                          selected.commissionValue ||
-                            (Number(selected.quoteValue) * Number(selected.commissionPercent || 4)) / 100,
-                          selected.currency
-                        )}
-                      </span>
-                    </div>
+                      <Sparkles className="w-3 h-3" />
+                      <span>{translatingDirectMessage ? 'Traduzindo…' : 'Traduzir texto'}</span>
+                    </button>
                   )}
+                </div>
+              )}
 
-                  {/* 1-CLICK PROPOSAL DISPATCH BUTTON */}
+              {/* Message Pill Input & Circular Send Button */}
+              <div className="flex items-end gap-2">
+                <div className="bg-[#2a3942] rounded-3xl flex-1 flex items-center px-3 py-1 gap-2 border border-white/5">
+                  <button type="button" className="text-[#8696a0] hover:text-[#e9edef] p-1 transition cursor-pointer">
+                    <Smile className="w-5 h-5" />
+                  </button>
+                  <textarea
+                    rows={1}
+                    value={directMessageText}
+                    onChange={e => setDirectMessageText(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        void handleSendDirectMessage();
+                      }
+                    }}
+                    placeholder="Mensagem"
+                    className="flex-1 bg-transparent text-sm text-[#e9edef] placeholder-[#8696a0] focus:outline-none resize-none max-h-28 py-1.5 leading-relaxed"
+                  />
                   <button
                     type="button"
                     onClick={() => openProposalComposer(selected)}
-                    className="w-full py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-md"
+                    title="Enviar Proposta Comercial no WhatsApp"
+                    className="text-[#8696a0] hover:text-[#00a884] p-1 transition cursor-pointer"
                   >
-                    <Send className="w-3.5 h-3.5" />
-                    <span>⚡ Enviar Proposta Formatada no WhatsApp</span>
+                    <Paperclip className="w-5 h-5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowSpecsDrawer(true)}
+                    title="Ficha Técnica & Orçamento"
+                    className="text-[#8696a0] hover:text-white p-1 transition cursor-pointer"
+                  >
+                    <ImageIcon className="w-5 h-5" />
                   </button>
                 </div>
 
-                {(
-                  [
-                    ['quote', 'Orçamento / condições de pagamento (manual)'],
-                    ['freight', 'Frete / transportadora (manual)'],
-                    ['leadTime', 'Prazo de produção e transporte'],
-                    ['tracking', 'Código de rastreamento'],
-                    ['notes', 'Notas técnicas internas']
-                  ] as const
-                ).map(([key, label]) => (
-                  <label key={key} className="block mt-3 text-sm text-slate-300">
-                    {label}
-                    <textarea
-                      maxLength={3000}
-                      rows={2}
-                      value={selected[key] || ''}
-                      onChange={e => setSelected({ ...selected, [key]: e.target.value })}
-                      className="block w-full bg-slate-800 rounded-xl p-3 mt-1.5 text-xs text-white border border-white/5"
-                    />
-                  </label>
-                ))}
-              </div>
-
-              {/* Right Column: Live WhatsApp History & Real-time Live Chat */}
-              <div className={`flex flex-col rounded-2xl bg-slate-950 border border-white/10 p-4 space-y-4 ${mobileModalTab === 'specs' ? 'hidden lg:flex' : 'flex'}`}>
-                <div className="flex items-center justify-between border-b border-white/10 pb-3 flex-wrap gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="relative flex h-2.5 w-2.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-                    </span>
-                    <h3 className="font-bold text-sm text-white flex items-center gap-1.5">
-                      <Bot className="w-4 h-4 text-emerald-400" />
-                      Conversa ao Vivo WhatsApp
-                    </h3>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {isAiCurrentlyPaused(selected) ? (
-                      <button
-                        type="button"
-                        onClick={() => handleResumeAi(selected)}
-                        className="px-2.5 py-1 rounded-xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-black font-bold text-[10px] flex items-center gap-1 transition cursor-pointer border border-emerald-500/30 shadow-sm"
-                      >
-                        <Play className="w-2.5 h-2.5" />
-                        <span>Reativar IA</span>
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => handlePauseAi(selected, 60)}
-                        className="px-2.5 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black font-bold text-[10px] flex items-center gap-1 transition cursor-pointer border border-amber-500/30 shadow-sm"
-                      >
-                        <Pause className="w-2.5 h-2.5" />
-                        <span>Assumir Conversa</span>
-                      </button>
-                    )}
-                    <span className="text-[11px] text-emerald-400 font-semibold">
-                      {conversationMessages.length} msg(s)
-                    </span>
-                  </div>
-                </div>
-
-                {/* Context Summary Box */}
-                {(selected.conversationSummary || conversationContext?.summary) && (
-                  <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 space-y-1.5">
-                    <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-1">
-                      <Sparkles className="w-3.5 h-3.5" /> Resumo do Lead Salvo pela IA
-                    </p>
-                    <p className="text-xs text-slate-200 leading-relaxed">
-                      {conversationContext?.summary || selected.conversationSummary}
-                    </p>
-                  </div>
-                )}
-
-                {/* Chat Transcript */}
-                <div className="flex-1 min-h-[300px] max-h-[460px] overflow-y-auto space-y-2.5 pr-1 scrollbar-thin">
-                  {loadingConversation ? (
-                    <p className="text-xs text-slate-400 text-center py-8">
-                      Carregando histórico de mensagens...
-                    </p>
-                  ) : conversationMessages.length > 0 ? (
-                    conversationMessages.map(msg => {
-                      const isCustomer = msg.sender === 'user';
-                      const isHumanAttendant = msg.author?.includes('Pedro') || msg.author?.includes('Humano');
-
-                      return (
-                        <div
-                          key={msg.id}
-                          className={`flex flex-col ${isCustomer ? 'items-start' : 'items-end'}`}
-                        >
-                          <div
-                            className={`max-w-[88%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed whitespace-pre-line ${
-                              isCustomer
-                                ? 'bg-slate-800 text-slate-100 rounded-tl-none border border-slate-700'
-                                : isHumanAttendant
-                                ? 'bg-amber-500/15 text-amber-100 rounded-tr-none border border-amber-500/30'
-                                : 'bg-emerald-500/15 text-emerald-100 rounded-tr-none border border-emerald-500/30'
-                            }`}
-                          >
-                            <div className="text-[10px] font-bold mb-1 opacity-80 flex items-center gap-1">
-                              {isCustomer
-                                ? `👤 ${selected.customerName || 'Cliente'}`
-                                : isHumanAttendant
-                                ? '👨‍💼 Pedro (Atendente Humano)'
-                                : '🤖 Pedro (Consultor IA)'}
-                            </div>
-                            {msg.text}
-
-                            {isCustomer && (
-                              <div className="mt-2 pt-1.5 border-t border-white/10 flex items-center justify-between gap-2">
-                                <button
-                                  type="button"
-                                  disabled={translations[msg.id]?.loading}
-                                  onClick={() => handleTranslateMessage(msg.id, msg.text)}
-                                  className="inline-flex items-center gap-1 text-[10px] font-semibold text-cyan-300 hover:text-cyan-200 transition cursor-pointer"
-                                >
-                                  <Globe className="w-3 h-3 text-cyan-400" />
-                                  <span>{translations[msg.id]?.loading ? 'Traduzindo…' : 'Traduzir para Português'}</span>
-                                </button>
-                                <div className="text-[9px] opacity-60">
-                                  {msg.timestamp
-                                    ? new Date(msg.timestamp).toLocaleString('pt-BR', {
-                                        day: '2-digit',
-                                        month: '2-digit',
-                                        hour: '2-digit',
-                                        minute: '2-digit'
-                                      })
-                                    : ''}
-                                </div>
-                              </div>
-                            )}
-
-                            {isCustomer && translations[msg.id]?.text && (
-                              <div className="mt-2 p-2.5 rounded-xl bg-slate-950 border border-cyan-500/40 text-[11px] text-cyan-100 leading-relaxed space-y-1">
-                                <div className="flex items-center gap-1 text-[10px] font-bold text-cyan-300">
-                                  <Sparkles className="w-3 h-3 text-cyan-400" /> Tradução IA (Português):
-                                </div>
-                                <p className="whitespace-pre-line">{translations[msg.id].text}</p>
-                              </div>
-                            )}
-
-                            {!isCustomer && (
-                              <div className="text-[9px] opacity-60 mt-1 text-right">
-                                {msg.timestamp
-                                  ? new Date(msg.timestamp).toLocaleString('pt-BR', {
-                                      day: '2-digit',
-                                      month: '2-digit',
-                                      hour: '2-digit',
-                                      minute: '2-digit'
-                                    })
-                                  : ''}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })
+                {/* Circular Send Button */}
+                <button
+                  type="button"
+                  disabled={sendingDirectMessage || !directMessageText.trim()}
+                  onClick={handleSendDirectMessage}
+                  className="w-11 h-11 rounded-full bg-[#00a884] hover:bg-[#06cf9c] active:scale-95 flex items-center justify-center text-white shrink-0 shadow-lg cursor-pointer transition disabled:opacity-50"
+                  title={directMessageText.trim() ? 'Enviar mensagem no WhatsApp' : 'Gravar áudio / Mensagem vazia'}
+                >
+                  {directMessageText.trim() ? (
+                    <Send className="w-5 h-5 ml-0.5" />
                   ) : (
-                    <div className="text-center py-12 space-y-2 text-slate-500">
-                      <MessageSquare className="w-8 h-8 mx-auto opacity-30" />
-                      <p className="text-xs max-w-xs mx-auto">
-                        {selected.lastMessage
-                          ? `Última interação registrada: "${selected.lastMessage}"`
-                          : 'Este lead ainda não possui histórico de mensagens registrado no chat.'}
-                      </p>
-                    </div>
+                    <Mic className="w-5 h-5" />
                   )}
-                  <div ref={messagesEndRef} />
+                </button>
+              </div>
+            </div>
+
+            {/* Slide-over Specs & Commercial Drawer */}
+            {showSpecsDrawer && (
+              <div className="absolute inset-y-0 right-0 w-full sm:w-[440px] max-w-full bg-[#111b21] border-l border-[#222e35] shadow-2xl flex flex-col z-30 animate-in slide-in-from-right duration-200">
+                {/* Drawer Top Header */}
+                <div className="p-4 bg-[#202c33] border-b border-[#222e35] flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-sm text-white flex items-center gap-2">
+                      <Car className="w-4 h-4 text-orange-400" />
+                      Ficha Técnica & Orçamento
+                    </h3>
+                    <p className="text-[11px] text-[#8696a0]">
+                      Protocolo #{selected.id.slice(0, 8)} · {selected.brand} {selected.model}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowSpecsDrawer(false)}
+                    className="p-1.5 rounded-full text-[#8696a0] hover:text-white hover:bg-white/5 cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
                 </div>
 
-                {/* LIVE HUMAN CHAT INPUT BOX (PEDRO) */}
-                <div className="p-3.5 rounded-2xl bg-slate-950 border border-emerald-500/30 space-y-2.5 shadow-lg">
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <span className="text-[11px] font-extrabold text-emerald-400 flex items-center gap-1.5 uppercase tracking-wide">
-                      <MessageSquare className="w-3.5 h-3.5" /> Responder cliente no WhatsApp
-                    </span>
-                    {isAiCurrentlyPaused(selected) ? (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                        👨‍💼 Pedro no controle ({formatRemainingPause(selected)})
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
-                        <Bot className="w-2.5 h-2.5" /> IA Ativa (Pausa ao enviar)
-                      </span>
-                    )}
+                {/* Drawer Scrollable Content */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                  {/* Scope & Customer Interest */}
+                  <div className="p-3 rounded-xl bg-[#182229] border border-[#222e35] space-y-1.5">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-orange-300 flex items-center gap-1.5">
+                      <Car className="w-3.5 h-3.5" /> Escopo & Interesse
+                    </p>
+                    <p className="text-xs text-slate-200 whitespace-pre-line">{selected.objective}</p>
+                    <p className="text-[11px] text-slate-400">
+                      Modalidade: {selected.delivery || 'A definir'} · CEP: {selected.cep || 'Não informado'}
+                    </p>
                   </div>
 
-                  {/* International quick translation bar */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-white/5 text-[11px]">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-slate-400 flex items-center gap-1 text-[11px]">
-                        <Globe className="w-3 h-3 text-cyan-400" /> Idioma de envio:
-                      </span>
+                  {/* Qualification Fields */}
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <label className="block text-xs text-slate-300">
+                      Cliente
+                      <input
+                        type="text"
+                        value={selected.customerName || ''}
+                        onChange={e => setSelected({ ...selected, customerName: e.target.value })}
+                        className="block w-full bg-[#182229] rounded-xl p-2.5 mt-1 text-white text-xs border border-white/10 focus:border-orange-400 focus:outline-none"
+                      />
+                    </label>
+                    <label className="block text-xs text-slate-300">
+                      CEP / ZIP Code
+                      <input
+                        type="text"
+                        value={selected.zipCode || selected.cep || ''}
+                        onChange={e => setSelected({ ...selected, cep: e.target.value, zipCode: e.target.value })}
+                        placeholder="CEP (BR) ou ZIP"
+                        className="block w-full bg-[#182229] rounded-xl p-2.5 mt-1 text-white text-xs border border-white/10 focus:border-orange-400 focus:outline-none"
+                      />
+                    </label>
+                    <label className="block text-xs text-slate-300">
+                      País de Origem
                       <select
-                        value={directMessageTargetLang}
-                        onChange={e => setDirectMessageTargetLang(e.target.value)}
-                        className="bg-slate-900 border border-white/10 rounded-lg px-2 py-0.5 text-[11px] text-white font-semibold focus:outline-none focus:border-cyan-400"
+                        value={selected.country || 'BR'}
+                        onChange={e => {
+                          const newCountry = e.target.value;
+                          const autoCurr = newCountry === 'BR' ? 'BRL' : (['ES', 'DE', 'FR', 'IT', 'PT'].includes(newCountry) ? 'EUR' : (newCountry === 'GB' ? 'GBP' : 'USD'));
+                          const autoLang = ['BR', 'PT'].includes(newCountry) ? 'pt' : (['ES', 'MX'].includes(newCountry) ? 'es' : (newCountry === 'DE' ? 'de' : 'en'));
+                          setSelected({
+                            ...selected,
+                            country: newCountry,
+                            currency: selected.currency || autoCurr,
+                            detectedLanguage: selected.detectedLanguage || autoLang
+                          });
+                        }}
+                        className="block w-full bg-[#182229] rounded-xl p-2.5 mt-1 text-white text-xs border border-white/10 focus:border-orange-400 focus:outline-none"
+                      >
+                        <option value="BR">🇧🇷 Brasil (BR)</option>
+                        <option value="US">🇺🇸 Estados Unidos (US)</option>
+                        <option value="ES">🇪🇸 Espanha (ES)</option>
+                        <option value="DE">🇩🇪 Alemanha (DE)</option>
+                        <option value="PT">🇵🇹 Portugal (PT)</option>
+                        <option value="GB">🇬🇧 Reino Unido (GB)</option>
+                        <option value="IT">🇮🇹 Itália (IT)</option>
+                        <option value="FR">🇫🇷 França (FR)</option>
+                        <option value="MX">🇲🇽 México (MX)</option>
+                        <option value="AE">🇦🇪 Emirados Árabes (AE)</option>
+                        <option value="INTL">🌐 Outro / Internacional</option>
+                      </select>
+                    </label>
+                    <label className="block text-xs text-slate-300">
+                      Moeda
+                      <select
+                        value={selected.currency || 'BRL'}
+                        onChange={e => setSelected({ ...selected, currency: e.target.value })}
+                        className="block w-full bg-[#182229] rounded-xl p-2.5 mt-1 text-white text-xs border border-white/10 font-bold focus:border-orange-400 focus:outline-none"
+                      >
+                        <option value="BRL">R$ - Real (BRL)</option>
+                        <option value="USD">$ - Dólar (USD)</option>
+                        <option value="EUR">€ - Euro (EUR)</option>
+                        <option value="GBP">£ - Libra (GBP)</option>
+                      </select>
+                    </label>
+                    <label className="block text-xs text-slate-300">
+                      Marca
+                      <input
+                        type="text"
+                        value={selected.brand || ''}
+                        onChange={e => setSelected({ ...selected, brand: e.target.value })}
+                        className="block w-full bg-[#182229] rounded-xl p-2.5 mt-1 text-white text-xs border border-white/10 focus:border-orange-400 focus:outline-none"
+                      />
+                    </label>
+                    <label className="block text-xs text-slate-300">
+                      Modelo
+                      <input
+                        type="text"
+                        value={selected.model || ''}
+                        onChange={e => setSelected({ ...selected, model: e.target.value })}
+                        className="block w-full bg-[#182229] rounded-xl p-2.5 mt-1 text-white text-xs border border-white/10 focus:border-orange-400 focus:outline-none"
+                      />
+                    </label>
+                    <label className="block text-xs text-slate-300">
+                      Ano
+                      <input
+                        type="text"
+                        value={selected.year || ''}
+                        onChange={e => setSelected({ ...selected, year: e.target.value })}
+                        className="block w-full bg-[#182229] rounded-xl p-2.5 mt-1 text-white text-xs border border-white/10 focus:border-orange-400 focus:outline-none"
+                      />
+                    </label>
+                    <label className="block text-xs text-slate-300">
+                      Versão / Motor
+                      <input
+                        type="text"
+                        value={selected.version || ''}
+                        onChange={e => setSelected({ ...selected, version: e.target.value })}
+                        className="block w-full bg-[#182229] rounded-xl p-2.5 mt-1 text-white text-xs border border-white/10 focus:border-orange-400 focus:outline-none"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <label className="block text-xs text-slate-300">
+                      Idioma
+                      <select
+                        value={selected.detectedLanguage || 'pt'}
+                        onChange={e => setSelected({ ...selected, detectedLanguage: e.target.value })}
+                        className="block w-full bg-[#182229] rounded-xl p-2.5 mt-1 text-white text-xs border border-white/10"
                       >
                         <option value="pt">🇧🇷 Português</option>
-                        <option value="en">🇺🇸 Inglês (English)</option>
-                        <option value="es">🇪🇸 Espanhol (Español)</option>
-                        <option value="de">🇩🇪 Alemão (Deutsch)</option>
-                        <option value="fr">🇫🇷 Francês (Français)</option>
+                        <option value="en">🇺🇸 English</option>
+                        <option value="es">🇪🇸 Español</option>
+                        <option value="de">🇩🇪 Deutsch</option>
+                        <option value="fr">🇫🇷 Français</option>
                         <option value="it">🇮🇹 Italiano</option>
                       </select>
-                    </div>
-
-                    {directMessageTargetLang !== 'pt' && (
-                      <button
-                        type="button"
-                        disabled={translatingDirectMessage || !directMessageText.trim()}
-                        onClick={handleTranslateDirectMessage}
-                        className="px-2.5 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-[10px] font-bold flex items-center gap-1 transition cursor-pointer disabled:opacity-40"
+                    </label>
+                    <label className="block text-xs text-slate-300">
+                      Etapa do Funil
+                      <select
+                        value={selected.status}
+                        onChange={e => setSelected({ ...selected, status: e.target.value })}
+                        className="block w-full bg-[#182229] rounded-xl p-2.5 mt-1 text-xs text-white border border-white/10 font-bold"
                       >
-                        <Sparkles className="w-3 h-3" />
-                        <span>{translatingDirectMessage ? 'Traduzindo…' : '⚡ Traduzir texto'}</span>
-                      </button>
-                    )}
+                        {stages.map(s => (
+                          <option key={s}>{s}</option>
+                        ))}
+                      </select>
+                    </label>
                   </div>
 
-                  <div className="flex items-end gap-2">
-                    <textarea
-                      rows={2}
-                      value={directMessageText}
-                      onChange={e => setDirectMessageText(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          void handleSendDirectMessage();
-                        }
-                      }}
-                      placeholder={`Escreva como Pedro para ${selected.customerName || 'o cliente'}... (Enter para enviar)`}
-                      className="flex-1 bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-emerald-400 placeholder:text-slate-500 resize-none leading-relaxed"
-                    />
+                  {/* Financial Quote Section */}
+                  <div className="p-3.5 rounded-xl bg-[#182229] border border-cyan-500/30 space-y-2.5">
+                    <span className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+                      <DollarSign className="w-3.5 h-3.5" /> Orçamento & Proposta ({selected.currency || 'BRL'})
+                    </span>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="block text-xs text-slate-300">
+                        Valor ({selected.currency || 'BRL'})
+                        <input
+                          type="number"
+                          step="50"
+                          min="0"
+                          value={selected.quoteValue ?? ''}
+                          onChange={e => {
+                            const val = Number(e.target.value);
+                            const commPct = selected.commissionPercent ?? 4;
+                            setSelected({
+                              ...selected,
+                              quoteValue: val,
+                              commissionValue: Number(((val * commPct) / 100).toFixed(2))
+                            });
+                          }}
+                          placeholder="Ex: 15000.00"
+                          className="block w-full bg-[#111b21] border border-slate-700 rounded-xl p-2 mt-1 text-white text-xs font-bold font-mono"
+                        />
+                      </label>
+
+                      <label className="block text-xs text-slate-300">
+                        % Comissão
+                        <input
+                          type="number"
+                          step="0.5"
+                          min="0"
+                          max="50"
+                          value={selected.commissionPercent ?? 4}
+                          onChange={e => {
+                            const commPct = Number(e.target.value);
+                            const val = selected.quoteValue ?? 0;
+                            setSelected({
+                              ...selected,
+                              commissionPercent: commPct,
+                              commissionValue: Number(((val * commPct) / 100).toFixed(2))
+                            });
+                          }}
+                          className="block w-full bg-[#111b21] border border-slate-700 rounded-xl p-2 mt-1 text-white text-xs font-bold font-mono"
+                        />
+                      </label>
+                    </div>
+
+                    {Number(selected.quoteValue || 0) > 0 && (
+                      <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/25 flex items-center justify-between text-xs">
+                        <span className="text-emerald-300 font-semibold">Comissão Técnica:</span>
+                        <span className="text-emerald-400 font-bold text-sm font-mono">
+                          {formatProjectCurrency(
+                            selected.commissionValue ||
+                              (Number(selected.quoteValue) * Number(selected.commissionPercent || 4)) / 100,
+                            selected.currency
+                          )}
+                        </span>
+                      </div>
+                    )}
 
                     <button
                       type="button"
-                      disabled={sendingDirectMessage || !directMessageText.trim()}
-                      onClick={handleSendDirectMessage}
-                      className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer disabled:opacity-40 shrink-0 shadow-md h-[54px]"
+                      onClick={() => openProposalComposer(selected)}
+                      className="w-full py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow"
                     >
                       <Send className="w-3.5 h-3.5" />
-                      <span>{sendingDirectMessage ? 'Enviando…' : 'Enviar WhatsApp'}</span>
+                      <span>⚡ Enviar Proposta no WhatsApp</span>
                     </button>
                   </div>
 
-                  <p className="text-[10px] text-slate-400 leading-tight">
-                    💡 Ao enviar uma mensagem direta, ela é entregue no WhatsApp do cliente e a IA pausa automaticamente por 1 hora para você assumir o atendimento.
-                  </p>
+                  {/* Manual notes */}
+                  <label className="block text-xs text-slate-300">
+                    Notas técnicas internas
+                    <textarea
+                      maxLength={3000}
+                      rows={2}
+                      value={selected.notes || ''}
+                      onChange={e => setSelected({ ...selected, notes: e.target.value })}
+                      className="block w-full bg-[#182229] rounded-xl p-2.5 mt-1 text-xs text-white border border-white/5"
+                    />
+                  </label>
+                </div>
+
+                {/* Drawer Footer Actions */}
+                <div className="p-3 bg-[#182229] border-t border-[#222e35] flex items-center justify-between gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowSpecsDrawer(false)}
+                    className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-200 text-xs font-bold cursor-pointer"
+                  >
+                    Voltar ao Chat
+                  </button>
+                  <button
+                    disabled={busy}
+                    onClick={async () => {
+                      await save();
+                      setShowSpecsDrawer(false);
+                    }}
+                    className="flex-1 py-2.5 rounded-xl bg-orange-400 hover:bg-orange-300 text-black font-bold text-xs transition cursor-pointer disabled:opacity-50 text-center"
+                  >
+                    {busy ? 'Salvando…' : 'Salvar alterações'}
+                  </button>
                 </div>
               </div>
-            </div>
-
-            {/* Bottom Actions */}
-            <div className="pt-3 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3">
-              <p className="text-xs text-slate-400">
-                Salvar atualiza o cadastro técnico. Mudança para <strong>Aprovado</strong> dispara o evento de conversão do Meta Ads (CAPI).
-              </p>
-              <button
-                disabled={busy}
-                onClick={save}
-                className="bg-orange-400 hover:bg-orange-300 text-black rounded-xl px-6 py-3 font-bold text-xs transition cursor-pointer disabled:opacity-50 shrink-0 w-full sm:w-auto"
-              >
-                {busy ? 'Salvando…' : 'Salvar alterações'}
-              </button>
-            </div>
+            )}
           </div>
         </div>
       )}
