@@ -58,6 +58,10 @@ type Project = {
   modifications: string;
   objective: string;
   cep: string;
+  zipCode?: string;
+  country?: string;
+  currency?: string;
+  detectedLanguage?: string;
   delivery: string;
   status: string;
   source?: 'public_site' | 'whatsapp_ai' | string;
@@ -86,6 +90,39 @@ type Project = {
   updatedAt?: string;
 };
 
+export function formatProjectCurrency(val: number = 0, currency: string = 'BRL'): string {
+  const curr = (currency || 'BRL').toUpperCase();
+  if (curr === 'USD') {
+    return `$ ${Number(val).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`;
+  }
+  if (curr === 'EUR') {
+    return `€ ${Number(val).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} EUR`;
+  }
+  if (curr === 'GBP') {
+    return `£ ${Number(val).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} GBP`;
+  }
+  return `R$ ${Number(val).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+export function getCountryBadge(country?: string): { flag: string; label: string } {
+  const c = (country || 'BR').toUpperCase();
+  switch (c) {
+    case 'US': return { flag: '🇺🇸', label: 'EUA' };
+    case 'ES': return { flag: '🇪🇸', label: 'Espanha' };
+    case 'DE': return { flag: '🇩🇪', label: 'Alemanha' };
+    case 'IT': return { flag: '🇮🇹', label: 'Itália' };
+    case 'FR': return { flag: '🇫🇷', label: 'França' };
+    case 'GB': return { flag: '🇬🇧', label: 'UK' };
+    case 'PT': return { flag: '🇵🇹', label: 'Portugal' };
+    case 'MX': return { flag: '🇲🇽', label: 'México' };
+    case 'AE': return { flag: '🇦🇪', label: 'Emirados' };
+    case 'INTL': return { flag: '🌐', label: 'Internacional' };
+    case 'BR':
+    default:
+      return { flag: '🇧🇷', label: 'Brasil' };
+  }
+}
+
 type ConversationMessage = {
   id: string;
   sender: 'user' | 'assistant' | 'system';
@@ -110,6 +147,11 @@ export function AutomotiveProjects() {
   const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([]);
   const [conversationContext, setConversationContext] = useState<any>(null);
   const [loadingConversation, setLoadingConversation] = useState(false);
+
+  // Translation states
+  const [translations, setTranslations] = useState<Record<string, { text: string; loading: boolean }>>({});
+  const [proposalTargetLang, setProposalTargetLang] = useState('en');
+  const [translatingProposal, setTranslatingProposal] = useState(false);
 
   // Proposal modal state
   const [proposalModalOpen, setProposalModalOpen] = useState(false);
@@ -258,15 +300,62 @@ export function AutomotiveProjects() {
     }
   }
 
+  async function translateText(text: string, targetLang: string = 'pt'): Promise<string> {
+    const token = await auth.currentUser?.getIdToken();
+    if (!token) throw new Error('Entre novamente para acessar o tradutor.');
+    const response = await fetch('/api/automotive/translate', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ text, targetLang })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Erro na tradução');
+    return data.translated || text;
+  }
+
+  async function handleTranslateMessage(msgId: string, text: string) {
+    setTranslations(prev => ({ ...prev, [msgId]: { text: '', loading: true } }));
+    try {
+      const translated = await translateText(text, 'pt');
+      setTranslations(prev => ({ ...prev, [msgId]: { text: translated, loading: false } }));
+    } catch (err: any) {
+      setTranslations(prev => ({ ...prev, [msgId]: { text: '⚠️ Falha ao traduzir: ' + (err.message || ''), loading: false } }));
+    }
+  }
+
+  async function handleTranslateProposal() {
+    if (!proposalDraft.trim()) return;
+    setTranslatingProposal(true);
+    try {
+      const translated = await translateText(proposalDraft, proposalTargetLang);
+      setProposalDraft(translated);
+      setActionSuccess(`✨ Proposta traduzida para ${proposalTargetLang.toUpperCase()}!`);
+      setTimeout(() => setActionSuccess(''), 3500);
+    } catch (err: any) {
+      setError('Falha ao traduzir proposta: ' + (err.message || ''));
+    } finally {
+      setTranslatingProposal(false);
+    }
+  }
+
   // Preparar proposta formatada e abrir modal de disparo
   function openProposalComposer(project: Project) {
     const vehicle = [project.brand, project.model, project.year, project.version].filter(Boolean).join(' ');
+    const curr = project.currency || 'BRL';
+    const isIntl = curr !== 'BRL' || (project.country && project.country !== 'BR');
     const val = project.quoteValue
-      ? `R$ ${Number(project.quoteValue).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-      : project.quote || 'Sob consulta técnica';
-    const prazo = project.leadTime || '7 a 15 dias úteis de fabricação';
-    const frete = project.freight ? `Frete: ${project.freight}` : (project.cep ? `Entrega para CEP ${project.cep}` : 'Entrega a combinar / instalação na loja');
-    const condicoes = project.quote || 'À vista via Pix ou até 12x no cartão de crédito';
+      ? formatProjectCurrency(project.quoteValue, curr)
+      : project.quote || (curr === 'BRL' ? 'Sob consulta técnica' : 'Under technical review');
+    const prazo = project.leadTime || (curr === 'BRL' ? '7 a 15 dias úteis de fabricação' : '7 to 15 business days for fabrication');
+    const frete = project.freight
+      ? `Frete: ${project.freight}`
+      : (project.zipCode || project.cep
+        ? `Entrega para CEP/ZIP ${project.zipCode || project.cep}`
+        : (curr === 'BRL' ? 'Entrega a combinar / instalação na loja' : 'Worldwide DHL/FedEx Express insured shipping'));
+    const condicoes = project.quote || (curr === 'BRL' ? 'À vista via Pix ou até 12x no cartão de crédito' : 'Wire transfer, Stripe, or major credit cards');
 
     const draft = `Olá, ${project.customerName || 'amigo(a)'}! Tudo bem? Aqui é o Pedro da equipe técnica e projetos.
 
@@ -278,12 +367,16 @@ ${project.objective || 'Sistema de escapamento esportivo em inox com ronco encor
 💰 *Investimento:* ${val}
 💳 *Condições:* ${condicoes}
 📦 *Prazo de Produção:* ${prazo}
-🚚 *Entrega / Instalação:* ${frete}
+🚚 *Entrega / Envio:* ${frete}
 
-Trabalhamos com aço inox de alta durabilidade, solda TIG artesanal e gabarito milimétrico sem adaptações destrutivas.
+Trabalhamos com aço inox 304 de alta durabilidade, solda TIG artesanal e gabarito milimétrico sem adaptações destrutivas.
 
 Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida sobre o ronco e especificações?`;
 
+    const initialTarget = (project.detectedLanguage && project.detectedLanguage !== 'pt')
+      ? project.detectedLanguage
+      : (project.country === 'ES' || project.country === 'MX' ? 'es' : (project.country === 'DE' ? 'de' : (isIntl ? 'en' : 'pt')));
+    setProposalTargetLang(initialTarget);
     setProposalDraft(draft);
     setProposalModalOpen(true);
   }
@@ -612,6 +705,11 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                               #{p.id.slice(0, 6)}
                             </span>
                             <div className="flex items-center gap-1 flex-wrap">
+                              {p.country && p.country !== 'BR' && (
+                                <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                                  {getCountryBadge(p.country).flag} {p.country}
+                                </span>
+                              )}
                               {isPaused ? (
                                 <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
                                   <Pause className="w-2.5 h-2.5" /> Pedro
@@ -649,7 +747,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                           <div className="pt-2 border-t border-white/5 flex items-center justify-between text-[11px]">
                             {Number(p.quoteValue || 0) > 0 ? (
                               <span className="font-mono font-bold text-emerald-400">
-                                R$ {Number(p.quoteValue).toLocaleString('pt-BR', { minimumFractionDigits: 0 })}
+                                {formatProjectCurrency(p.quoteValue, p.currency)}
                               </span>
                             ) : (
                               <span className="text-[10px] text-slate-500">Sem valor def.</span>
@@ -776,9 +874,15 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                         </span>
                       )}
 
+                      {p.country && p.country !== 'BR' && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                          {getCountryBadge(p.country).flag} {getCountryBadge(p.country).label} ({p.country})
+                        </span>
+                      )}
+
                       {Number(p.quoteValue || 0) > 0 && (
                         <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono">
-                          <DollarSign className="w-2.5 h-2.5" /> R$ {Number(p.quoteValue).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          <DollarSign className="w-2.5 h-2.5" /> {formatProjectCurrency(p.quoteValue, p.currency)}
                         </span>
                       )}
                     </div>
@@ -1006,13 +1110,57 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                     />
                   </label>
                   <label className="block text-xs text-slate-300">
-                    CEP
+                    CEP / ZIP Code
                     <input
                       type="text"
-                      value={selected.cep || ''}
-                      onChange={e => setSelected({ ...selected, cep: e.target.value })}
+                      value={selected.zipCode || selected.cep || ''}
+                      onChange={e => setSelected({ ...selected, cep: e.target.value, zipCode: e.target.value })}
+                      placeholder="CEP (BR) ou ZIP Internacional"
                       className="block w-full bg-slate-800 rounded-xl p-2.5 mt-1 text-white text-xs border border-white/5 focus:border-orange-400 focus:outline-none"
                     />
+                  </label>
+                  <label className="block text-xs text-slate-300">
+                    País de Origem
+                    <select
+                      value={selected.country || 'BR'}
+                      onChange={e => {
+                        const newCountry = e.target.value;
+                        const autoCurr = newCountry === 'BR' ? 'BRL' : (['ES', 'DE', 'FR', 'IT', 'PT'].includes(newCountry) ? 'EUR' : (newCountry === 'GB' ? 'GBP' : 'USD'));
+                        const autoLang = ['BR', 'PT'].includes(newCountry) ? 'pt' : (['ES', 'MX'].includes(newCountry) ? 'es' : (newCountry === 'DE' ? 'de' : 'en'));
+                        setSelected({
+                          ...selected,
+                          country: newCountry,
+                          currency: selected.currency || autoCurr,
+                          detectedLanguage: selected.detectedLanguage || autoLang
+                        });
+                      }}
+                      className="block w-full bg-slate-800 rounded-xl p-2.5 mt-1 text-white text-xs border border-white/5 focus:border-orange-400 focus:outline-none"
+                    >
+                      <option value="BR">🇧🇷 Brasil (BR)</option>
+                      <option value="US">🇺🇸 Estados Unidos (US)</option>
+                      <option value="ES">🇪🇸 Espanha (ES)</option>
+                      <option value="DE">🇩🇪 Alemanha (DE)</option>
+                      <option value="PT">🇵🇹 Portugal (PT)</option>
+                      <option value="GB">🇬🇧 Reino Unido (GB)</option>
+                      <option value="IT">🇮🇹 Itália (IT)</option>
+                      <option value="FR">🇫🇷 França (FR)</option>
+                      <option value="MX">🇲🇽 México (MX)</option>
+                      <option value="AE">🇦🇪 Emirados Árabes (AE)</option>
+                      <option value="INTL">🌐 Outro / Internacional</option>
+                    </select>
+                  </label>
+                  <label className="block text-xs text-slate-300">
+                    Moeda do Orçamento
+                    <select
+                      value={selected.currency || 'BRL'}
+                      onChange={e => setSelected({ ...selected, currency: e.target.value })}
+                      className="block w-full bg-slate-800 rounded-xl p-2.5 mt-1 text-white text-xs border border-white/5 focus:border-orange-400 focus:outline-none font-bold"
+                    >
+                      <option value="BRL">R$ - Real Brasileiro (BRL)</option>
+                      <option value="USD">$ - Dólar Americano (USD)</option>
+                      <option value="EUR">€ - Euro (EUR)</option>
+                      <option value="GBP">£ - Libra Esterlina (GBP)</option>
+                    </select>
                   </label>
                   <label className="block text-xs text-slate-300">
                     Marca
@@ -1052,24 +1200,41 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                   </label>
                 </div>
 
-                <label className="block text-sm text-slate-200 font-semibold">
-                  Etapa do Funil
-                  <select
-                    value={selected.status}
-                    onChange={e => setSelected({ ...selected, status: e.target.value })}
-                    className="block w-full bg-slate-800 p-3 rounded-xl my-2 text-sm text-white border border-white/10"
-                  >
-                    {stages.map(s => (
-                      <option key={s}>{s}</option>
-                    ))}
-                  </select>
-                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block text-xs text-slate-300">
+                    Idioma de Comunicação
+                    <select
+                      value={selected.detectedLanguage || 'pt'}
+                      onChange={e => setSelected({ ...selected, detectedLanguage: e.target.value })}
+                      className="block w-full bg-slate-800 rounded-xl p-2.5 mt-1 text-white text-xs border border-white/10"
+                    >
+                      <option value="pt">🇧🇷 Português</option>
+                      <option value="en">🇺🇸 English</option>
+                      <option value="es">🇪🇸 Español</option>
+                      <option value="de">🇩🇪 Deutsch</option>
+                      <option value="fr">🇫🇷 Français</option>
+                      <option value="it">🇮🇹 Italiano</option>
+                    </select>
+                  </label>
+                  <label className="block text-xs text-slate-300">
+                    Etapa do Funil
+                    <select
+                      value={selected.status}
+                      onChange={e => setSelected({ ...selected, status: e.target.value })}
+                      className="block w-full bg-slate-800 rounded-xl p-2.5 mt-1 text-xs text-white border border-white/10 font-bold"
+                    >
+                      {stages.map(s => (
+                        <option key={s}>{s}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
 
                 {/* Financial Quote & Official WhatsApp Proposal Section */}
                 <div className="p-4 rounded-2xl bg-slate-950 border border-cyan-500/30 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
-                      <DollarSign className="w-3.5 h-3.5" /> Orçamento & Proposta Comercial
+                      <DollarSign className="w-3.5 h-3.5" /> Orçamento & Proposta ({selected.currency || 'BRL'})
                     </span>
                     {selected.proposalSentAt && (
                       <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
@@ -1081,7 +1246,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
 
                   <div className="grid grid-cols-2 gap-2">
                     <label className="block text-xs text-slate-300">
-                      Valor do Projeto (R$)
+                      Valor ({selected.currency || 'BRL'})
                       <input
                         type="number"
                         step="50"
@@ -1096,7 +1261,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                             commissionValue: Number(((val * commPct) / 100).toFixed(2))
                           });
                         }}
-                        placeholder="Ex: 3800.00"
+                        placeholder={`Ex: ${selected.currency === 'USD' ? '3800.00' : '15000.00'}`}
                         className="block w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 mt-1 text-white text-xs font-bold font-mono"
                       />
                     </label>
@@ -1128,11 +1293,11 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                     <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/25 flex items-center justify-between text-xs">
                       <span className="text-emerald-300 font-semibold">Comissão Técnica da Venda:</span>
                       <span className="text-emerald-400 font-bold text-sm font-mono">
-                        R${' '}
-                        {Number(
+                        {formatProjectCurrency(
                           selected.commissionValue ||
-                            (Number(selected.quoteValue) * Number(selected.commissionPercent || 4)) / 100
-                        ).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            (Number(selected.quoteValue) * Number(selected.commissionPercent || 4)) / 100,
+                          selected.currency
+                        )}
                       </span>
                     </div>
                   )}
@@ -1229,16 +1394,52 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                                 : '🤖 Pedro (Consultor IA)'}
                             </div>
                             {msg.text}
-                            <div className="text-[9px] opacity-60 mt-1 text-right">
-                              {msg.timestamp
-                                ? new Date(msg.timestamp).toLocaleString('pt-BR', {
-                                    day: '2-digit',
-                                    month: '2-digit',
-                                    hour: '2-digit',
-                                    minute: '2-digit'
-                                  })
-                                : ''}
-                            </div>
+
+                            {isCustomer && (
+                              <div className="mt-2 pt-1.5 border-t border-white/10 flex items-center justify-between gap-2">
+                                <button
+                                  type="button"
+                                  disabled={translations[msg.id]?.loading}
+                                  onClick={() => handleTranslateMessage(msg.id, msg.text)}
+                                  className="inline-flex items-center gap-1 text-[10px] font-semibold text-cyan-300 hover:text-cyan-200 transition cursor-pointer"
+                                >
+                                  <Globe className="w-3 h-3 text-cyan-400" />
+                                  <span>{translations[msg.id]?.loading ? 'Traduzindo…' : 'Traduzir para Português'}</span>
+                                </button>
+                                <div className="text-[9px] opacity-60">
+                                  {msg.timestamp
+                                    ? new Date(msg.timestamp).toLocaleString('pt-BR', {
+                                        day: '2-digit',
+                                        month: '2-digit',
+                                        hour: '2-digit',
+                                        minute: '2-digit'
+                                      })
+                                    : ''}
+                                </div>
+                              </div>
+                            )}
+
+                            {isCustomer && translations[msg.id]?.text && (
+                              <div className="mt-2 p-2.5 rounded-xl bg-slate-950 border border-cyan-500/40 text-[11px] text-cyan-100 leading-relaxed space-y-1">
+                                <div className="flex items-center gap-1 text-[10px] font-bold text-cyan-300">
+                                  <Sparkles className="w-3 h-3 text-cyan-400" /> Tradução IA (Português):
+                                </div>
+                                <p className="whitespace-pre-line">{translations[msg.id].text}</p>
+                              </div>
+                            )}
+
+                            {!isCustomer && (
+                              <div className="text-[9px] opacity-60 mt-1 text-right">
+                                {msg.timestamp
+                                  ? new Date(msg.timestamp).toLocaleString('pt-BR', {
+                                      day: '2-digit',
+                                      month: '2-digit',
+                                      hour: '2-digit',
+                                      minute: '2-digit'
+                                    })
+                                  : ''}
+                              </div>
+                            )}
                           </div>
                         </div>
                       );
@@ -1285,7 +1486,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                   Enviar Proposta Comercial no WhatsApp
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Destinatário: <strong className="text-white">{selected.customerName}</strong> ({selected.phone})
+                  Destinatário: <strong className="text-white">{selected.customerName}</strong> ({selected.phone}) · {getCountryBadge(selected.country).flag} {getCountryBadge(selected.country).label} ({selected.currency || 'BRL'})
                 </p>
               </div>
               <button
@@ -1294,6 +1495,37 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                 className="text-slate-400 hover:text-white"
               >
                 <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* International Translation Toolbar */}
+            <div className="p-3 rounded-2xl bg-slate-950 border border-white/10 flex flex-wrap items-center justify-between gap-2.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                  <Globe className="w-3.5 h-3.5 text-cyan-400" /> Idioma da Proposta:
+                </span>
+                <select
+                  value={proposalTargetLang}
+                  onChange={e => setProposalTargetLang(e.target.value)}
+                  className="bg-slate-800 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-white font-semibold focus:outline-none focus:border-cyan-400"
+                >
+                  <option value="en">🇺🇸 Inglês (English - US)</option>
+                  <option value="es">🇪🇸 Espanhol (Español)</option>
+                  <option value="de">🇩🇪 Alemão (Deutsch)</option>
+                  <option value="pt">🇧🇷 Português (Brasil)</option>
+                  <option value="fr">🇫🇷 Francês (Français)</option>
+                  <option value="it">🇮🇹 Italiano</option>
+                </select>
+              </div>
+
+              <button
+                type="button"
+                disabled={translatingProposal || !proposalDraft.trim()}
+                onClick={handleTranslateProposal}
+                className="px-3.5 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>{translatingProposal ? 'Traduzindo com IA…' : '⚡ Traduzir Mensagem'}</span>
               </button>
             </div>
 
@@ -1308,7 +1540,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-xs text-slate-100 font-mono leading-relaxed focus:outline-none focus:border-cyan-400"
               />
               <p className="text-[11px] text-slate-400">
-                💡 Dica: Você pode editar o texto livremente acima antes de disparar. Ao enviar, o estágio do projeto mudará automaticamente para <strong>Orçamento enviado</strong>.
+                💡 Dica: Você pode escrever em português e clicar em <strong>⚡ Traduzir Mensagem</strong> para adaptar o texto na língua nativa do cliente antes de enviar.
               </p>
             </div>
 

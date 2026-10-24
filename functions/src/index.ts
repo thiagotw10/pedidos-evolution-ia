@@ -1118,12 +1118,18 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
    - Assim que os dados principais estiverem reunidos, apresente um resumo organizado (*Veículo*, *Objetivo/Configuração*, *Logística/CEP*) e confirme que a solicitação já entrou no CRM para nossa equipe técnica preparar o orçamento personalizado!
 5. TRANSPARÊNCIA TÉCNICA:
    - Não invente preços, estoque, ganhos exatos de potência, homologação ou prazos. Explique que compatibilidade final, valores e frete são validados sob medida pelos especialistas da loja.
-   - Use formatação limpa de WhatsApp: negrito com um asterisco (*texto*) e listas com '• '.`;
+   - Use formatação limpa de WhatsApp: negrito com um asterisco (*texto*) e listas com '• '.
+6. ATENDIMENTO INTERNACIONAL & MULTILÍNGUE (GLOBAL EXHAUST SPECIALIST):
+   - Você atende entusiastas e clientes do MUNDO TODO (Brasil, Estados Unidos, Europa, América Latina).
+   - RESPONDA SEMPRE NO MESMO IDIOMA QUE O CLIENTE ENVIAR A MENSAGEM (Inglês, Espanhol, Português, etc.). Se o cliente falar em inglês, responda em inglês fluente e técnico. Se falar em espanhol, responda em espanhol.
+   - Para clientes em inglês, utilize terminologia automotiva correta: *catback exhaust, downpipes, valvetronic system, full titanium, TIG welds, stainless steel 304, cold start sound clips, no cabin drone, plug and play fitment*.
+   - Para envio internacional: solicite o país e ZIP Code / Postal Code para cotação de frete aéreo internacional expresso (DHL / FedEx Express).
+   - Para clientes no exterior, trabalhe com referências em Dólar (USD $) ou Euro (EUR €).`;
 
   // Tool for Performance & Exhaust Niche CRM Registration & Context Saving
   const registrarInteresseProjetoTool = {
     name: 'registrar_interesse_projeto',
-    description: 'Salva o contexto da conversa no WhatsApp e registra/atualiza o lead e projeto do cliente no CRM de Performance & Escapamentos da loja. Chame sempre que o cliente informar dados do veículo, objetivo do projeto, modificações, nome, CEP ou interesse em orçamento.',
+    description: 'Salva o contexto da conversa no WhatsApp e registra/atualiza o lead e projeto do cliente no CRM de Performance & Escapamentos da loja. Chame sempre que o cliente informar dados do veículo, objetivo do projeto, modificações, nome, CEP/ZIP Code, país ou interesse em orçamento.',
     parameters: {
       type: 'object',
       properties: {
@@ -1134,8 +1140,11 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
         version: { type: 'string', description: 'Versão ou motorização (ex: Carrera S 3.0 Biturbo, Competition, 2.0 TSI)' },
         modifications: { type: 'string', description: 'Modificações atuais do veículo (ex: original, Stage 2, já possui downpipe)' },
         objective: { type: 'string', description: 'Objetivo do projeto e perfil de ronco desejado (ex: catback valvulado inox 304, downpipe, ronco encorpado sem drone)' },
-        cep: { type: 'string', description: 'CEP do cliente para envio nacional' },
-        delivery: { type: 'string', enum: ['Envio nacional', 'Atendimento local', 'A definir'], description: 'Modalidade escolhida: Envio nacional ou Atendimento local na oficina' },
+        cep: { type: 'string', description: 'CEP ou ZIP Code do cliente' },
+        delivery: { type: 'string', enum: ['Envio nacional', 'Envio internacional', 'Atendimento local', 'A definir'], description: 'Modalidade escolhida' },
+        country: { type: 'string', description: 'País do cliente (ex: Brasil, United States, Spain, Germany)' },
+        currency: { type: 'string', enum: ['BRL', 'USD', 'EUR'], description: 'Moeda da negociação' },
+        detectedLanguage: { type: 'string', description: 'Idioma detectado da conversa (ex: pt, en, es)' },
         referenceNames: {
           type: 'array',
           items: { type: 'string' },
