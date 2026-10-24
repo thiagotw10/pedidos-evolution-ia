@@ -225,8 +225,31 @@ export function WhatsAppAudioPlayer({ audioUrl, isOutbound }: { audioUrl: string
     const audio = audioRef.current;
     if (!audio) return;
 
-    const onTimeUpdate = () => setCurrentTime(audio.currentTime);
-    const onLoaded = () => setDuration(audio.duration || 0);
+    const onTimeUpdate = () => {
+      if (audio.currentTime !== undefined && !isNaN(audio.currentTime)) {
+        setCurrentTime(audio.currentTime);
+      }
+      if (isFinite(audio.duration) && audio.duration > 0 && duration === 0) {
+        setDuration(audio.duration);
+      }
+    };
+
+    const onLoaded = () => {
+      if (isFinite(audio.duration) && audio.duration > 0) {
+        setDuration(audio.duration);
+      } else if (audio.duration === Infinity) {
+        // Chromium WebM duration fix: seek to infinity to trigger duration calculation
+        audio.currentTime = 1e101;
+        audio.ontimeupdate = function() {
+          this.ontimeupdate = onTimeUpdate;
+          audio.currentTime = 0;
+          if (isFinite(audio.duration)) {
+            setDuration(audio.duration);
+          }
+        };
+      }
+    };
+
     const onEnded = () => {
       setIsPlaying(false);
       setCurrentTime(0);
@@ -241,7 +264,7 @@ export function WhatsAppAudioPlayer({ audioUrl, isOutbound }: { audioUrl: string
       audio.removeEventListener('loadedmetadata', onLoaded);
       audio.removeEventListener('ended', onEnded);
     };
-  }, [audioUrl]);
+  }, [audioUrl, duration]);
 
   const togglePlay = () => {
     if (!audioRef.current) return;
@@ -262,13 +285,14 @@ export function WhatsAppAudioPlayer({ audioUrl, isOutbound }: { audioUrl: string
   };
 
   const formatTime = (secs: number) => {
-    if (isNaN(secs) || secs < 0) return '0:00';
+    if (!isFinite(secs) || isNaN(secs) || secs < 0) return '0:00';
     const mins = Math.floor(secs / 60);
     const rem = Math.floor(secs % 60);
     return `${mins}:${rem < 10 ? '0' : ''}${rem}`;
   };
 
-  const progressPct = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
+  const effectiveDuration = isFinite(duration) && duration > 0 ? duration : (currentTime > 0 ? currentTime : 0);
+  const progressPct = effectiveDuration > 0 ? Math.min(100, (currentTime / effectiveDuration) * 100) : 0;
 
   return (
     <div className="flex items-center gap-2.5 py-1 px-1 my-1 select-none w-full max-w-xs">
@@ -290,10 +314,10 @@ export function WhatsAppAudioPlayer({ audioUrl, isOutbound }: { audioUrl: string
       <div className="flex-1 flex flex-col justify-center gap-1 min-w-[120px]">
         <div
           onClick={e => {
-            if (!audioRef.current || !duration) return;
+            if (!audioRef.current || !effectiveDuration) return;
             const rect = e.currentTarget.getBoundingClientRect();
             const clickPos = (e.clientX - rect.left) / rect.width;
-            audioRef.current.currentTime = clickPos * duration;
+            audioRef.current.currentTime = clickPos * effectiveDuration;
           }}
           className="h-1.5 bg-white/20 rounded-full cursor-pointer relative overflow-hidden"
         >
@@ -307,7 +331,7 @@ export function WhatsAppAudioPlayer({ audioUrl, isOutbound }: { audioUrl: string
 
         <div className="flex items-center justify-between text-[10px] text-white/70 font-mono">
           <span>{formatTime(currentTime)}</span>
-          <span>{formatTime(duration || 0)}</span>
+          <span>{formatTime(effectiveDuration)}</span>
         </div>
       </div>
 
@@ -1633,13 +1657,13 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
             className="w-full h-full md:max-w-5xl md:h-[94vh] bg-[#0b141a] md:rounded-2xl shadow-2xl flex flex-col overflow-hidden border-0 md:border md:border-[#222e35] relative"
           >
             {/* Top WhatsApp Mobile / Web Header */}
-            <div className="bg-[#202c33] text-[#e9edef] px-3 sm:px-4 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] flex items-center justify-between border-b border-[#222e35] shrink-0 z-20">
+            <div className="bg-[#202c33] text-[#e9edef] px-3 sm:px-4 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] flex items-center justify-between border-b border-[#222e35] shrink-0 z-20 gap-2">
               {/* Left: Back button + Avatar + Contact Name / Status */}
-              <div className="flex items-center gap-2.5 min-w-0">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
                 <button
                   type="button"
                   onClick={() => setSelected(null)}
-                  className="p-1 -ml-1 text-[#aebac1] hover:text-white rounded-full hover:bg-white/5 cursor-pointer transition"
+                  className="p-1 -ml-1 text-[#aebac1] hover:text-white rounded-full hover:bg-white/5 cursor-pointer transition shrink-0"
                   title="Voltar para a lista de projetos"
                 >
                   <ArrowLeft className="w-5 h-5" />
@@ -1657,10 +1681,10 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                 {/* Contact Name & Status (Comigo vs Com a IA) */}
                 <div
                   onClick={() => setShowSpecsDrawer(true)}
-                  className="cursor-pointer min-w-0"
+                  className="cursor-pointer min-w-0 flex-1"
                   title="Clique para ver a ficha técnica e orçamento"
                 >
-                  <h3 className="font-semibold text-sm sm:text-base text-[#e9edef] truncate max-w-[130px] sm:max-w-xs leading-tight">
+                  <h3 className="font-semibold text-sm sm:text-base text-[#e9edef] truncate leading-tight">
                     {selected.customerName || 'Cliente'}
                   </h3>
                   <div className="flex items-center gap-1.5 text-[11px] truncate mt-0.5">
@@ -1683,32 +1707,30 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                 </div>
               </div>
 
-              {/* Right: Actions, AI Toggle & Specs Drawer Trigger */}
-              <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-                {/* AI / Takeover Toggle Button */}
+              {/* Right: Actions, AI Toggle (desktop only) & Specs Drawer Trigger */}
+              <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                {/* AI / Takeover Toggle Button - visible on desktop, moved to status bar on mobile */}
                 {isAiCurrentlyPaused(selected) ? (
                   <button
                     type="button"
                     disabled={busy}
                     onClick={() => handleResumeAi(selected)}
-                    className="px-2.5 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer active:scale-95 disabled:opacity-50"
+                    className="hidden sm:inline-flex px-2.5 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold items-center gap-1.5 transition cursor-pointer active:scale-95 disabled:opacity-50"
                     title="Você está atendendo. Clique para devolver o atendimento para a IA"
                   >
                     <Play className="w-3.5 h-3.5 fill-current text-emerald-400" />
-                    <span className="hidden sm:inline">Devolver p/ IA</span>
-                    <span className="sm:hidden">Devolver IA</span>
+                    <span>Devolver p/ IA</span>
                   </button>
                 ) : (
                   <button
                     type="button"
                     disabled={busy}
                     onClick={() => handlePauseAi(selected, 60)}
-                    className="px-2.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer active:scale-95 disabled:opacity-50"
+                    className="hidden sm:inline-flex px-2.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold items-center gap-1.5 transition cursor-pointer active:scale-95 disabled:opacity-50"
                     title="Pausar a IA por 1 hora e assumir o controle da conversa"
                   >
                     <Pause className="w-3.5 h-3.5 text-amber-400" />
-                    <span className="hidden sm:inline">Assumir Conversa</span>
-                    <span className="sm:hidden">Assumir</span>
+                    <span>Assumir Conversa</span>
                   </button>
                 )}
 
@@ -1729,7 +1751,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                 <button
                   type="button"
                   onClick={() => setShowSpecsDrawer(prev => !prev)}
-                  className={`px-2.5 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer active:scale-95 ${
+                  className={`px-2 py-1.5 sm:px-2.5 rounded-full text-xs font-semibold flex items-center gap-1 sm:gap-1.5 transition cursor-pointer active:scale-95 ${
                     showSpecsDrawer
                       ? 'bg-orange-400 text-black shadow-md'
                       : 'bg-[#2a3942] hover:bg-[#32424b] text-[#e9edef]'
@@ -1738,7 +1760,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                 >
                   <Car className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">Ficha & Orçamento</span>
-                  <span className="sm:hidden">Ficha</span>
+                  <span className="sm:hidden text-[11px]">Ficha</span>
                 </button>
 
                 {/* Close Button */}
@@ -1755,37 +1777,43 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
 
             {/* Top Status Bar: Comigo vs Com a IA */}
             {isAiCurrentlyPaused(selected) ? (
-              <div className="bg-amber-500/15 border-b border-amber-500/25 px-3.5 py-1.5 flex items-center justify-between text-xs text-amber-200 z-10 shrink-0">
-                <div className="flex items-center gap-2 min-w-0">
+              <div className="bg-amber-500/15 border-b border-amber-500/25 px-3 sm:px-4 py-1.5 flex items-center justify-between text-xs text-amber-200 z-10 shrink-0 gap-2">
+                <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
                   <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
-                  <span className="font-bold truncate">Atendimento com você:</span>
-                  <span className="text-amber-300/90 text-[11px] truncate hidden sm:inline">
-                    A IA está pausada ({formatRemainingPause(selected)}).
+                  <span className="font-bold truncate text-[11px] sm:text-xs">Atendimento com você</span>
+                  <span className="text-amber-300/80 text-[10px] sm:text-[11px] truncate hidden xs:inline sm:inline">
+                    · IA pausada ({formatRemainingPause(selected)})
                   </span>
                 </div>
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={() => handleResumeAi(selected)}
-                  className="text-[11px] font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 shrink-0 transition cursor-pointer"
+                  className="px-2.5 py-1 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/35 text-emerald-300 border border-emerald-500/40 text-[11px] sm:text-xs font-bold flex items-center gap-1.5 shrink-0 transition cursor-pointer active:scale-95 disabled:opacity-50 shadow-sm"
+                  title="Devolver atendimento para a IA"
                 >
-                  <Play className="w-3 h-3 fill-current" /> Retomar IA
+                  <Play className="w-3 h-3 fill-current text-emerald-400" />
+                  <span>Devolver IA</span>
                 </button>
               </div>
             ) : (
-              <div className="bg-emerald-950/40 border-b border-emerald-500/20 px-3.5 py-1.5 flex items-center justify-between text-xs text-emerald-200 z-10 shrink-0">
-                <div className="flex items-center gap-2 min-w-0">
+              <div className="bg-emerald-950/40 border-b border-emerald-500/20 px-3 sm:px-4 py-1.5 flex items-center justify-between text-xs text-emerald-200 z-10 shrink-0 gap-2">
+                <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                  <span className="font-bold truncate">Com a IA:</span>
-                  <span className="text-emerald-300/90 text-[11px] truncate hidden sm:inline">
-                    O assistente virtual está respondendo automaticamente.
+                  <span className="font-bold truncate text-[11px] sm:text-xs">Com a IA</span>
+                  <span className="text-emerald-300/80 text-[10px] sm:text-[11px] truncate hidden xs:inline sm:inline">
+                    · Resposta automática
                   </span>
                 </div>
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={() => handlePauseAi(selected, 60)}
-                  className="text-[11px] font-bold text-amber-300 hover:text-amber-200 flex items-center gap-1 shrink-0 transition cursor-pointer"
+                  className="px-2.5 py-1 rounded-lg bg-amber-500/25 hover:bg-amber-500/35 text-amber-300 border border-amber-500/40 text-[11px] sm:text-xs font-bold flex items-center gap-1.5 shrink-0 transition cursor-pointer active:scale-95 disabled:opacity-50 shadow-sm"
+                  title="Pausar a IA e assumir o atendimento"
                 >
-                  <Pause className="w-3 h-3" /> Assumir
+                  <Pause className="w-3 h-3 text-amber-400" />
+                  <span>Assumir Conversa</span>
                 </button>
               </div>
             )}

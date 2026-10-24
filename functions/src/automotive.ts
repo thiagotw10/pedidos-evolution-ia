@@ -1319,7 +1319,8 @@ Retorne ESTRITAMENTE um objeto JSON no formato:
       }
 
       // Envia como áudio de voz PTT no WhatsApp do cliente
-      const audioDataUri = `data:audio/mp3;base64,${sentAudioBase64}`;
+      const realMime = (sentAudioBase64 === cleanAudioBase64) ? (mimeType.split(';')[0] || 'audio/webm') : 'audio/mp3';
+      const audioDataUri = `data:${realMime};base64,${sentAudioBase64}`;
       const sendResult = await sendWhatsAppAudio(evoUrl, evoKey, evoInst, targetPhone, audioDataUri);
       if (!sendResult.success) {
         return res.status(500).json({ error: sendResult.error || 'Falha ao enviar áudio pelo WhatsApp.' });

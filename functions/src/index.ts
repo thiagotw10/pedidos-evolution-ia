@@ -775,7 +775,7 @@ async function sendOrderPushNotification(establishmentId: string, orderData: any
 }
 
 // Push notification helper for urgent alerts (Complaints, Human Handover)
-async function sendAlertPushNotification(establishmentId: string, alertData: { title: string; body: string; url?: string }) {
+async function sendAlertPushNotification(establishmentId: string, alertData: { title: string; body: string; url?: string; projectId?: string }) {
   try {
     const vapidPublic = process.env.VAPID_PUBLIC_KEY;
     const vapidPrivate = process.env.VAPID_PRIVATE_KEY;
@@ -795,7 +795,9 @@ async function sendAlertPushNotification(establishmentId: string, alertData: { t
       title: alertData.title,
       body: alertData.body,
       data: {
-        url: alertData.url || '/?tab=orders'
+        url: alertData.url || '/?tab=orders',
+        projectId: alertData.projectId || '',
+        isChat: true
       }
     });
 
@@ -2454,7 +2456,8 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
       sendAlertPushNotification(storeId, {
         title: `💬 ${customerName} no WhatsApp`,
         body: `(Atendimento com você): "${incomingText.slice(0, 90)}"`,
-        url: `/?tab=orders&projectId=${matchedProjectId}`
+        url: `/?tab=orders&projectId=${matchedProjectId}`,
+        projectId: matchedProjectId
       }).catch(err => console.warn('[Human Takeover Push Error]:', err));
 
       return res.status(200).json({

@@ -159,51 +159,66 @@ export async function sendWhatsAppMedia(
     }
 
     let activeToken = evoInst;
-    let res = await fetch(`${evoUrl}/send/media`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: activeToken
-      },
-      body: JSON.stringify({
-        number: finalPhone,
-        type: type,
-        url: mediaUrlOrBase64,
-        caption: caption,
-        delay: 500
-      }),
-      signal: AbortSignal.timeout(15000)
-    });
+    const discovered = await findEvolutionToken(evoUrl, evoKey, evoInst);
+    if (discovered) activeToken = discovered;
 
-    if (!res.ok && res.status === 401) {
-      const discovered = await findEvolutionToken(evoUrl, evoKey, evoInst);
-      if (discovered && discovered !== activeToken) {
-        activeToken = discovered;
-        res = await fetch(`${evoUrl}/send/media`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            apikey: activeToken
-          },
-          body: JSON.stringify({
-            number: finalPhone,
-            type: type,
-            url: mediaUrlOrBase64,
-            caption: caption,
-            delay: 500
-          }),
-          signal: AbortSignal.timeout(15000)
-        });
+    const apiKeyToUse = evoKey || activeToken;
+
+    // 1. Try Evolution API v1/v2: /message/sendMedia/{instance}
+    try {
+      const resV2 = await fetch(`${evoUrl}/message/sendMedia/${activeToken}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: apiKeyToUse
+        },
+        body: JSON.stringify({
+          number: finalPhone,
+          mediaMessage: {
+            mediatype: type,
+            caption: caption || '',
+            media: mediaUrlOrBase64
+          }
+        }),
+        signal: AbortSignal.timeout(18000)
+      });
+
+      if (resV2.ok) {
+        const data = await resV2.json().catch(() => ({}));
+        return { success: true, data };
       }
+    } catch (e: any) {
+      console.warn('[sendWhatsAppMedia v2 failed]:', e.message);
     }
 
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
+    // 2. Try Evolution Go: /send/media
+    try {
+      const resGo = await fetch(`${evoUrl}/send/media`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: activeToken
+        },
+        body: JSON.stringify({
+          number: finalPhone,
+          type: type,
+          url: mediaUrlOrBase64,
+          caption: caption,
+          delay: 500
+        }),
+        signal: AbortSignal.timeout(18000)
+      });
+
+      if (resGo.ok) {
+        const data = await resGo.json().catch(() => ({}));
+        return { success: true, data };
+      }
+
+      const errText = await resGo.text().catch(() => '');
       return { success: false, error: errText };
+    } catch (err: any) {
+      return { success: false, error: err.message };
     }
-
-    const data = await res.json().catch(() => ({}));
-    return { success: true, data };
   } catch (err: any) {
     return { success: false, error: err.message };
   }
@@ -226,49 +241,90 @@ export async function sendWhatsAppAudio(
     }
 
     let activeToken = evoInst;
-    let res = await fetch(`${evoUrl}/send/media`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: activeToken
-      },
-      body: JSON.stringify({
-        number: finalPhone,
-        type: 'audio',
-        url: base64Audio,
-        delay: 500
-      }),
-      signal: AbortSignal.timeout(18000)
-    });
+    const discovered = await findEvolutionToken(evoUrl, evoKey, evoInst);
+    if (discovered) activeToken = discovered;
 
-    if (!res.ok && res.status === 401) {
-      const discovered = await findEvolutionToken(evoUrl, evoKey, evoInst);
-      if (discovered && discovered !== activeToken) {
-        activeToken = discovered;
-        res = await fetch(`${evoUrl}/send/media`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            apikey: activeToken
-          },
-          body: JSON.stringify({
-            number: finalPhone,
-            type: 'audio',
-            url: base64Audio,
-            delay: 500
-          }),
-          signal: AbortSignal.timeout(18000)
-        });
+    const apiKeyToUse = evoKey || activeToken;
+
+    // 1. Try Evolution API v1/v2 native WhatsApp Audio endpoint: /message/sendWhatsAppAudio/{instance}
+    try {
+      const resAudio = await fetch(`${evoUrl}/message/sendWhatsAppAudio/${activeToken}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: apiKeyToUse
+        },
+        body: JSON.stringify({
+          number: finalPhone,
+          audio: base64Audio,
+          delay: 500,
+          encoding: true
+        }),
+        signal: AbortSignal.timeout(20000)
+      });
+
+      if (resAudio.ok) {
+        const data = await resAudio.json().catch(() => ({}));
+        return { success: true, data };
       }
+      console.warn(`[sendWhatsAppAudio] /message/sendWhatsAppAudio status: ${resAudio.status}`);
+    } catch (e: any) {
+      console.warn('[sendWhatsAppAudio v2 failed]:', e.message);
     }
 
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
+    // 2. Try Evolution API v1/v2 /message/sendMedia/{instance} (mediatype: audio)
+    try {
+      const resMedia = await fetch(`${evoUrl}/message/sendMedia/${activeToken}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: apiKeyToUse
+        },
+        body: JSON.stringify({
+          number: finalPhone,
+          mediaMessage: {
+            mediatype: 'audio',
+            media: base64Audio
+          }
+        }),
+        signal: AbortSignal.timeout(20000)
+      });
+
+      if (resMedia.ok) {
+        const data = await resMedia.json().catch(() => ({}));
+        return { success: true, data };
+      }
+    } catch (e: any) {
+      console.warn('[sendWhatsAppAudio v2 sendMedia failed]:', e.message);
+    }
+
+    // 3. Try Evolution Go: /send/media
+    try {
+      const resGo = await fetch(`${evoUrl}/send/media`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: activeToken
+        },
+        body: JSON.stringify({
+          number: finalPhone,
+          type: 'audio',
+          url: base64Audio,
+          delay: 500
+        }),
+        signal: AbortSignal.timeout(18000)
+      });
+
+      if (resGo.ok) {
+        const data = await resGo.json().catch(() => ({}));
+        return { success: true, data };
+      }
+
+      const errText = await resGo.text().catch(() => '');
       return { success: false, error: errText };
+    } catch (err: any) {
+      return { success: false, error: err.message };
     }
-
-    const data = await res.json().catch(() => ({}));
-    return { success: true, data };
   } catch (err: any) {
     return { success: false, error: err.message };
   }

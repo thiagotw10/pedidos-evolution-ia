@@ -31,21 +31,32 @@ self.addEventListener('push', (event) => {
     }
   }
 
+  const isChatNotification = orderData.url?.includes('projectId') || 
+                             orderData.projectId || 
+                             title.includes('WhatsApp') || 
+                             title.includes('💬') || 
+                             title.includes('Lead') ||
+                             title.includes('Atendimento');
+
+  const actionTitle = isChatNotification ? '💬 Abrir Conversa' : '👀 Ver Pedido';
+  const targetUrl = orderData.url || '/?tab=orders';
+
   const options = {
     body: body,
     icon: '/icon-192.png',
     badge: '/icon-192.png',
     vibrate: [300, 150, 300, 150, 450],
-    tag: orderData.orderId ? `order-${orderData.orderId}` : `iapedido-${Date.now()}`,
+    tag: orderData.projectId ? `chat-${orderData.projectId}` : (orderData.orderId ? `order-${orderData.orderId}` : `iapedido-${Date.now()}`),
     renotify: true,
     requireInteraction: true, // Mantém a notificação visível até o lojista clicar
     data: {
-      url: '/?tab=orders',
+      url: targetUrl,
       orderId: orderData.orderId,
+      projectId: orderData.projectId,
       ...orderData
     },
     actions: [
-      { action: 'open_order', title: '👀 Ver Pedido' },
+      { action: 'open_action', title: actionTitle },
       { action: 'dismiss', title: 'Fechar' }
     ]
   };
