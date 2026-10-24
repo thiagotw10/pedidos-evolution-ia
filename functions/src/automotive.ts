@@ -1132,6 +1132,83 @@ export function registerAutomotiveRoutes(app: Express, db: admin.firestore.Fires
     }
   });
 
+  // Enviar mensagem direta do Pedro (Atendente Humano) no WhatsApp do cliente
+  app.post('/api/automotive/projects/:id/send-message', async (req, res) => {
+    try {
+      const storeId = res.locals.uid;
+      const projectRef = db.collection('automotive_projects').doc(String(req.params.id));
+      const projectSnap = await projectRef.get();
+      const projectData = projectSnap.data();
+      if (!projectSnap.exists || projectData?.establishmentId !== storeId) {
+        return res.status(403).json({ error: 'Projeto não encontrado.' });
+      }
+
+      const estSnap = await db.collection('establishments').doc(storeId).get();
+      const est = estSnap.data() || {};
+      const evoUrl = (process.env.EVOLUTION_API_URL || est.evolutionApiUrl || 'http://86.48.23.152:8081').replace(/\/$/, '');
+      const evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
+      const evoInst = (est.evolutionInstanceName || `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`).trim();
+
+      const targetPhone = projectData?.phone;
+      if (!targetPhone) return res.status(400).json({ error: 'Telefone do cliente não cadastrado.' });
+
+      let messageText = String(req.body.text || '').trim();
+      if (!messageText) {
+        return res.status(400).json({ error: 'Texto da mensagem não informado.' });
+      }
+
+      const targetLang = req.body.targetLang;
+      if (req.body.autoTranslate && targetLang && targetLang !== 'pt') {
+        messageText = await translateAutomotiveText(messageText, targetLang);
+      }
+
+      const sendResult = await sendWhatsAppMessage(evoUrl, evoKey, evoInst, targetPhone, messageText);
+      if (!sendResult.success) {
+        return res.status(500).json({ error: sendResult.error || 'Falha ao enviar mensagem pelo WhatsApp.' });
+      }
+
+      const nowIso = new Date().toISOString();
+      const authorName = req.body.author || 'Pedro (Atendente Humano)';
+
+      // Salva no histórico de mensagens do chat
+      const variants = normalizeBrPhoneVariants(targetPhone);
+      if (!variants.includes(targetPhone)) variants.push(targetPhone);
+
+      for (const cand of variants) {
+        await db.collection('establishments').doc(storeId).collection('chats').doc(cand).collection('messages').add({
+          sender: 'assistant',
+          author: authorName,
+          text: messageText,
+          timestamp: nowIso
+        });
+        await db.collection('establishments').doc(storeId).collection('chats').doc(cand).set({
+          lastMessage: messageText,
+          lastMessageAt: nowIso,
+          aiPaused: true,
+          aiPausedUntil: new Date(Date.now() + 60 * 60 * 1000).toISOString()
+        }, { merge: true });
+      }
+
+      // Ao humano responder, pausa a IA por 1 hora por padrão (Human Takeover)
+      const pauseUntil = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      await projectRef.update({
+        aiPaused: true,
+        aiPausedUntil: pauseUntil,
+        lastAssistantReply: messageText,
+        updatedAt: nowIso
+      });
+
+      return res.json({
+        success: true,
+        message: messageText,
+        timestamp: nowIso,
+        aiPausedUntil: pauseUntil
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
   // Endpoint de tradução técnica instantânea para o Pedro e CRM
   app.post('/api/automotive/translate', async (req, res) => {
     try {

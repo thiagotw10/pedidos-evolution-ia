@@ -153,6 +153,12 @@ export function AutomotiveProjects() {
   const [proposalTargetLang, setProposalTargetLang] = useState('en');
   const [translatingProposal, setTranslatingProposal] = useState(false);
 
+  // Live direct chat states (Pedro)
+  const [directMessageText, setDirectMessageText] = useState('');
+  const [sendingDirectMessage, setSendingDirectMessage] = useState(false);
+  const [directMessageTargetLang, setDirectMessageTargetLang] = useState('pt');
+  const [translatingDirectMessage, setTranslatingDirectMessage] = useState(false);
+
   // Proposal modal state
   const [proposalModalOpen, setProposalModalOpen] = useState(false);
   const [proposalDraft, setProposalDraft] = useState('');
@@ -214,6 +220,11 @@ export function AutomotiveProjects() {
       references: Array.isArray(project.references) ? project.references : []
     });
     setActionSuccess('');
+    setDirectMessageText('');
+    const initialLang = (project.detectedLanguage && project.detectedLanguage !== 'pt')
+      ? project.detectedLanguage
+      : (project.country === 'ES' || project.country === 'MX' ? 'es' : (project.country === 'DE' ? 'de' : (project.country && project.country !== 'BR' ? 'en' : 'pt')));
+    setDirectMessageTargetLang(initialLang);
     void loadProjectConversation(project);
   }
 
@@ -338,6 +349,60 @@ export function AutomotiveProjects() {
       setError('Falha ao traduzir proposta: ' + (err.message || ''));
     } finally {
       setTranslatingProposal(false);
+    }
+  }
+
+  async function handleTranslateDirectMessage() {
+    if (!directMessageText.trim()) return;
+    setTranslatingDirectMessage(true);
+    try {
+      const translated = await translateText(directMessageText, directMessageTargetLang);
+      setDirectMessageText(translated);
+      setActionSuccess(`✨ Mensagem traduzida para ${directMessageTargetLang.toUpperCase()}!`);
+      setTimeout(() => setActionSuccess(''), 3500);
+    } catch (err: any) {
+      setError('Falha ao traduzir: ' + (err.message || ''));
+    } finally {
+      setTranslatingDirectMessage(false);
+    }
+  }
+
+  async function handleSendDirectMessage() {
+    if (!selected || !directMessageText.trim()) return;
+    setSendingDirectMessage(true);
+    setError('');
+    try {
+      const res = await request(`/${selected.id}/send-message`, 'POST', {
+        text: directMessageText.trim(),
+        author: 'Pedro (Atendente Humano)',
+        targetLang: directMessageTargetLang,
+        autoTranslate: directMessageTargetLang !== 'pt'
+      });
+
+      const newMsg: ConversationMessage = {
+        id: `msg_${Date.now()}`,
+        sender: 'assistant',
+        author: 'Pedro (Atendente Humano)',
+        text: res.message || directMessageText.trim(),
+        timestamp: res.timestamp || new Date().toISOString()
+      };
+      setConversationMessages(prev => [...prev, newMsg]);
+
+      const updated: Project = {
+        ...selected,
+        aiPaused: true,
+        aiPausedUntil: res.aiPausedUntil,
+        lastAssistantReply: newMsg.text
+      };
+      setProjects(p => p.map(v => (v.id === selected.id ? updated : v)));
+      setSelected(updated);
+      setDirectMessageText('');
+      setActionSuccess('💬 Mensagem enviada no WhatsApp do cliente! IA pausada por 1h para você conduzir.');
+      setTimeout(() => setActionSuccess(''), 4500);
+    } catch (err: any) {
+      setError(err.message || 'Falha ao enviar mensagem');
+    } finally {
+      setSendingDirectMessage(false);
     }
   }
 
@@ -1454,6 +1519,87 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                       </p>
                     </div>
                   )}
+                </div>
+
+                {/* LIVE HUMAN CHAT INPUT BOX (PEDRO) */}
+                <div className="p-3.5 rounded-2xl bg-slate-950 border border-emerald-500/30 space-y-2.5 shadow-lg">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-[11px] font-extrabold text-emerald-400 flex items-center gap-1.5 uppercase tracking-wide">
+                      <MessageSquare className="w-3.5 h-3.5" /> Responder cliente no WhatsApp
+                    </span>
+                    {isAiCurrentlyPaused(selected) ? (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        👨‍💼 Pedro no controle ({formatRemainingPause(selected)})
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                        <Bot className="w-2.5 h-2.5" /> IA Ativa (Pausa ao enviar)
+                      </span>
+                    )}
+                  </div>
+
+                  {/* International quick translation bar */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-white/5 text-[11px]">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-400 flex items-center gap-1 text-[11px]">
+                        <Globe className="w-3 h-3 text-cyan-400" /> Idioma de envio:
+                      </span>
+                      <select
+                        value={directMessageTargetLang}
+                        onChange={e => setDirectMessageTargetLang(e.target.value)}
+                        className="bg-slate-900 border border-white/10 rounded-lg px-2 py-0.5 text-[11px] text-white font-semibold focus:outline-none focus:border-cyan-400"
+                      >
+                        <option value="pt">🇧🇷 Português</option>
+                        <option value="en">🇺🇸 Inglês (English)</option>
+                        <option value="es">🇪🇸 Espanhol (Español)</option>
+                        <option value="de">🇩🇪 Alemão (Deutsch)</option>
+                        <option value="fr">🇫🇷 Francês (Français)</option>
+                        <option value="it">🇮🇹 Italiano</option>
+                      </select>
+                    </div>
+
+                    {directMessageTargetLang !== 'pt' && (
+                      <button
+                        type="button"
+                        disabled={translatingDirectMessage || !directMessageText.trim()}
+                        onClick={handleTranslateDirectMessage}
+                        className="px-2.5 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-[10px] font-bold flex items-center gap-1 transition cursor-pointer disabled:opacity-40"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        <span>{translatingDirectMessage ? 'Traduzindo…' : '⚡ Traduzir texto'}</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-end gap-2">
+                    <textarea
+                      rows={2}
+                      value={directMessageText}
+                      onChange={e => setDirectMessageText(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          void handleSendDirectMessage();
+                        }
+                      }}
+                      placeholder={`Escreva como Pedro para ${selected.customerName || 'o cliente'}... (Enter para enviar)`}
+                      className="flex-1 bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-emerald-400 placeholder:text-slate-500 resize-none leading-relaxed"
+                    />
+
+                    <button
+                      type="button"
+                      disabled={sendingDirectMessage || !directMessageText.trim()}
+                      onClick={handleSendDirectMessage}
+                      className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer disabled:opacity-40 shrink-0 shadow-md h-[54px]"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>{sendingDirectMessage ? 'Enviando…' : 'Enviar WhatsApp'}</span>
+                    </button>
+                  </div>
+
+                  <p className="text-[10px] text-slate-400 leading-tight">
+                    💡 Ao enviar uma mensagem direta, ela é entregue no WhatsApp do cliente e a IA pausa automaticamente por 1 hora para você assumir o atendimento.
+                  </p>
                 </div>
               </div>
             </div>
