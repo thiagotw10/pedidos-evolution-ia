@@ -40,4 +40,14 @@ pnpm-debug.log*
 .opencode/
 tmp/
 temp/
+# Python e Ambientes Virtuais
+venv/
+venv*/
+.venv/
+.venv*/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.dylib
 venv_studio/
