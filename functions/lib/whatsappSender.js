@@ -2,6 +2,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.findEvolutionToken = findEvolutionToken;
 exports.sendWhatsAppMessage = sendWhatsAppMessage;
+exports.sendWhatsAppMedia = sendWhatsAppMedia;
+exports.sendWhatsAppAudio = sendWhatsAppAudio;
 const evoTokenCache = new Map();
 async function findEvolutionToken(evoUrl, evoKey, evoInst) {
     const cacheKey = `${evoUrl}:${evoInst}`;
@@ -124,6 +126,118 @@ async function sendWhatsAppMessage(evoUrl, evoKey, evoInst, number, text) {
             }),
             signal: AbortSignal.timeout(10000)
         });
+        if (!res.ok) {
+            const errText = await res.text().catch(() => '');
+            return { success: false, error: errText };
+        }
+        const data = await res.json().catch(() => ({}));
+        return { success: true, data };
+    }
+    catch (err) {
+        return { success: false, error: err.message };
+    }
+}
+async function sendWhatsAppMedia(evoUrl, evoKey, evoInst, number, mediaUrlOrBase64, caption = '', type = 'image') {
+    try {
+        const isGroup = number.includes('@g.us');
+        const isLid = number.includes('@lid');
+        let finalPhone = number;
+        if (!isGroup && !isLid) {
+            const numericPhone = number.replace(/\D/g, '');
+            finalPhone = numericPhone.startsWith('55') ? numericPhone : `55${numericPhone}`;
+        }
+        let activeToken = evoInst;
+        let res = await fetch(`${evoUrl}/send/media`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                apikey: activeToken
+            },
+            body: JSON.stringify({
+                number: finalPhone,
+                type: type,
+                url: mediaUrlOrBase64,
+                caption: caption,
+                delay: 500
+            }),
+            signal: AbortSignal.timeout(15000)
+        });
+        if (!res.ok && res.status === 401) {
+            const discovered = await findEvolutionToken(evoUrl, evoKey, evoInst);
+            if (discovered && discovered !== activeToken) {
+                activeToken = discovered;
+                res = await fetch(`${evoUrl}/send/media`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        apikey: activeToken
+                    },
+                    body: JSON.stringify({
+                        number: finalPhone,
+                        type: type,
+                        url: mediaUrlOrBase64,
+                        caption: caption,
+                        delay: 500
+                    }),
+                    signal: AbortSignal.timeout(15000)
+                });
+            }
+        }
+        if (!res.ok) {
+            const errText = await res.text().catch(() => '');
+            return { success: false, error: errText };
+        }
+        const data = await res.json().catch(() => ({}));
+        return { success: true, data };
+    }
+    catch (err) {
+        return { success: false, error: err.message };
+    }
+}
+async function sendWhatsAppAudio(evoUrl, evoKey, evoInst, number, base64Audio) {
+    try {
+        const isGroup = number.includes('@g.us');
+        const isLid = number.includes('@lid');
+        let finalPhone = number;
+        if (!isGroup && !isLid) {
+            const numericPhone = number.replace(/\D/g, '');
+            finalPhone = numericPhone.startsWith('55') ? numericPhone : `55${numericPhone}`;
+        }
+        let activeToken = evoInst;
+        let res = await fetch(`${evoUrl}/send/media`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                apikey: activeToken
+            },
+            body: JSON.stringify({
+                number: finalPhone,
+                type: 'audio',
+                url: base64Audio,
+                delay: 500
+            }),
+            signal: AbortSignal.timeout(18000)
+        });
+        if (!res.ok && res.status === 401) {
+            const discovered = await findEvolutionToken(evoUrl, evoKey, evoInst);
+            if (discovered && discovered !== activeToken) {
+                activeToken = discovered;
+                res = await fetch(`${evoUrl}/send/media`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        apikey: activeToken
+                    },
+                    body: JSON.stringify({
+                        number: finalPhone,
+                        type: 'audio',
+                        url: base64Audio,
+                        delay: 500
+                    }),
+                    signal: AbortSignal.timeout(18000)
+                });
+            }
+        }
         if (!res.ok) {
             const errText = await res.text().catch(() => '');
             return { success: false, error: errText };

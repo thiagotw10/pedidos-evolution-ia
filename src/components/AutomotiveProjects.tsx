@@ -31,7 +31,11 @@ import {
   Phone,
   Video,
   Mic,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Bell,
+  Volume2,
+  Trash2,
+  StopCircle
 } from 'lucide-react';
 import { auth, db } from '../lib/firebase';
 import { collection, query, orderBy, limitToLast, onSnapshot } from 'firebase/firestore';
@@ -184,7 +188,140 @@ type ConversationMessage = {
   text: string;
   timestamp: string;
   mediaUrl?: string;
+  audioUrl?: string;
+  isOptimistic?: boolean;
 };
+
+// WhatsApp Incoming Message Audio Chime (Web Audio API Synthesizer)
+export function playWhatsAppChime() {
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(750, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(1150, ctx.currentTime + 0.12);
+    gain.gain.setValueAtTime(0.35, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.28);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.28);
+  } catch {}
+}
+
+// Authentic WhatsApp Native Audio Player with Speed Control and Waveform
+export function WhatsAppAudioPlayer({ audioUrl, isOutbound }: { audioUrl: string; isOutbound: boolean }) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const onTimeUpdate = () => setCurrentTime(audio.currentTime);
+    const onLoaded = () => setDuration(audio.duration || 0);
+    const onEnded = () => {
+      setIsPlaying(false);
+      setCurrentTime(0);
+    };
+
+    audio.addEventListener('timeupdate', onTimeUpdate);
+    audio.addEventListener('loadedmetadata', onLoaded);
+    audio.addEventListener('ended', onEnded);
+
+    return () => {
+      audio.removeEventListener('timeupdate', onTimeUpdate);
+      audio.removeEventListener('loadedmetadata', onLoaded);
+      audio.removeEventListener('ended', onEnded);
+    };
+  }, [audioUrl]);
+
+  const togglePlay = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      audioRef.current.playbackRate = playbackRate;
+      audioRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+    }
+  };
+
+  const toggleRate = () => {
+    if (!audioRef.current) return;
+    const nextRate = playbackRate === 1 ? 1.5 : playbackRate === 1.5 ? 2 : 1;
+    setPlaybackRate(nextRate);
+    audioRef.current.playbackRate = nextRate;
+  };
+
+  const formatTime = (secs: number) => {
+    if (isNaN(secs) || secs < 0) return '0:00';
+    const mins = Math.floor(secs / 60);
+    const rem = Math.floor(secs % 60);
+    return `${mins}:${rem < 10 ? '0' : ''}${rem}`;
+  };
+
+  const progressPct = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
+
+  return (
+    <div className="flex items-center gap-2.5 py-1 px-1 my-1 select-none w-full max-w-xs">
+      <audio ref={audioRef} src={audioUrl} preload="metadata" />
+
+      {/* Circular Play / Pause button */}
+      <button
+        type="button"
+        onClick={togglePlay}
+        className={`w-9 h-9 rounded-full flex items-center justify-center transition active:scale-95 shadow cursor-pointer shrink-0 ${
+          isOutbound ? 'bg-[#00a884] text-white hover:bg-[#06cf9c]' : 'bg-[#00a884] text-white hover:bg-[#06cf9c]'
+        }`}
+        title={isPlaying ? 'Pausar áudio' : 'Ouvir mensagem de voz'}
+      >
+        {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
+      </button>
+
+      {/* Progress Track & Scrubber */}
+      <div className="flex-1 flex flex-col justify-center gap-1 min-w-[120px]">
+        <div
+          onClick={e => {
+            if (!audioRef.current || !duration) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const clickPos = (e.clientX - rect.left) / rect.width;
+            audioRef.current.currentTime = clickPos * duration;
+          }}
+          className="h-1.5 bg-white/20 rounded-full cursor-pointer relative overflow-hidden"
+        >
+          <div
+            className={`h-full rounded-full transition-all duration-100 ${
+              isOutbound ? 'bg-[#25d366]' : 'bg-[#53bdeb]'
+            }`}
+            style={{ width: `${progressPct}%` }}
+          />
+        </div>
+
+        <div className="flex items-center justify-between text-[10px] text-white/70 font-mono">
+          <span>{formatTime(currentTime)}</span>
+          <span>{formatTime(duration || 0)}</span>
+        </div>
+      </div>
+
+      {/* Speed Rate Pill */}
+      <button
+        type="button"
+        onClick={toggleRate}
+        className="px-2 py-0.5 rounded-full bg-white/10 hover:bg-white/20 text-white font-bold text-[10px] transition cursor-pointer shrink-0"
+        title="Velocidade de reprodução"
+      >
+        {playbackRate}x
+      </button>
+    </div>
+  );
+}
 
 export function AutomotiveProjects() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -217,6 +354,28 @@ export function AutomotiveProjects() {
   const [sendingDirectMessage, setSendingDirectMessage] = useState(false);
   const [directMessageTargetLang, setDirectMessageTargetLang] = useState('pt');
   const [translatingDirectMessage, setTranslatingDirectMessage] = useState(false);
+
+  // Audio recording state (Pedro)
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [sendingAudio, setSendingAudio] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<any>(null);
+
+  // Image upload & Lightbox state (Pedro)
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const [imagePreview, setImagePreview] = useState<{ url: string; base64: string; name: string } | null>(null);
+  const [imageCaption, setImageCaption] = useState('');
+  const [sendingImage, setSendingImage] = useState(false);
+  const [expandedImage, setExpandedImage] = useState<string | null>(null);
+
+  // In-app alert banner for new customer messages
+  const [incomingMessageAlert, setIncomingMessageAlert] = useState<{
+    project: Project;
+    text: string;
+    senderName: string;
+  } | null>(null);
 
   // Proposal modal state
   const [proposalModalOpen, setProposalModalOpen] = useState(false);
@@ -296,7 +455,11 @@ export function AutomotiveProjects() {
           id: doc.id,
           ...(doc.data() as any)
         }));
-        setConversationMessages(liveMsgs);
+        // Merge with pending optimistic messages so there is zero flicker
+        setConversationMessages(prev => {
+          const pendingOptimistic = prev.filter(m => m.isOptimistic && !liveMsgs.some(lm => lm.text === m.text));
+          return [...liveMsgs, ...pendingOptimistic];
+        });
         setLoadingConversation(false);
       }
     }, (err) => {
@@ -307,6 +470,62 @@ export function AutomotiveProjects() {
       unsubscribe();
     };
   }, [selected?.id, selected?.phone]);
+
+  // Global listener for new incoming customer messages to trigger sound chime + browser push + in-app toast
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+
+    const currentUid = auth.currentUser?.uid;
+    if (!currentUid) return;
+
+    const chatsCol = collection(db, 'establishments', currentUid, 'chats');
+    const unsub = onSnapshot(chatsCol, snap => {
+      snap.docChanges().forEach(change => {
+        if (change.type === 'added' || change.type === 'modified') {
+          const chatData = change.doc.data();
+          const lastMsg = chatData.lastMessage || '';
+          const lastSender = chatData.lastSender;
+          const phone = change.doc.id;
+
+          const matchedProject = projects.find(p => normalizeBrPhoneVariants(p.phone).includes(phone));
+          const isCurrentChatOpen = selected && normalizeBrPhoneVariants(selected.phone).includes(phone);
+
+          if ((chatData.unreadByHuman || lastSender === 'user') && (!isCurrentChatOpen || document.hidden)) {
+            playWhatsAppChime();
+
+            const contactName = matchedProject?.customerName || chatData.customerName || 'Cliente';
+            if ('Notification' in window && Notification.permission === 'granted') {
+              try {
+                const notif = new Notification(`💬 ${contactName} no WhatsApp`, {
+                  body: lastMsg || 'Nova mensagem recebida',
+                  icon: '/favicon.ico'
+                });
+                notif.onclick = () => {
+                  window.focus();
+                  if (matchedProject) handleSelectProject(matchedProject);
+                };
+              } catch {}
+            }
+
+            if (matchedProject) {
+              setIncomingMessageAlert({
+                project: matchedProject,
+                text: lastMsg,
+                senderName: contactName
+              });
+              setTimeout(() => {
+                setIncomingMessageAlert(curr => (curr?.project.id === matchedProject.id ? null : curr));
+              }, 7000);
+            }
+          }
+        }
+      });
+    });
+
+    return () => unsub();
+  }, [projects, selected?.id]);
 
   async function loadProjectConversation(project: Project) {
     setLoadingConversation(true);
@@ -480,42 +699,266 @@ export function AutomotiveProjects() {
     }
   }
 
+  // 1. Envio Imediato Otimista de Mensagem de Texto (Zero Delay)
   async function handleSendDirectMessage() {
     if (!selected || !directMessageText.trim()) return;
+
+    const textToSend = directMessageText.trim();
+    const targetLang = directMessageTargetLang;
+    const isAutoTranslate = targetLang !== 'pt';
+
+    // Optimistic UI: Aparece imediatamente na tela sem esperar o backend
+    const tempId = `temp-${Date.now()}`;
+    const optimisticMsg: ConversationMessage = {
+      id: tempId,
+      sender: 'assistant',
+      author: 'Pedro (Você)',
+      text: textToSend,
+      timestamp: new Date().toISOString(),
+      isOptimistic: true
+    };
+
+    setConversationMessages(prev => [...prev, optimisticMsg]);
+    setDirectMessageText('');
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+
     setSendingDirectMessage(true);
     setError('');
+
     try {
       const res = await request(`/${selected.id}/send-message`, 'POST', {
-        text: directMessageText.trim(),
+        text: textToSend,
         author: 'Pedro (Atendente Humano)',
-        targetLang: directMessageTargetLang,
-        autoTranslate: directMessageTargetLang !== 'pt'
+        targetLang: targetLang,
+        autoTranslate: isAutoTranslate
       });
-
-      const newMsg: ConversationMessage = {
-        id: `msg_${Date.now()}`,
-        sender: 'assistant',
-        author: 'Pedro (Atendente Humano)',
-        text: res.message || directMessageText.trim(),
-        timestamp: res.timestamp || new Date().toISOString()
-      };
-      setConversationMessages(prev => [...prev, newMsg]);
 
       const updated: Project = {
         ...selected,
         aiPaused: true,
         aiPausedUntil: res.aiPausedUntil,
-        lastAssistantReply: newMsg.text
+        lastAssistantReply: res.message || textToSend,
+        lastMessage: res.message || textToSend
       };
       setProjects(p => p.map(v => (v.id === selected.id ? updated : v)));
       setSelected(updated);
-      setDirectMessageText('');
-      setActionSuccess('💬 Mensagem enviada no WhatsApp do cliente! IA pausada por 1h para você conduzir.');
-      setTimeout(() => setActionSuccess(''), 4500);
+
+      // Atualiza mensagem otimista com os dados confirmados
+      setConversationMessages(prev =>
+        prev.map(m =>
+          m.id === tempId
+            ? {
+                ...m,
+                id: `msg_${Date.now()}`,
+                text: res.message || textToSend,
+                timestamp: res.timestamp || m.timestamp,
+                isOptimistic: false
+              }
+            : m
+        )
+      );
+
+      setActionSuccess('💬 Mensagem entregue no WhatsApp do cliente! IA pausada por 1h.');
+      setTimeout(() => setActionSuccess(''), 3500);
     } catch (err: any) {
       setError(err.message || 'Falha ao enviar mensagem');
+      // Marca falha no balão caso ocorra erro
+      setConversationMessages(prev =>
+        prev.map(m => (m.id === tempId ? { ...m, text: `⚠️ (Falha ao entregar) ${m.text}` } : m))
+      );
     } finally {
       setSendingDirectMessage(false);
+    }
+  }
+
+  // 2. Gravação de Áudio com Dublagem Neural Internacional
+  async function startAudioRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = e => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.start(100);
+      setIsRecording(true);
+      setRecordingSeconds(0);
+
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds(s => s + 1);
+      }, 1000);
+    } catch (err: any) {
+      setError('Acesso ao microfone não permitido: ' + (err.message || 'Verifique as permissões'));
+    }
+  }
+
+  function cancelAudioRecording() {
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current.stream?.getTracks().forEach(t => t.stop());
+    }
+    setIsRecording(false);
+    setRecordingSeconds(0);
+    audioChunksRef.current = [];
+  }
+
+  async function stopAndSendAudioRecording() {
+    if (!mediaRecorderRef.current || !selected) return;
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+
+    setSendingAudio(true);
+    setIsRecording(false);
+
+    mediaRecorderRef.current.onstop = async () => {
+      try {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = async () => {
+          const base64Audio = reader.result as string;
+
+          // Optimistic UI update
+          const tempId = `temp-audio-${Date.now()}`;
+          const isIntl = (selected.country && selected.country !== 'BR') || directMessageTargetLang !== 'pt';
+          const optimisticMsg: ConversationMessage = {
+            id: tempId,
+            sender: 'assistant',
+            author: isIntl ? `Pedro (Dublando em ${directMessageTargetLang.toUpperCase()}...)` : 'Pedro (Você)',
+            text: isIntl ? `🎙️ Enviando áudio dublado para ${directMessageTargetLang.toUpperCase()}...` : '🎙️ [Mensagem de áudio]',
+            audioUrl: base64Audio,
+            timestamp: new Date().toISOString(),
+            isOptimistic: true
+          };
+
+          setConversationMessages(prev => [...prev, optimisticMsg]);
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+
+          const token = await auth.currentUser?.getIdToken();
+          const response = await fetch(`/api/automotive/projects/${selected.id}/send-audio`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              audioBase64: base64Audio,
+              mimeType: 'audio/webm',
+              targetLang: directMessageTargetLang
+            })
+          });
+
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Falha ao enviar áudio');
+
+          // Atualiza o balão com os dados reais traduzidos
+          setConversationMessages(prev =>
+            prev.map(m =>
+              m.id === tempId
+                ? {
+                    ...m,
+                    audioUrl: data.audioUrl || base64Audio,
+                    text: data.textNote || m.text,
+                    author: isIntl ? `Pedro (Áudio em ${directMessageTargetLang.toUpperCase()})` : 'Pedro (Você)',
+                    isOptimistic: false
+                  }
+                : m
+            )
+          );
+
+          setActionSuccess(
+            isIntl
+              ? `🎙️ Áudio traduzido e enviado em ${directMessageTargetLang.toUpperCase()}!`
+              : '🎙️ Mensagem de voz enviada no WhatsApp!'
+          );
+          setTimeout(() => setActionSuccess(''), 4000);
+        };
+      } catch (err: any) {
+        setError('Erro ao enviar áudio: ' + (err.message || ''));
+      } finally {
+        setSendingAudio(false);
+        setRecordingSeconds(0);
+        audioChunksRef.current = [];
+        if (mediaRecorderRef.current) {
+          mediaRecorderRef.current.stream?.getTracks().forEach(t => t.stop());
+        }
+      }
+    };
+
+    mediaRecorderRef.current.stop();
+  }
+
+  // 3. Envio de Imagens / Fotos com Legenda
+  function handleImageSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setImagePreview({
+        url: URL.createObjectURL(file),
+        base64: reader.result as string,
+        name: file.name
+      });
+      setImageCaption('');
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+
+  async function handleSendImage() {
+    if (!imagePreview || !selected) return;
+    setSendingImage(true);
+
+    const tempId = `temp-img-${Date.now()}`;
+    const captionToSend = imageCaption.trim();
+    const optimisticMsg: ConversationMessage = {
+      id: tempId,
+      sender: 'assistant',
+      author: 'Pedro (Você)',
+      text: captionToSend || '📷 [Foto enviada]',
+      mediaUrl: imagePreview.base64,
+      timestamp: new Date().toISOString(),
+      isOptimistic: true
+    };
+
+    setConversationMessages(prev => [...prev, optimisticMsg]);
+    const cachedPreview = imagePreview;
+    setImagePreview(null);
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch(`/api/automotive/projects/${selected.id}/send-media`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          mediaBase64: cachedPreview.base64,
+          caption: captionToSend,
+          type: 'image',
+          targetLang: directMessageTargetLang,
+          autoTranslate: directMessageTargetLang !== 'pt'
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Falha ao enviar imagem');
+
+      setConversationMessages(prev =>
+        prev.map(m => (m.id === tempId ? { ...m, isOptimistic: false } : m))
+      );
+      setActionSuccess('📷 Foto enviada no WhatsApp com sucesso!');
+      setTimeout(() => setActionSuccess(''), 3500);
+    } catch (err: any) {
+      setError('Falha ao enviar foto: ' + (err.message || ''));
+    } finally {
+      setSendingImage(false);
     }
   }
 
@@ -1292,9 +1735,21 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                             {selected.customerName || 'Cliente'}
                           </span>
 
+                          {/* Customer Media / Photo with Click-to-Zoom Lightbox */}
                           {msg.mediaUrl && (
-                            <div className="my-1 rounded-xl overflow-hidden border border-white/10">
+                            <div
+                              onClick={() => setExpandedImage(msg.mediaUrl!)}
+                              className="my-1 rounded-xl overflow-hidden border border-white/10 cursor-pointer shadow-sm hover:opacity-95 transition"
+                              title="Clique para ampliar a imagem"
+                            >
                               <img src={msg.mediaUrl} alt="Mídia enviada" className="w-full max-h-72 object-cover rounded-xl" />
+                            </div>
+                          )}
+
+                          {/* Customer Voice Audio Player */}
+                          {msg.audioUrl && (
+                            <div className="my-1">
+                              <WhatsAppAudioPlayer audioUrl={msg.audioUrl} isOutbound={false} />
                             </div>
                           )}
 
@@ -1340,9 +1795,21 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                           {isHumanAttendant ? '👨‍💼 Pedro (Atendimento Humano)' : '🤖 Pedro (Consultor IA)'}
                         </div>
 
+                        {/* Outbound Media / Photo with Click-to-Zoom Lightbox */}
                         {msg.mediaUrl && (
-                          <div className="my-1 rounded-xl overflow-hidden shadow-inner border border-emerald-400/20">
+                          <div
+                            onClick={() => setExpandedImage(msg.mediaUrl!)}
+                            className="my-1 rounded-xl overflow-hidden shadow-inner border border-emerald-400/20 cursor-pointer hover:opacity-95 transition"
+                            title="Clique para ampliar a imagem"
+                          >
                             <img src={msg.mediaUrl} alt="Mídia do projeto" className="w-full max-h-80 object-cover rounded-xl" />
+                          </div>
+                        )}
+
+                        {/* Outbound Voice Audio Player */}
+                        {msg.audioUrl && (
+                          <div className="my-1">
+                            <WhatsAppAudioPlayer audioUrl={msg.audioUrl} isOutbound={true} />
                           </div>
                         )}
 
@@ -1355,7 +1822,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                           <span className="text-[10px] text-[#e9edef]/70">
                             {formatWhatsAppTime(msg.timestamp)}
                           </span>
-                          <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" />
+                          <CheckCheck className={`w-3.5 h-3.5 ${msg.isOptimistic ? 'text-[#8696a0]' : 'text-[#53bdeb]'}`} />
                         </div>
                       </div>
                     </div>
@@ -1376,12 +1843,21 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
 
             {/* Bottom WhatsApp Mobile / Web Input Bar */}
             <div className="bg-[#202c33] p-2 sm:p-2.5 flex flex-col gap-1.5 border-t border-[#222e35] shrink-0 z-20">
+              {/* Hidden file input for image upload */}
+              <input
+                type="file"
+                ref={imageInputRef}
+                accept="image/*"
+                onChange={handleImageSelected}
+                className="hidden"
+              />
+
               {/* International Translation Quick Bar */}
               {(selected.country !== 'BR' || directMessageTargetLang !== 'pt') && (
                 <div className="flex items-center justify-between px-2 text-[11px] text-[#8696a0]">
                   <div className="flex items-center gap-1.5">
                     <Globe className="w-3 h-3 text-[#00a884]" />
-                    <span>Traduzir mensagem para:</span>
+                    <span>Traduzir mensagem/áudio para:</span>
                     <select
                       value={directMessageTargetLang}
                       onChange={e => setDirectMessageTargetLang(e.target.value)}
@@ -1395,7 +1871,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                       <option value="it">🇮🇹 Italiano</option>
                     </select>
                   </div>
-                  {directMessageTargetLang !== 'pt' && (
+                  {directMessageTargetLang !== 'pt' && !isRecording && (
                     <button
                       type="button"
                       disabled={translatingDirectMessage || !directMessageText.trim()}
@@ -1409,57 +1885,97 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                 </div>
               )}
 
-              {/* Message Pill Input & Circular Send Button */}
+              {/* Message Pill Input & Circular Send / Mic Button */}
               <div className="flex items-end gap-2">
-                <div className="bg-[#2a3942] rounded-3xl flex-1 flex items-center px-3 py-1 gap-2 border border-white/5">
-                  <button type="button" className="text-[#8696a0] hover:text-[#e9edef] p-1 transition cursor-pointer">
-                    <Smile className="w-5 h-5" />
+                {isRecording ? (
+                  // Live WhatsApp Audio Recording Bar
+                  <div className="bg-[#2a3942] rounded-3xl flex-1 flex items-center px-4 py-2 gap-3 border border-red-500/30">
+                    <span className="w-3 h-3 rounded-full bg-red-500 animate-ping" />
+                    <span className="text-red-400 font-bold text-xs">
+                      Gravando: {Math.floor(recordingSeconds / 60)}:{(recordingSeconds % 60).toString().padStart(2, '0')}
+                    </span>
+                    <span className="text-[11px] text-[#8696a0] flex-1 truncate">
+                      {directMessageTargetLang !== 'pt' ? `🎙️ Dublando para ${directMessageTargetLang.toUpperCase()}` : '🎙️ Fale com o cliente'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={cancelAudioRecording}
+                      className="p-1.5 text-slate-400 hover:text-red-400 transition cursor-pointer"
+                      title="Cancelar gravação"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  // Normal Message Input Pill
+                  <div className="bg-[#2a3942] rounded-3xl flex-1 flex items-center px-3 py-1 gap-2 border border-white/5">
+                    <button type="button" className="text-[#8696a0] hover:text-[#e9edef] p-1 transition cursor-pointer">
+                      <Smile className="w-5 h-5" />
+                    </button>
+                    <textarea
+                      rows={1}
+                      value={directMessageText}
+                      onChange={e => setDirectMessageText(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          void handleSendDirectMessage();
+                        }
+                      }}
+                      placeholder="Mensagem"
+                      className="flex-1 bg-transparent text-sm text-[#e9edef] placeholder-[#8696a0] focus:outline-none resize-none max-h-28 py-1.5 leading-relaxed"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => imageInputRef.current?.click()}
+                      title="Anexar foto ou imagem do veículo"
+                      className="text-[#8696a0] hover:text-[#00a884] p-1 transition cursor-pointer"
+                    >
+                      <Paperclip className="w-5 h-5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => imageInputRef.current?.click()}
+                      title="Enviar foto da galeria"
+                      className="text-[#8696a0] hover:text-white p-1 transition cursor-pointer"
+                    >
+                      <ImageIcon className="w-5 h-5" />
+                    </button>
+                  </div>
+                )}
+
+                {/* Circular Send / Mic Button */}
+                {isRecording ? (
+                  <button
+                    type="button"
+                    disabled={sendingAudio}
+                    onClick={stopAndSendAudioRecording}
+                    className="w-11 h-11 rounded-full bg-[#00a884] hover:bg-[#06cf9c] active:scale-95 flex items-center justify-center text-white shrink-0 shadow-lg cursor-pointer transition disabled:opacity-50"
+                    title="Finalizar gravação e enviar áudio no WhatsApp"
+                  >
+                    <Send className="w-5 h-5 ml-0.5" />
                   </button>
-                  <textarea
-                    rows={1}
-                    value={directMessageText}
-                    onChange={e => setDirectMessageText(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
+                ) : (
+                  <button
+                    type="button"
+                    disabled={sendingDirectMessage}
+                    onClick={() => {
+                      if (directMessageText.trim()) {
                         void handleSendDirectMessage();
+                      } else {
+                        void startAudioRecording();
                       }
                     }}
-                    placeholder="Mensagem"
-                    className="flex-1 bg-transparent text-sm text-[#e9edef] placeholder-[#8696a0] focus:outline-none resize-none max-h-28 py-1.5 leading-relaxed"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => openProposalComposer(selected)}
-                    title="Enviar Proposta Comercial no WhatsApp"
-                    className="text-[#8696a0] hover:text-[#00a884] p-1 transition cursor-pointer"
+                    className="w-11 h-11 rounded-full bg-[#00a884] hover:bg-[#06cf9c] active:scale-95 flex items-center justify-center text-white shrink-0 shadow-lg cursor-pointer transition disabled:opacity-50"
+                    title={directMessageText.trim() ? 'Enviar mensagem no WhatsApp' : 'Segure ou clique para gravar áudio de voz'}
                   >
-                    <Paperclip className="w-5 h-5" />
+                    {directMessageText.trim() ? (
+                      <Send className="w-5 h-5 ml-0.5" />
+                    ) : (
+                      <Mic className="w-5 h-5" />
+                    )}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowSpecsDrawer(true)}
-                    title="Ficha Técnica & Orçamento"
-                    className="text-[#8696a0] hover:text-white p-1 transition cursor-pointer"
-                  >
-                    <ImageIcon className="w-5 h-5" />
-                  </button>
-                </div>
-
-                {/* Circular Send Button */}
-                <button
-                  type="button"
-                  disabled={sendingDirectMessage || !directMessageText.trim()}
-                  onClick={handleSendDirectMessage}
-                  className="w-11 h-11 rounded-full bg-[#00a884] hover:bg-[#06cf9c] active:scale-95 flex items-center justify-center text-white shrink-0 shadow-lg cursor-pointer transition disabled:opacity-50"
-                  title={directMessageText.trim() ? 'Enviar mensagem no WhatsApp' : 'Gravar áudio / Mensagem vazia'}
-                >
-                  {directMessageText.trim() ? (
-                    <Send className="w-5 h-5 ml-0.5" />
-                  ) : (
-                    <Mic className="w-5 h-5" />
-                  )}
-                </button>
+                )}
               </div>
             </div>
 
@@ -1740,6 +2256,96 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Floating Incoming Customer Message Notification Banner (when outside this chat) */}
+      {incomingMessageAlert && (
+        <div
+          onClick={() => {
+            handleSelectProject(incomingMessageAlert.project);
+            setIncomingMessageAlert(null);
+          }}
+          className="fixed top-4 left-1/2 -translate-x-1/2 z-60 bg-[#202c33] border border-[#00a884] text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 cursor-pointer hover:bg-[#2a3942] transition animate-in slide-in-from-top duration-300 max-w-sm w-full mx-auto"
+        >
+          <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-400 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow">
+            {incomingMessageAlert.senderName.charAt(0).toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between">
+              <h4 className="font-bold text-xs text-[#e9edef] truncate">{incomingMessageAlert.senderName}</h4>
+              <span className="text-[10px] text-[#00a884] font-semibold flex items-center gap-1">
+                <Bell className="w-2.5 h-2.5" /> Agora
+              </span>
+            </div>
+            <p className="text-xs text-[#8696a0] truncate mt-0.5">{incomingMessageAlert.text}</p>
+          </div>
+          <div className="p-1 rounded-full bg-[#00a884]/20 text-[#00a884] text-[10px] font-bold px-2 py-0.5 shrink-0">
+            Abrir
+          </div>
+        </div>
+      )}
+
+      {/* WhatsApp Image Attachment Preview Modal with Caption before Sending */}
+      {imagePreview && (
+        <div className="fixed inset-0 z-60 bg-black/90 backdrop-blur-md flex flex-col justify-between p-4 sm:p-6 animate-in fade-in duration-200">
+          <div className="flex items-center justify-between text-white">
+            <button
+              type="button"
+              onClick={() => setImagePreview(null)}
+              className="p-2 text-white/80 hover:text-white rounded-full bg-white/10 cursor-pointer"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <span className="text-xs font-semibold text-slate-300">Enviar foto no WhatsApp</span>
+            <div className="w-8" />
+          </div>
+
+          <div className="flex-1 flex items-center justify-center my-4 overflow-hidden">
+            <img src={imagePreview.base64} alt="Preview" className="max-h-[65vh] max-w-full rounded-2xl object-contain shadow-2xl" />
+          </div>
+
+          <div className="max-w-2xl w-full mx-auto flex items-center gap-2 bg-[#202c33] p-2 rounded-3xl border border-white/10">
+            <input
+              type="text"
+              value={imageCaption}
+              onChange={e => setImageCaption(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void handleSendImage();
+                }
+              }}
+              placeholder="Adicione uma legenda..."
+              className="flex-1 bg-transparent text-sm text-[#e9edef] placeholder-[#8696a0] focus:outline-none px-3 py-1.5"
+            />
+            <button
+              type="button"
+              disabled={sendingImage}
+              onClick={handleSendImage}
+              className="w-11 h-11 rounded-full bg-[#00a884] hover:bg-[#06cf9c] active:scale-95 flex items-center justify-center text-white shrink-0 shadow-lg cursor-pointer transition disabled:opacity-50"
+              title="Enviar imagem"
+            >
+              <Send className="w-5 h-5 ml-0.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Fullscreen Image Lightbox Modal */}
+      {expandedImage && (
+        <div
+          onClick={() => setExpandedImage(null)}
+          className="fixed inset-0 z-70 bg-black/95 backdrop-blur-md flex items-center justify-center p-4 cursor-pointer animate-in fade-in duration-150"
+        >
+          <button
+            type="button"
+            onClick={() => setExpandedImage(null)}
+            className="absolute top-4 right-4 p-2.5 text-white/80 hover:text-white rounded-full bg-white/10 cursor-pointer"
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <img src={expandedImage} alt="Imagem ampliada" className="max-h-[90vh] max-w-full rounded-xl object-contain shadow-2xl" />
         </div>
       )}
 

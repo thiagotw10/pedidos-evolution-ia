@@ -16,6 +16,7 @@ const crypto_1 = __importDefault(require("crypto"));
 const catalogPolicy_1 = require("./catalogPolicy");
 const metaCapi_1 = require("./metaCapi");
 const whatsappSender_1 = require("./whatsappSender");
+const voiceGenerator_1 = require("./voiceGenerator");
 const genai_1 = require("@google/genai");
 function getGenAI() {
     const envKey = process.env.GEMINI_API_KEY;
@@ -1149,6 +1150,206 @@ function registerAutomotiveRoutes(app, db) {
             }
             const translated = await translateAutomotiveText(text.trim(), targetLang);
             return res.json({ original: text, translated, targetLang });
+        }
+        catch (err) {
+            return res.status(500).json({ error: err.message });
+        }
+    });
+    // Enviar mensagem de voz de Pedro pelo WhatsApp com dublagem / tradução neural internacional
+    app.post('/api/automotive/projects/:id/send-audio', async (req, res) => {
+        try {
+            const storeId = res.locals.uid;
+            const projectRef = db.collection('automotive_projects').doc(String(req.params.id));
+            const projectSnap = await projectRef.get();
+            const projectData = projectSnap.data();
+            if (!projectSnap.exists || projectData?.establishmentId !== storeId) {
+                return res.status(403).json({ error: 'Projeto não encontrado.' });
+            }
+            const estSnap = await db.collection('establishments').doc(storeId).get();
+            const est = estSnap.data() || {};
+            const evoUrl = (process.env.EVOLUTION_API_URL || est.evolutionApiUrl || 'http://86.48.23.152:8081').replace(/\/$/, '');
+            const evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
+            const evoInst = (est.evolutionInstanceName || `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`).trim();
+            const targetPhone = projectData?.phone;
+            if (!targetPhone)
+                return res.status(400).json({ error: 'Telefone do cliente não cadastrado.' });
+            const rawAudio = String(req.body.audioBase64 || '').trim();
+            if (!rawAudio)
+                return res.status(400).json({ error: 'Áudio não informado.' });
+            const cleanAudioBase64 = rawAudio.replace(/^data:[^;]+;base64,/, '');
+            const mimeType = req.body.mimeType || 'audio/webm';
+            const targetLang = req.body.targetLang || projectData?.detectedLanguage || 'pt';
+            const nowIso = new Date().toISOString();
+            let sentAudioBase64 = cleanAudioBase64;
+            let textNote = '🎙️ [Mensagem de áudio]';
+            let authorLabel = 'Pedro (Atendente Humano)';
+            // 🌍 Se o cliente for internacional (ex: americano, espanhol, alemão), transcreve o áudio em português e gera voz neural no idioma nativo do cliente
+            if (targetLang && targetLang !== 'pt') {
+                const langNames = {
+                    en: { label: 'Inglês (English)', voice: 'en-US-AndrewMultilingualNeural' },
+                    es: { label: 'Espanhol (Español)', voice: 'es-ES-AlvaroNeural' },
+                    de: { label: 'Alemão (Deutsch)', voice: 'de-DE-ConradNeural' },
+                    fr: { label: 'Francês (Français)', voice: 'fr-FR-HenriNeural' },
+                    it: { label: 'Italiano', voice: 'it-IT-DiegoNeural' }
+                };
+                const langConfig = langNames[targetLang] || { label: targetLang, voice: 'en-US-AndrewMultilingualNeural' };
+                try {
+                    const ai = getGenAI();
+                    const translationResult = await ai.models.generateContent({
+                        model: 'gemini-2.5-flash',
+                        contents: [
+                            {
+                                role: 'user',
+                                parts: [
+                                    {
+                                        inlineData: {
+                                            mimeType: mimeType.split(';')[0],
+                                            data: cleanAudioBase64
+                                        }
+                                    },
+                                    {
+                                        text: `Você é o tradutor e dublador da Flow Garage (escapamentos esportivos de alta performance).
+Pedro (dono da loja) gravou este áudio falando em Português do Brasil.
+1. Transcreva com fidelidade o que Pedro falou em Português.
+2. Traduza a fala para ${langConfig.label} com tom amigável, técnico e natural de vendas automotivas.
+Retorne ESTRITAMENTE um objeto JSON no formato:
+{"transcriptionPt": "...", "translatedText": "..."}`
+                                    }
+                                ]
+                            }
+                        ],
+                        config: {
+                            responseMimeType: 'application/json'
+                        }
+                    });
+                    const rawJson = translationResult.text || '{}';
+                    const parsed = JSON.parse(rawJson);
+                    const transPt = parsed.transcriptionPt || '';
+                    const transTarget = parsed.translatedText || '';
+                    if (transTarget) {
+                        // Sintetiza a fala traduzida em voz neural do país do cliente
+                        const dubbedVoiceBase64 = await (0, voiceGenerator_1.generateVoiceAudioBase64)(transTarget, langConfig.voice);
+                        if (dubbedVoiceBase64) {
+                            sentAudioBase64 = dubbedVoiceBase64;
+                            textNote = `🎙️ "${transTarget}"\n(Falado por Pedro em PT: "${transPt}")`;
+                            authorLabel = `Pedro (Áudio Traduzido para ${targetLang.toUpperCase()})`;
+                        }
+                    }
+                }
+                catch (transErr) {
+                    console.warn('[Dubbing Audio Error]:', transErr.message);
+                }
+            }
+            // Envia como áudio de voz PTT no WhatsApp do cliente
+            const audioDataUri = `data:audio/mp3;base64,${sentAudioBase64}`;
+            const sendResult = await (0, whatsappSender_1.sendWhatsAppAudio)(evoUrl, evoKey, evoInst, targetPhone, audioDataUri);
+            if (!sendResult.success) {
+                return res.status(500).json({ error: sendResult.error || 'Falha ao enviar áudio pelo WhatsApp.' });
+            }
+            // Salva no Firestore
+            const variants = normalizeBrPhoneVariants(targetPhone);
+            if (!variants.includes(targetPhone))
+                variants.push(targetPhone);
+            for (const cand of variants) {
+                await db.collection('establishments').doc(storeId).collection('chats').doc(cand).collection('messages').add({
+                    sender: 'assistant',
+                    author: authorLabel,
+                    text: textNote,
+                    audioUrl: audioDataUri,
+                    timestamp: nowIso
+                });
+                await db.collection('establishments').doc(storeId).collection('chats').doc(cand).set({
+                    lastMessage: textNote,
+                    lastMessageAt: nowIso,
+                    aiPaused: true,
+                    aiPausedUntil: new Date(Date.now() + 60 * 60 * 1000).toISOString()
+                }, { merge: true });
+            }
+            const pauseUntil = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+            await projectRef.update({
+                aiPaused: true,
+                aiPausedUntil: pauseUntil,
+                lastAssistantReply: textNote,
+                updatedAt: nowIso
+            });
+            return res.json({
+                success: true,
+                audioUrl: audioDataUri,
+                textNote,
+                timestamp: nowIso,
+                aiPausedUntil: pauseUntil
+            });
+        }
+        catch (err) {
+            return res.status(500).json({ error: err.message });
+        }
+    });
+    // Enviar mídia / imagem de Pedro pelo WhatsApp
+    app.post('/api/automotive/projects/:id/send-media', async (req, res) => {
+        try {
+            const storeId = res.locals.uid;
+            const projectRef = db.collection('automotive_projects').doc(String(req.params.id));
+            const projectSnap = await projectRef.get();
+            const projectData = projectSnap.data();
+            if (!projectSnap.exists || projectData?.establishmentId !== storeId) {
+                return res.status(403).json({ error: 'Projeto não encontrado.' });
+            }
+            const estSnap = await db.collection('establishments').doc(storeId).get();
+            const est = estSnap.data() || {};
+            const evoUrl = (process.env.EVOLUTION_API_URL || est.evolutionApiUrl || 'http://86.48.23.152:8081').replace(/\/$/, '');
+            const evoKey = (est.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'minha_chave_secreta_7108').trim();
+            const evoInst = (est.evolutionInstanceName || `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`).trim();
+            const targetPhone = projectData?.phone;
+            if (!targetPhone)
+                return res.status(400).json({ error: 'Telefone do cliente não cadastrado.' });
+            const mediaUrlOrBase64 = String(req.body.mediaUrl || req.body.mediaBase64 || '').trim();
+            if (!mediaUrlOrBase64)
+                return res.status(400).json({ error: 'Mídia não informada.' });
+            let caption = String(req.body.caption || '').trim();
+            const targetLang = req.body.targetLang;
+            if (req.body.autoTranslate && targetLang && targetLang !== 'pt' && caption) {
+                caption = await translateAutomotiveText(caption, targetLang);
+            }
+            const type = req.body.type || 'image';
+            const sendResult = await (0, whatsappSender_1.sendWhatsAppMedia)(evoUrl, evoKey, evoInst, targetPhone, mediaUrlOrBase64, caption, type);
+            if (!sendResult.success) {
+                return res.status(500).json({ error: sendResult.error || 'Falha ao enviar mídia pelo WhatsApp.' });
+            }
+            const nowIso = new Date().toISOString();
+            const authorLabel = req.body.author || 'Pedro (Atendente Humano)';
+            const displayText = caption || (type === 'image' ? '📷 [Foto enviada por Pedro]' : '📎 [Mídia]');
+            const variants = normalizeBrPhoneVariants(targetPhone);
+            if (!variants.includes(targetPhone))
+                variants.push(targetPhone);
+            for (const cand of variants) {
+                await db.collection('establishments').doc(storeId).collection('chats').doc(cand).collection('messages').add({
+                    sender: 'assistant',
+                    author: authorLabel,
+                    text: displayText,
+                    mediaUrl: mediaUrlOrBase64,
+                    timestamp: nowIso
+                });
+                await db.collection('establishments').doc(storeId).collection('chats').doc(cand).set({
+                    lastMessage: displayText,
+                    lastMessageAt: nowIso,
+                    aiPaused: true,
+                    aiPausedUntil: new Date(Date.now() + 60 * 60 * 1000).toISOString()
+                }, { merge: true });
+            }
+            const pauseUntil = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+            await projectRef.update({
+                aiPaused: true,
+                aiPausedUntil: pauseUntil,
+                lastAssistantReply: displayText,
+                updatedAt: nowIso
+            });
+            return res.json({
+                success: true,
+                mediaUrl: mediaUrlOrBase64,
+                caption: displayText,
+                timestamp: nowIso,
+                aiPausedUntil: pauseUntil
+            });
         }
         catch (err) {
             return res.status(500).json({ error: err.message });

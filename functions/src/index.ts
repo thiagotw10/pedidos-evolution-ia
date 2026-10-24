@@ -969,7 +969,9 @@ async function processAiCustomerMessage(
   await chatRef.add({
     sender: 'user',
     text: chatDisplayMsg,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    mediaUrl: mediaPart?.mimeType.startsWith('image/') ? (mediaPart.data.startsWith('http') ? mediaPart.data : `data:${mediaPart.mimeType};base64,${mediaPart.data}`) : null,
+    audioUrl: mediaPart?.mimeType.startsWith('audio/') ? (mediaPart.data.startsWith('http') ? mediaPart.data : `data:${mediaPart.mimeType};base64,${mediaPart.data}`) : null
   });
 
   const menuText = products.map((p: any) => 
@@ -2413,7 +2415,9 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
       await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
         sender: 'user',
         text: incomingText,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        mediaUrl: mediaPart?.mimeType.startsWith('image/') ? (mediaPart.data.startsWith('http') ? mediaPart.data : `data:${mediaPart.mimeType};base64,${mediaPart.data}`) : null,
+        audioUrl: mediaPart?.mimeType.startsWith('audio/') ? (mediaPart.data.startsWith('http') ? mediaPart.data : `data:${mediaPart.mimeType};base64,${mediaPart.data}`) : null
       });
       await db.collection('establishments').doc(storeId).collection('chats').doc(phone).set({
         lastMessage: incomingText,
@@ -2740,6 +2744,13 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
           if (audioBase64) {
             await sendWhatsAppAudio(evoUrl, evoKey, evoInst, phone, audioBase64);
             console.log(`[Voice Mirror] Mensagem de voz enviada com sucesso para ${phone}!`);
+            await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
+              sender: 'assistant',
+              author: 'Pedro (Consultor IA - Áudio)',
+              text: '🎙️ ' + result.replyText,
+              audioUrl: `data:audio/mp3;base64,${audioBase64}`,
+              timestamp: new Date().toISOString()
+            });
           }
         } catch (voiceErr: any) {
           console.warn('[Voice Mirror Error]:', voiceErr.message);

@@ -139,3 +139,138 @@ export async function sendWhatsAppMessage(evoUrl: string, evoKey: string, evoIns
     return { success: false, error: err.message };
   }
 }
+
+export async function sendWhatsAppMedia(
+  evoUrl: string,
+  evoKey: string,
+  evoInst: string,
+  number: string,
+  mediaUrlOrBase64: string,
+  caption: string = '',
+  type: string = 'image'
+) {
+  try {
+    const isGroup = number.includes('@g.us');
+    const isLid = number.includes('@lid');
+    let finalPhone = number;
+    if (!isGroup && !isLid) {
+      const numericPhone = number.replace(/\D/g, '');
+      finalPhone = numericPhone.startsWith('55') ? numericPhone : `55${numericPhone}`;
+    }
+
+    let activeToken = evoInst;
+    let res = await fetch(`${evoUrl}/send/media`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: activeToken
+      },
+      body: JSON.stringify({
+        number: finalPhone,
+        type: type,
+        url: mediaUrlOrBase64,
+        caption: caption,
+        delay: 500
+      }),
+      signal: AbortSignal.timeout(15000)
+    });
+
+    if (!res.ok && res.status === 401) {
+      const discovered = await findEvolutionToken(evoUrl, evoKey, evoInst);
+      if (discovered && discovered !== activeToken) {
+        activeToken = discovered;
+        res = await fetch(`${evoUrl}/send/media`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: activeToken
+          },
+          body: JSON.stringify({
+            number: finalPhone,
+            type: type,
+            url: mediaUrlOrBase64,
+            caption: caption,
+            delay: 500
+          }),
+          signal: AbortSignal.timeout(15000)
+        });
+      }
+    }
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      return { success: false, error: errText };
+    }
+
+    const data = await res.json().catch(() => ({}));
+    return { success: true, data };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function sendWhatsAppAudio(
+  evoUrl: string,
+  evoKey: string,
+  evoInst: string,
+  number: string,
+  base64Audio: string
+) {
+  try {
+    const isGroup = number.includes('@g.us');
+    const isLid = number.includes('@lid');
+    let finalPhone = number;
+    if (!isGroup && !isLid) {
+      const numericPhone = number.replace(/\D/g, '');
+      finalPhone = numericPhone.startsWith('55') ? numericPhone : `55${numericPhone}`;
+    }
+
+    let activeToken = evoInst;
+    let res = await fetch(`${evoUrl}/send/media`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: activeToken
+      },
+      body: JSON.stringify({
+        number: finalPhone,
+        type: 'audio',
+        url: base64Audio,
+        delay: 500
+      }),
+      signal: AbortSignal.timeout(18000)
+    });
+
+    if (!res.ok && res.status === 401) {
+      const discovered = await findEvolutionToken(evoUrl, evoKey, evoInst);
+      if (discovered && discovered !== activeToken) {
+        activeToken = discovered;
+        res = await fetch(`${evoUrl}/send/media`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: activeToken
+          },
+          body: JSON.stringify({
+            number: finalPhone,
+            type: 'audio',
+            url: base64Audio,
+            delay: 500
+          }),
+          signal: AbortSignal.timeout(18000)
+        });
+      }
+    }
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      return { success: false, error: errText };
+    }
+
+    const data = await res.json().catch(() => ({}));
+    return { success: true, data };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
