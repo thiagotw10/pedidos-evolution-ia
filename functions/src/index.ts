@@ -24,7 +24,7 @@ if (admin.apps.length === 0) {
 const db = admin.firestore();
 
 // Initialize Gemini Client
-const geminiApiKey = process.env.GEMINI_API_KEY || 'AIzaSyA9GspslNh-yPg2n1vCRXU6SPP5OBUsDpo';
+const geminiApiKey = process.env.GEMINI_API_KEY || '';
 const genai = new GoogleGenAI({ apiKey: geminiApiKey });
 const deepSeekApiKey = process.env.DEEPSEEK_API_KEY || '';
 
@@ -1275,20 +1275,36 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
         });
       }
     } catch (modelError: any) {
-      // Keep the economic route, but never expose a model outage to the customer.
-      if (model !== 'gemini-3.1-flash-lite') {
-        console.warn(`[AI Gateway] Falha no modelo ${model}; fallback para gemini-3.1-flash-lite:`, modelError.message);
-        response = await genai.models.generateContent({
-          model: 'gemini-3.1-flash-lite',
-          contents: contents,
-          config: {
-            systemInstruction: { parts: [{ text: systemInstruction }] },
-            tools: [{ functionDeclarations: (isAutomotive ? [registrarInteresseProjetoTool, enviarCardapioComFotosTool, enviarFotoProdutoTool, enviarLocalizacaoLojaTool] : [registrarPedidoTool, enviarCardapioComFotosTool, enviarFotoProdutoTool, enviarLocalizacaoLojaTool]) as any }],
-            temperature: 0.1
-          }
-        });
+      console.warn(`[AI Gateway] Falha no modelo primário (${model}):`, modelError.message);
+      const allTools = isAutomotive 
+        ? [registrarInteresseProjetoTool, enviarCardapioComFotosTool, enviarFotoProdutoTool, enviarLocalizacaoLojaTool] 
+        : [registrarPedidoTool, enviarCardapioComFotosTool, enviarFotoProdutoTool, enviarLocalizacaoLojaTool];
+
+      // Redundância Inteligente Bidirecional (Gemini <-> DeepSeek)
+      if (model !== 'deepseek-flash' && deepSeekApiKey) {
+        console.log('[AI Gateway Fallback] Ativando DeepSeek Flash como backup automático...');
+        try {
+          response = await generateDeepSeekResponse(contents, systemInstruction, allTools);
+        } catch (deepseekErr: any) {
+          console.error('[AI Gateway DeepSeek Fallback Error]:', deepseekErr.message);
+          throw modelError;
+        }
       } else {
-        throw modelError;
+        console.log('[AI Gateway Fallback] Ativando Gemini 2.5 Flash como backup automático...');
+        try {
+          response = await genai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: contents,
+            config: {
+              systemInstruction: { parts: [{ text: systemInstruction }] },
+              tools: [{ functionDeclarations: allTools as any }],
+              temperature: 0.1
+            }
+          });
+        } catch (geminiErr: any) {
+          console.error('[AI Gateway Gemini Fallback Error]:', geminiErr.message);
+          throw modelError;
+        }
       }
     }
 

@@ -6,7 +6,7 @@
 import admin from 'firebase-admin';
 import { GoogleGenAI } from '@google/genai';
 
-const geminiApiKey = process.env.GEMINI_API_KEY || 'AIzaSyA9GspslNh-yPg2n1vCRXU6SPP5OBUsDpo';
+const geminiApiKey = process.env.GEMINI_API_KEY || '';
 const genai = new GoogleGenAI({ apiKey: geminiApiKey });
 
 export interface CoPilotResult {
