@@ -54,6 +54,7 @@ const typesafeJev_1 = require("./typesafeJev");
 const voiceGenerator_1 = require("./voiceGenerator");
 const adminCoPilot_1 = require("./adminCoPilot");
 const automotiveLeadRadar_1 = require("./automotiveLeadRadar");
+const partnerWorkshops_1 = require("./partnerWorkshops");
 dotenv_1.default.config();
 // Initialize Firebase Admin (in Cloud Functions runtime it uses default credentials automatically)
 if (firebase_admin_1.default.apps.length === 0) {
@@ -117,6 +118,7 @@ app.use(express_1.default.json());
 (0, automotive_1.registerAutomotiveRoutes)(app, db);
 (0, carVideoStudio_1.registerCarVideoStudioRoutes)(app, db, getGenAI());
 (0, automotiveLeadRadar_1.registerLeadRadarEndpoints)(app, db);
+(0, partnerWorkshops_1.registerPartnerWorkshopEndpoints)(app, db);
 // In-memory cache for de-duplicating rapid Webhook calls from Evolution Go
 const processedMessages = new Map();
 const botSentMessages = new Map();
@@ -933,6 +935,21 @@ async function processAiCustomerMessage(establishmentId, customerPhone, incoming
     const menuText = products.map((p) => `- ${p.name} (R$ ${Number(p.price).toFixed(2)}) [Categoria: ${p.category}]${p.imageUrl ? ` [POSSUI_FOTO: SIM]` : ''}${p.videoUrl ? ` [POSSUI_VIDEO_DO_RONCO: SIM]` : ''}${p.images && p.images.length > 1 ? ` [FOTOS_CARROSSEL: ${p.images.length} fotos]` : ''}: ${p.description || ''}`).join('\n');
     const rawSegment = (establishment.segment || '').toUpperCase();
     const isAutomotive = rawSegment === 'AUTOMOTIVE_PARTS';
+    let partnerWorkshopsRag = '';
+    if (isAutomotive) {
+        try {
+            const partnersSnap = await db.collection('establishments').doc(establishmentId).collection('partnerWorkshops').where('active', '==', true).get();
+            let partners = partnersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            if (partners.length === 0) {
+                partners = partnerWorkshops_1.DEFAULT_PARTNER_WORKSHOPS;
+            }
+            partnerWorkshopsRag = (0, partnerWorkshops_1.buildPartnerWorkshopsRagContext)(partners);
+        }
+        catch (err) {
+            console.warn('[PartnerWorkshops] RAG load error:', err);
+            partnerWorkshopsRag = (0, partnerWorkshops_1.buildPartnerWorkshopsRagContext)(partnerWorkshops_1.DEFAULT_PARTNER_WORKSHOPS);
+        }
+    }
     const isVehicles = !isAutomotive && (rawSegment.includes('VEIC') || rawSegment.includes('CARRO') || rawSegment.includes('MOTO') || rawSegment.includes('AUTO'));
     const isRealEstate = rawSegment.includes('IMOB') || rawSegment.includes('IMOVE') || rawSegment.includes('CORRETOR');
     const isFashion = rawSegment.includes('MODA') || rawSegment.includes('ROUPA') || rawSegment.includes('CALCAD');
@@ -1075,11 +1092,12 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
    - RESPONDA SEMPRE NO MESMO IDIOMA QUE O CLIENTE ENVIAR A MENSAGEM (Inglês, Espanhol, Português, etc.). Se o cliente falar em inglês, responda em inglês fluente e técnico. Se falar em espanhol, responda em espanhol.
    - Para clientes em inglês, utilize terminologia automotiva correta: *catback exhaust, downpipes, valvetronic system, full titanium, TIG welds, stainless steel 304, cold start sound clips, no cabin drone, plug and play fitment*.
    - Para envio internacional: solicite o país e ZIP Code / Postal Code para cotação de frete aéreo internacional expresso (DHL / FedEx Express).
-   - Para clientes no exterior, trabalhe com referências em Dólar (USD $) ou Euro (EUR €).`;
+   - Para clientes no exterior, trabalhe com referências em Dólar (USD $) ou Euro (EUR €).
+${partnerWorkshopsRag ? `\n${partnerWorkshopsRag}\n` : ''}`;
     // Tool for Performance & Exhaust Niche CRM Registration & Context Saving
     const registrarInteresseProjetoTool = {
         name: 'registrar_interesse_projeto',
-        description: 'Salva o contexto da conversa no WhatsApp e registra/atualiza o lead e projeto do cliente no CRM de Performance & Escapamentos da loja. Chame sempre que o cliente informar dados do veículo, objetivo do projeto, modificações, nome, CEP/ZIP Code, país ou interesse em orçamento.',
+        description: 'Salva o contexto da conversa no WhatsApp e registra/atualiza o lead e projeto do cliente no CRM de Performance & Escapamentos da loja. Chame sempre que o cliente informar dados do veículo, objetivo do projeto, modificações, nome, CEP/ZIP Code, país, oficina credenciada indicada ou interesse em orçamento.',
         parameters: {
             type: 'object',
             properties: {
@@ -1095,6 +1113,10 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
                 country: { type: 'string', description: 'País do cliente (ex: Brasil, United States, Spain, Germany)' },
                 currency: { type: 'string', enum: ['BRL', 'USD', 'EUR'], description: 'Moeda da negociação' },
                 detectedLanguage: { type: 'string', description: 'Idioma detectado da conversa (ex: pt, en, es)' },
+                recommendedPartnerWorkshop: {
+                    type: 'string',
+                    description: 'Nome da oficina credenciada parceira recomendada para a cidade/região do cliente se aplicável'
+                },
                 referenceNames: {
                     type: 'array',
                     items: { type: 'string' },

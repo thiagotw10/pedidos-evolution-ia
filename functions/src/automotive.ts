@@ -108,6 +108,7 @@ export interface AutomotiveConversationContext {
   references?: Array<{ id: string; name: string }>;
   referenceNames?: string[];
   summary?: string;
+  recommendedPartnerWorkshop?: string;
   leadTemperature?: 'HOT' | 'WARM' | 'COLD';
   stage?: string;
   projectId?: string;
@@ -660,6 +661,7 @@ export async function saveAutomotiveContactAndSyncCrm(params: {
     protocolPrefix: heuristic.protocolPrefix || prevCtx.protocolPrefix || '',
     projectId: prevCtx.projectId || '',
     leadTemperature: toolArgs?.leadTemperature || prevCtx.leadTemperature || 'WARM',
+    recommendedPartnerWorkshop: pickNonEmpty(toolArgs?.recommendedPartnerWorkshop, prevCtx.recommendedPartnerWorkshop),
     interactionCount: Number(prevCtx.interactionCount || existingCustomer.interactionCount || 0) + 1,
     lastUserMessage: String(incomingText || '').slice(0, 500),
     lastAssistantMessage: String(replyText || '').slice(0, 500),
@@ -748,6 +750,7 @@ export async function saveAutomotiveContactAndSyncCrm(params: {
           references: mergedReferences.length > 0 ? mergedReferences : (existingData.references || []),
           status: nextStatus,
           conversationSummary: mergedCtx.summary,
+          recommendedPartnerWorkshop: mergedCtx.recommendedPartnerWorkshop || existingData.recommendedPartnerWorkshop || '',
           lastMessage: String(incomingText || '').slice(0, 400),
           lastAssistantReply: String(replyText || '').slice(0, 400),
           interactionCount: mergedCtx.interactionCount,
@@ -788,6 +791,7 @@ export async function saveAutomotiveContactAndSyncCrm(params: {
           detectedLanguage: mergedCtx.detectedLanguage || 'pt',
           delivery: mergedCtx.delivery || 'A definir',
           references: mergedReferences,
+          recommendedPartnerWorkshop: mergedCtx.recommendedPartnerWorkshop || '',
           status: computedStage,
           source: attribution?.trafficSource ? 'paid_traffic' : 'whatsapp_ai',
           trafficSource: attribution?.trafficSource || 'ORGANIC',

@@ -14,6 +14,7 @@ import { triageInboundMessageWithJev, qualifyLeadWithJev, screenPromptInjectionW
 import { generateVoiceAudioBase64, VOICE_OPTIONS } from './voiceGenerator';
 import { isOwnerAdminMessage, processAdminCoPilotCommand } from './adminCoPilot';
 import { registerLeadRadarEndpoints } from './automotiveLeadRadar';
+import { registerPartnerWorkshopEndpoints, buildPartnerWorkshopsRagContext, PartnerWorkshop, DEFAULT_PARTNER_WORKSHOPS } from './partnerWorkshops';
 
 dotenv.config();
 
@@ -82,6 +83,7 @@ app.use(express.json());
 registerAutomotiveRoutes(app, db);
 registerCarVideoStudioRoutes(app, db, getGenAI());
 registerLeadRadarEndpoints(app, db);
+registerPartnerWorkshopEndpoints(app, db);
 
 // In-memory cache for de-duplicating rapid Webhook calls from Evolution Go
 const processedMessages = new Map<string, number>();
@@ -1020,6 +1022,22 @@ async function processAiCustomerMessage(
 
   const rawSegment = (establishment.segment || '').toUpperCase();
   const isAutomotive = rawSegment === 'AUTOMOTIVE_PARTS';
+
+  let partnerWorkshopsRag = '';
+  if (isAutomotive) {
+    try {
+      const partnersSnap = await db.collection('establishments').doc(establishmentId).collection('partnerWorkshops').where('active', '==', true).get();
+      let partners = partnersSnap.docs.map(d => ({ id: d.id, ...d.data() })) as PartnerWorkshop[];
+      if (partners.length === 0) {
+        partners = DEFAULT_PARTNER_WORKSHOPS as PartnerWorkshop[];
+      }
+      partnerWorkshopsRag = buildPartnerWorkshopsRagContext(partners);
+    } catch (err) {
+      console.warn('[PartnerWorkshops] RAG load error:', err);
+      partnerWorkshopsRag = buildPartnerWorkshopsRagContext(DEFAULT_PARTNER_WORKSHOPS as PartnerWorkshop[]);
+    }
+  }
+
   const isVehicles = !isAutomotive && (rawSegment.includes('VEIC') || rawSegment.includes('CARRO') || rawSegment.includes('MOTO') || rawSegment.includes('AUTO'));
   const isRealEstate = rawSegment.includes('IMOB') || rawSegment.includes('IMOVE') || rawSegment.includes('CORRETOR');
   const isFashion = rawSegment.includes('MODA') || rawSegment.includes('ROUPA') || rawSegment.includes('CALCAD');
@@ -1166,12 +1184,13 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
    - RESPONDA SEMPRE NO MESMO IDIOMA QUE O CLIENTE ENVIAR A MENSAGEM (Inglês, Espanhol, Português, etc.). Se o cliente falar em inglês, responda em inglês fluente e técnico. Se falar em espanhol, responda em espanhol.
    - Para clientes em inglês, utilize terminologia automotiva correta: *catback exhaust, downpipes, valvetronic system, full titanium, TIG welds, stainless steel 304, cold start sound clips, no cabin drone, plug and play fitment*.
    - Para envio internacional: solicite o país e ZIP Code / Postal Code para cotação de frete aéreo internacional expresso (DHL / FedEx Express).
-   - Para clientes no exterior, trabalhe com referências em Dólar (USD $) ou Euro (EUR €).`;
+   - Para clientes no exterior, trabalhe com referências em Dólar (USD $) ou Euro (EUR €).
+${partnerWorkshopsRag ? `\n${partnerWorkshopsRag}\n` : ''}`;
 
   // Tool for Performance & Exhaust Niche CRM Registration & Context Saving
   const registrarInteresseProjetoTool = {
     name: 'registrar_interesse_projeto',
-    description: 'Salva o contexto da conversa no WhatsApp e registra/atualiza o lead e projeto do cliente no CRM de Performance & Escapamentos da loja. Chame sempre que o cliente informar dados do veículo, objetivo do projeto, modificações, nome, CEP/ZIP Code, país ou interesse em orçamento.',
+    description: 'Salva o contexto da conversa no WhatsApp e registra/atualiza o lead e projeto do cliente no CRM de Performance & Escapamentos da loja. Chame sempre que o cliente informar dados do veículo, objetivo do projeto, modificações, nome, CEP/ZIP Code, país, oficina credenciada indicada ou interesse em orçamento.',
     parameters: {
       type: 'object',
       properties: {
@@ -1187,6 +1206,10 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
         country: { type: 'string', description: 'País do cliente (ex: Brasil, United States, Spain, Germany)' },
         currency: { type: 'string', enum: ['BRL', 'USD', 'EUR'], description: 'Moeda da negociação' },
         detectedLanguage: { type: 'string', description: 'Idioma detectado da conversa (ex: pt, en, es)' },
+        recommendedPartnerWorkshop: {
+          type: 'string',
+          description: 'Nome da oficina credenciada parceira recomendada para a cidade/região do cliente se aplicável'
+        },
         referenceNames: {
           type: 'array',
           items: { type: 'string' },

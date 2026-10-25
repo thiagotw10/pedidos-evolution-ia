@@ -21,6 +21,7 @@ import { FinanceView } from './components/FinanceView';
 import { BillingView } from './components/BillingView';
 import { TrafficGrowthView } from './components/TrafficGrowthView';
 import { AutomotiveLeadRadar } from './components/AutomotiveLeadRadar';
+import { AutomotivePartnerWorkshops } from './components/AutomotivePartnerWorkshops';
 import { PublicStorefront } from './components/PublicStorefront';
 import { AuthView } from './components/AuthView';
 import { HomeView } from './components/HomeView';
@@ -472,6 +473,13 @@ export default function App() {
               <AutomotiveLeadRadar
                 establishment={establishment}
                 onNavigateToProjects={() => setCurrentTab('orders')}
+              />
+            )}
+
+            {currentTab === 'workshops' && (
+              <AutomotivePartnerWorkshops
+                establishment={establishment}
+                onNavigateToRadar={() => setCurrentTab('radar')}
               />
             )}
 

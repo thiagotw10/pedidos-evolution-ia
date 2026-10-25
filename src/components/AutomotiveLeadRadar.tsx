@@ -245,6 +245,27 @@ export const AutomotiveLeadRadar: React.FC<AutomotiveLeadRadarProps> = ({
     window.open(`https://wa.me/${cleanNumber}?text=${encoded}`, '_blank');
   };
 
+  const [credentialedLeadIds, setCredentialedLeadIds] = useState<Set<string>>(new Set());
+
+  const handleCredenciarOficina = async (lead: LeadItem) => {
+    try {
+      const storeId = establishment?.id || 'ZFFWUNspKNYKsn22kKDH6nybCWw2';
+      const res = await fetch('/api/automotive/partners/import-from-lead', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-establishment-id': storeId
+        },
+        body: JSON.stringify({ lead })
+      });
+      if (!res.ok) throw new Error('Falha ao credenciar oficina');
+      setCredentialedLeadIds(prev => new Set(prev).add(lead.id));
+      alert(`🎉 Oficina "${lead.title || lead.handleOrLocation}" credenciada com sucesso! O RAG da IA já começou a indicá-la para clientes dessa região.`);
+    } catch (err: any) {
+      alert('Erro ao credenciar oficina: ' + err.message);
+    }
+  };
+
   const handleImportLead = async (leadId: string) => {
     try {
       const storeId = establishment?.id || 'ZFFWUNspKNYKsn22kKDH6nybCWw2';
@@ -602,7 +623,25 @@ export const AutomotiveLeadRadar: React.FC<AutomotiveLeadRadarProps> = ({
                   )}
                 </div>
 
-                <div>
+                <div className="flex items-center gap-2">
+                  {lead.source === 'google_maps' && (
+                    credentialedLeadIds.has(lead.id) ? (
+                      <span className="px-3 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold flex items-center gap-1">
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                        Credenciada no RAG
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => handleCredenciarOficina(lead)}
+                        className="px-3 py-1.5 rounded-xl bg-slate-800/90 hover:bg-emerald-950/80 text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                        title="Credenciar como oficina parceira oficial e ativar no RAG da IA"
+                      >
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Credenciar Oficina</span>
+                      </button>
+                    )
+                  )}
+
                   {isImported ? (
                     <span className="px-3 py-1.5 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs font-bold flex items-center gap-1">
                       <CheckCircle2 className="w-3.5 h-3.5 text-purple-400" />
