@@ -4,7 +4,7 @@ import express from 'express';
 import admin from 'firebase-admin';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
-import { registerAutomotiveRoutes, saveAutomotiveContactAndSyncCrm, AutomotiveConversationContext } from './automotive';
+import { registerAutomotiveRoutes, saveAutomotiveContactAndSyncCrm, AutomotiveConversationContext, translateAutomotiveText } from './automotive';
 import { extractTrafficAttribution } from './metaCapi';
 import { registerCarVideoStudioRoutes } from './carVideoStudio';
 import { visibleForSegment } from './catalogPolicy';
@@ -929,6 +929,42 @@ async function updateCustomerMemory(
   }
 }
 
+export function detectMessageLanguage(text: string = '', historyTexts: string[] = [], contextLang?: string): string {
+  if (contextLang && ['en', 'es', 'de', 'fr', 'it'].includes(contextLang.toLowerCase())) {
+    const ptSwitch = /\b(ol[aá]|bom dia|boa tarde|boa noite|quero|obrigado|valeu|quanto custa|qual o valor)\b/i.test(text);
+    if (!ptSwitch) return contextLang.toLowerCase();
+  }
+
+  const combined = [text, ...historyTexts.slice(-4)].join(' ').toLowerCase();
+
+  const enWords = [
+    'hi', 'hello', 'hey', 'how', 'are', 'you', 'my', 'name', 'is', 'looking', 'for', 'exhaust',
+    'pipe', 'catback', 'downpipe', 'sound', 'video', 'image', 'images', 'photo', 'photos',
+    'project', 'car', 'year', 'what', 'can', 'have', 'with', 'from', 'please', 'thanks', 'thank',
+    'specs', 'price', 'quote', 'shipping', 'valvetronic', 'system', 'tuning', 'intake', 'career',
+    'development', 'do', 'any', 'tell', 'me', 'send', 'picture', 'pictures'
+  ];
+  
+  const esWords = [
+    'hola', 'buenos', 'dias', 'tardes', 'nombre', 'busco', 'escape', 'coche', 'auto', 'fotos',
+    'imagenes', 'sonido', 'ano', 'modelo', 'gracias', 'cuanto', 'precio', 'envio'
+  ];
+
+  let enCount = 0;
+  for (const w of enWords) {
+    if (new RegExp(`\\b${w}\\b`, 'i').test(combined)) enCount++;
+  }
+
+  let esCount = 0;
+  for (const w of esWords) {
+    if (new RegExp(`\\b${w}\\b`, 'i').test(combined)) esCount++;
+  }
+
+  if (enCount >= 2 && enCount >= esCount) return 'en';
+  if (esCount >= 2 && esCount > enCount) return 'es';
+  return 'pt';
+}
+
 // Process conversation with Google Gemini (Multi-Turn History + Function Calling + Audio / Image Multimodal + Product Photo Sending)
 async function processAiCustomerMessage(
   establishmentId: string,
@@ -1155,8 +1191,13 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
           description: 'Nomes das referências do catálogo pelas quais o cliente se interessou'
         },
         summary: { type: 'string', description: 'Resumo executivo do contexto da conversa para o consultor técnico da loja' },
-        leadTemperature: { type: 'string', enum: ['HOT', 'WARM', 'COLD'], description: 'Temperatura do interesse do cliente' }
-      }
+        leadTemperature: { type: 'string', enum: ['HOT', 'WARM', 'COLD'], description: 'Temperatura do interesse do cliente' },
+        responseText: {
+          type: 'string',
+          description: 'A resposta conversacional COMPLETA e natural que você envia ao cliente no WhatsApp. OBRIGATÓRIO escrever RIGOROSAMENTE NO MESMO IDIOMA QUE O CLIENTE ESTÁ USANDO (se o cliente estiver falando em inglês, responda em inglês fluente e técnico de escapamentos esportivos; se em espanhol, em espanhol; se em português, em português). Responda com entusiasmo, esclareça dúvidas sobre fotos ou projetos e faça perguntas consultivas.'
+        }
+      },
+      required: ['responseText']
     }
   };
 
@@ -1336,8 +1377,12 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
     if (functionCalls && functionCalls.length > 0) {
       for (const call of functionCalls) {
         if (call.name === 'registrar_interesse_projeto') {
-          automotiveToolArgs = { ...(automotiveToolArgs || {}), ...(call.args as any) };
+          const args: any = call.args || {};
+          automotiveToolArgs = { ...(automotiveToolArgs || {}), ...args };
           forceRegisterAutomotive = true;
+          if (args.responseText && !replyText) {
+            replyText = args.responseText;
+          }
           console.log(`[Automotive CRM Tool Triggered] Qualificando/registrando interesse de projeto para ${customerPhone}:`, JSON.stringify(automotiveToolArgs));
         }
 
@@ -1717,15 +1762,32 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
 
     // 2. If customer specifically asked for photo of a product (and isn't selecting/ordering yet)
     if (mediaList.length === 0 && !isSelecting) {
-      const askedPhoto = lowerIn.includes('foto') || lowerIn.includes('imagem') || lowerIn.includes('fotos') || lowerIn.includes('imagens') || lowerIn.includes('ver o ') || lowerIn.includes('ver a ');
+      const askedPhoto = 
+        lowerIn.includes('foto') || lowerIn.includes('imagem') || lowerIn.includes('fotos') || lowerIn.includes('imagens') || 
+        lowerIn.includes('ver o ') || lowerIn.includes('ver a ') ||
+        lowerIn.includes('photo') || lowerIn.includes('photos') || lowerIn.includes('image') || lowerIn.includes('images') || 
+        lowerIn.includes('picture') || lowerIn.includes('pictures') || lowerIn.includes('pic ') || lowerIn.includes('pics') ||
+        lowerIn.includes('clip') || lowerIn.includes('clips') || lowerIn.includes('video') || lowerIn.includes('vídeo') ||
+        lowerIn.includes('sound') || lowerIn.includes('ronco');
+
       if (askedPhoto) {
-        const found: any = products.find((prod: any) => prod.imageUrl && (
+        const carKeywords = [
+          savedAutoCtx.brand, 
+          savedAutoCtx.model, 
+          automotiveToolArgs?.brand, 
+          automotiveToolArgs?.model
+        ].filter(Boolean).map(s => s!.toLowerCase());
+
+        const found: any = products.find((prod: any) => (prod.imageUrl || (prod.images && prod.images.length > 0)) && (
           lowerIn.includes(prod.name.toLowerCase()) || 
-          prod.name.toLowerCase().split(' ').some((w: string) => w.length > 3 && lowerIn.includes(w))
+          prod.name.toLowerCase().split(' ').some((w: string) => w.length > 3 && lowerIn.includes(w)) ||
+          carKeywords.some(kw => prod.name.toLowerCase().includes(kw))
         ));
+
         if (found) {
+          const mainImg = found.imageUrl || (found.images && found.images[0]);
           mediaList.push({
-            url: found.imageUrl,
+            url: mainImg,
             caption: formatWhatsAppText(isAutomotive ? `🏁 *${found.name}*\n${found.description || ''}\nReferência sob análise técnica.` : `📸 *${found.name}* - R$ ${Number(found.price).toFixed(2)}\n${found.description || ''}`),
             productName: found.name
           });
@@ -1758,7 +1820,10 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
         lowerIn.includes('localização') || 
         lowerIn.includes('localizacao') || 
         lowerIn.includes('ponto de referência') || 
-        lowerIn.includes('ponto de referencia');
+        lowerIn.includes('ponto de referencia') ||
+        lowerIn.includes('where are you located') ||
+        lowerIn.includes('your address') ||
+        lowerIn.includes('shop address');
 
       if (asksLocation && establishment.address) {
         let lat = establishment.latitude;
@@ -1789,7 +1854,20 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
       }
     }
 
+    // Detect active conversation language
+    const conversationLang = detectMessageLanguage(
+      textForAi || incomingText,
+      (history || []).map((h: any) => h.text),
+      automotiveToolArgs?.detectedLanguage || savedAutoCtx.detectedLanguage
+    );
+
     if (isAutomotive) {
+      if (conversationLang && automotiveToolArgs) {
+        automotiveToolArgs.detectedLanguage = conversationLang;
+      } else if (conversationLang) {
+        automotiveToolArgs = { detectedLanguage: conversationLang };
+      }
+
       const autoSync = await saveAutomotiveContactAndSyncCrm({
         db,
         establishmentId,
@@ -1859,11 +1937,29 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
       }
     }
 
-    // Ensure audio suggestion is present on customer's initial contact
+    // Auto-translate replyText and media captions if conversation is in English, Spanish or another language
+    if (conversationLang !== 'pt' && replyText) {
+      replyText = await translateAutomotiveText(replyText, conversationLang);
+    }
+
+    if (conversationLang !== 'pt' && mediaList.length > 0) {
+      for (const m of mediaList) {
+        if (m.caption) {
+          m.caption = await translateAutomotiveText(m.caption, conversationLang);
+        }
+      }
+    }
+
+    // Ensure audio suggestion is present on customer's initial contact in the proper language
     if (history.length <= 1) {
       const lowerReply = replyText.toLowerCase();
-      if (!lowerReply.includes('áudio') && !lowerReply.includes('audio') && !lowerReply.includes('voz')) {
-        replyText = `${replyText}\n\n🎙️ *Dica:* Se preferir, você também pode me mandar mensagem de áudio que eu escuto com atenção e ${isAutomotive ? 'organizo os detalhes do seu projeto!' : 'anoto seu pedido!'}`;
+      if (!lowerReply.includes('áudio') && !lowerReply.includes('audio') && !lowerReply.includes('voz') && !lowerReply.includes('voice')) {
+        const audioTip = conversationLang === 'en'
+          ? `\n\n🎙️ *Tip:* If you prefer, feel free to send a voice note — I'll listen carefully and organize your project details!`
+          : conversationLang === 'es'
+          ? `\n\n🎙️ *Consejo:* Si lo prefieres, ¡puedes enviarme una nota de voz y preparo los detalles de tu proyecto!`
+          : `\n\n🎙️ *Dica:* Se preferir, você também pode me mandar mensagem de áudio que eu escuto com atenção e ${isAutomotive ? 'organizo os detalhes do seu projeto!' : 'anoto seu pedido!'}`;
+        replyText = `${replyText}${audioTip}`;
       }
     }
 
