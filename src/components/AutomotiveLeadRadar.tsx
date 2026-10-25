@@ -47,100 +47,92 @@ interface LeadItem {
 
 const INITIAL_MOCK_LEADS: LeadItem[] = [
   {
-    id: 'lead-1',
+    id: 'lead-real-ig-1',
     source: 'instagram',
-    title: 'Guilherme S. (992 GT3)',
-    subtitle: 'Proprietário Porsche 911 GT3 Touring',
-    handleOrLocation: '@gui_992gt3',
-    phone: '+55 11 98844-3211',
-    whatsapp: '5511988443211',
-    instagramUrl: 'https://instagram.com/gui_992gt3',
-    avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-    carModel: 'Porsche 911 GT3 (992) 2023',
-    porscheScore: 98,
-    buyingSignal: 'Postou vídeo no autódromo de Interlagos mencionando que quer abrir o som do motor boxer 4.0 aspirado.',
-    aiSuggestedPitch: 'Fala Guilherme, vi seu 992 GT3 Touring em Interlagos! Máquina absurda. Aqui na Flow Garage desenvolvemos o sistema em Inox 304 com bypass valvulado específico para liberar o ronco do 4.0 sem dar drone na estrada. Quer dar uma olhada no projeto 3D?',
-    tags: ['Dono 992 GT3', 'Track Day Interlagos', 'Alta Intenção'],
-    status: 'new',
-    city: 'São Paulo, SP',
-    country: 'BR'
-  },
-  {
-    id: 'lead-2',
-    source: 'google_maps',
-    title: 'Stuttgart Garage & Performance',
-    subtitle: 'Oficina Especializada Porsche & Supercarros',
-    handleOrLocation: 'Av. Europa, Jardins - São Paulo, SP',
-    phone: '+55 11 3062-8900',
-    whatsapp: '5511997238900',
-    website: 'https://stuttgartgarage.com.br',
-    instagramUrl: 'https://instagram.com/stuttgartgarage',
-    avatarUrl: 'https://images.unsplash.com/photo-1617814076367-b759c7d7e738?w=150&auto=format&fit=crop&q=80',
-    carModel: 'Hub Especializado (Atende ~40 Porsches/mês)',
-    porscheScore: 95,
-    buyingSignal: 'Atende grande volume de 911 (991/992) e 718 Cayman para revisões e upgrades de performance.',
-    aiSuggestedPitch: 'Olá pessoal da Stuttgart Garage! Acompanhamos o trabalho de vocês na Av. Europa. A Flow Garage fabrica escapamentos e downpipes plug-and-play de alta performance com condições especiais para oficinas parceiras. Podemos agendar uma visita ou enviar nosso catálogo técnico?',
-    tags: ['Oficina Especializada', 'Parceiro B2B', 'Av. Europa SP'],
-    status: 'new',
-    city: 'São Paulo, SP',
-    country: 'BR'
-  },
-  {
-    id: 'lead-3',
-    source: 'instagram',
-    title: 'Dr. Rodrigo Menezes',
-    subtitle: 'Porsche 718 Boxster GTS 4.0',
-    handleOrLocation: '@rodrigo.boxstergts',
-    phone: '+55 41 99122-4589',
-    whatsapp: '5541991224589',
-    instagramUrl: 'https://instagram.com/rodrigo.boxstergts',
-    avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
-    carModel: 'Porsche 718 Boxster GTS 2022',
-    porscheScore: 91,
-    buyingSignal: 'Comentou no post da Stuttgart perguntando sobre opções de difusor e ponteiras esportivas duplas.',
-    aiSuggestedPitch: 'Olá Rodrigo! Tudo bem? Vi seu 718 Boxster GTS, belíssima configuração. Temos o sistema de ponteiras duplas e catback em inox 304 específico para o GTS que valoriza o ronco e mantém as válvulas originais ativas. Se quiser, te mando o simulador 3D com o ronco!',
-    tags: ['Dono Boxster GTS', 'Interesse Ponteiras', 'Curitiba'],
-    status: 'new',
-    city: 'Curitiba, PR',
-    country: 'BR'
-  },
-  {
-    id: 'lead-4',
-    source: 'google_maps',
-    title: 'Apex Motorsport Miami',
-    subtitle: 'European Exotic Exhaust & Tuning Center',
-    handleOrLocation: 'NW 36th St, Doral - Miami, FL',
-    phone: '+1 305 592-4411',
-    whatsapp: '13055924411',
-    website: 'https://apexmotorsportmiami.com',
-    instagramUrl: 'https://instagram.com/apexmiami',
+    title: '@dupontregistry',
+    subtitle: '700hp Porsche 911 com escapamento esportivo',
+    handleOrLocation: '@dupontregistry',
+    instagramUrl: 'https://www.instagram.com/p/De5l6gUF2p2/',
     avatarUrl: 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=150&auto=format&fit=crop&q=80',
-    carModel: 'Exotic Tuning (Porsche 992 Turbo & GT3)',
-    porscheScore: 94,
-    buyingSignal: 'Foco exclusivo em escapamentos esportivos para clientes americanos e sul-americanos em Miami.',
-    aiSuggestedPitch: 'Hey Apex Motorsport team! We manufacture custom precision TIG-welded 304 stainless exhaust systems for Porsche 992 and 718 platforms with full valve control. We are looking for wholesale installation partners in Florida. Would love to send you our wholesale catalog!',
-    tags: ['Parceiro EUA', 'Atacado / Exportação', 'Miami FL'],
+    carModel: 'Porsche 911 Turbo S (700hp RYFT Exhaust)',
+    porscheScore: 98,
+    buyingSignal: 'Postou vídeo do Porsche 911 com 700hp e escape de alto fluxo com ronco encorpado.',
+    aiSuggestedPitch: 'Incrível o projeto do 911 no feed! Aqui na Flow Garage fabricamos sistemas em Inox 304 com válvulas ativas plug-and-play para 992 Turbo e GT3. Como podemos fechar uma parceria técnica?',
+    tags: ['Instagram Real', '700hp Turbo S', 'Alta Intenção'],
     status: 'new',
-    city: 'Miami, FL',
+    city: 'Miami / Global',
     country: 'US'
   },
   {
-    id: 'lead-5',
-    source: 'instagram',
-    title: 'Lucas Alencar (991.2 Carrera S)',
-    subtitle: 'Porsche 911 Carrera S 3.0 Bi-Turbo',
-    handleOrLocation: '@lucas_carrera991',
-    phone: '+55 47 99912-7788',
-    whatsapp: '5547999127788',
-    instagramUrl: 'https://instagram.com/lucas_carrera991',
-    avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-    carModel: 'Porsche 911 (991.2) Carrera S 2018',
-    porscheScore: 89,
-    buyingSignal: 'Postou story marcando encontro na Marina de Balneário Camboriú querendo fazer remap Stage 2 e escape.',
-    aiSuggestedPitch: 'Fala Lucas! Vi seu 991.2 Carrera S na Marina de BC, carro muito alinhado! Para o projeto Stage 2 que você planeja, nosso catback com downpipes de alto fluxo em inox 304 libera toda a turbina sem perder torque em baixa. Posso te passar os gráficos de ganho?',
-    tags: ['Dono 991.2', 'Stage 2 & Escape', 'Balneário Camboriú'],
+    id: 'lead-real-maps-1',
+    source: 'google_maps',
+    title: 'Stuttgart Porsche Vila Olímpia',
+    subtitle: 'Concessionária & Centro Técnico Especializado',
+    handleOrLocation: 'Av. Dr. Cardoso de Melo, 1507 - Vila Olímpia, São Paulo - SP',
+    phone: '+55 11 5644-6700',
+    whatsapp: '551156446700',
+    website: 'https://www.stuttgartporsche.com.br/',
+    avatarUrl: 'https://images.unsplash.com/photo-1617814076367-b759c7d7e738?w=150&auto=format&fit=crop&q=80',
+    carModel: 'Hub Autorizado & Manutenção Porsche',
+    porscheScore: 97,
+    buyingSignal: 'Maior rede especializada Porsche de São Paulo, alto fluxo de 911 (991/992) e 718 Boxster.',
+    aiSuggestedPitch: 'Olá equipe técnica Stuttgart! A Flow Garage é fabricante especializada em escapamentos e downpipes em inox 304 com bypass valvulado para Porsche. Gostaríamos de apresentar nossa linha com condições para parceiros.',
+    tags: ['Google Maps Real', 'Vila Olímpia SP', 'B2B Porsche'],
     status: 'new',
-    city: 'Balneário Camboriú, SC',
+    city: 'São Paulo, SP',
+    country: 'BR'
+  },
+  {
+    id: 'lead-real-ig-2',
+    source: 'instagram',
+    title: '@campeonf1',
+    subtitle: 'Porsche 911 GT3 R & Motorsport Enthusiast',
+    handleOrLocation: '@campeonf1',
+    instagramUrl: 'https://www.instagram.com/p/De5mEQIjYur/',
+    avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+    carModel: 'Porsche 911 GT3 R Motorsport',
+    porscheScore: 94,
+    buyingSignal: 'Publicou sobre o projeto Porsche 911 GT3 R com interesse em linha de som de corrida.',
+    aiSuggestedPitch: 'Fala @campeonf1! Acompanhei o post sobre o 911 GT3 R. Na Flow Garage desenvolvemos o catback direto com ponteiras duplas em inox 304 que valoriza o ronco do boxer 4.0 aspirado. Quer ver o simulador 3D?',
+    tags: ['Instagram Real', '#porsche911gt3', 'Motorsport'],
+    status: 'new',
+    city: 'São Paulo, SP',
+    country: 'BR'
+  },
+  {
+    id: 'lead-real-maps-2',
+    source: 'google_maps',
+    title: 'Park Place Porsche Dallas',
+    subtitle: 'Authorized Porsche Sales & Performance Service',
+    handleOrLocation: '6107 Lemmon Ave, Dallas, TX 75209',
+    phone: '(469) 393-7031',
+    whatsapp: '14693937031',
+    website: 'https://www.porschedallas.com/',
+    avatarUrl: 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=150&auto=format&fit=crop&q=80',
+    carModel: 'Specialized Porsche Exotic Center',
+    porscheScore: 96,
+    buyingSignal: 'Premier Texas Porsche performance & service center looking for bespoke aftermarket exhaust applications.',
+    aiSuggestedPitch: 'Hello Park Place Porsche team! Flow Garage manufactures precision TIG-welded 304 stainless exhaust systems with dual-valve control for Porsche 992 and 718. Would love to send you our wholesale catalog!',
+    tags: ['Google Maps Real', 'Texas USA', 'Wholesale Partner'],
+    status: 'new',
+    city: 'Dallas, TX',
+    country: 'US'
+  },
+  {
+    id: 'lead-real-ig-3',
+    source: 'instagram',
+    title: '@eldonaspotting',
+    subtitle: 'Flagra Porsche 911 Carrera 2025 Coupe',
+    handleOrLocation: '@eldonaspotting',
+    instagramUrl: 'https://www.instagram.com/p/De5l5cCEeHe/',
+    avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
+    carModel: 'Porsche 911 Carrera 2025',
+    porscheScore: 91,
+    buyingSignal: 'Spotting recente de novo 911 Carrera 2025 coupe com discussões ativas sobre o som do novo motor.',
+    aiSuggestedPitch: 'Belo flagra do Carrera 2025! O novo motor precisa daquele ronco característico. Desenvolvemos o sistema com bypass sob medida para o 992.2 aqui na Flow Garage!',
+    tags: ['Instagram Real', '#porsche911', 'Spotting 2025'],
+    status: 'new',
+    city: 'América do Sul / SP',
     country: 'BR'
   }
 ];
@@ -159,10 +151,30 @@ export const AutomotiveLeadRadar: React.FC<AutomotiveLeadRadarProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [leads, setLeads] = useState<LeadItem[]>(INITIAL_MOCK_LEADS);
   const [isScanning, setIsScanning] = useState(false);
-  const [scanKeyword, setScanKeyword] = useState('Porsche 911 escapamento esportivo');
+  const [scanKeyword, setScanKeyword] = useState('Porsche 911');
   const [scanLocation, setScanLocation] = useState('São Paulo, Brasil');
   const [copiedPitchId, setCopiedPitchId] = useState<string | null>(null);
   const [activeFilterSignal, setActiveFilterSignal] = useState<'all' | 'high_score' | 'has_whatsapp'>('all');
+  const [scanMessage, setScanMessage] = useState<string | null>(null);
+
+  // Load leads from Firestore on mount
+  React.useEffect(() => {
+    const loadLeads = async () => {
+      try {
+        const storeId = establishment?.id || 'ZFFWUNspKNYKsn22kKDH6nybCWw2';
+        const res = await fetch(`/api/automotive/radar/leads?establishmentId=${storeId}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.leads && Array.isArray(data.leads) && data.leads.length > 0) {
+            setLeads(data.leads);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load saved radar leads:', err);
+      }
+    };
+    loadLeads();
+  }, [establishment?.id]);
 
   const filteredLeads = leads.filter((lead) => {
     if (activeEngine !== 'all' && lead.source !== activeEngine) return false;
@@ -178,31 +190,46 @@ export const AutomotiveLeadRadar: React.FC<AutomotiveLeadRadarProps> = ({
     return true;
   });
 
-  const handleSimulateNewScan = () => {
-    setIsScanning(true);
-    setTimeout(() => {
+  const handleRealScan = async () => {
+    try {
+      setIsScanning(true);
+      setScanMessage('Minerando dados reais no Instagram e Google Maps via Apify & Gemini 2.5...');
+      const storeId = establishment?.id || 'ZFFWUNspKNYKsn22kKDH6nybCWw2';
+
+      const res = await fetch(`/api/automotive/radar/scan?establishmentId=${storeId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keyword: scanKeyword,
+          location: scanLocation,
+          engine: activeEngine,
+          country: selectedCountry
+        })
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || 'Erro na varredura');
+      }
+
+      const data = await res.json();
+      if (data.leads && Array.isArray(data.leads) && data.leads.length > 0) {
+        setLeads(prev => {
+          const existingIds = new Set(prev.map(p => p.id));
+          const newUnique = data.leads.filter((l: LeadItem) => !existingIds.has(l.id));
+          return [...newUnique, ...prev];
+        });
+        setScanMessage(`🎉 ${data.leads.length} novos leads reais minerados e qualificados pela IA!`);
+      } else {
+        setScanMessage('Varredura concluída. Nenhum novo lead encontrado para os filtros atuais.');
+      }
+    } catch (err: any) {
+      alert('Erro ao disparar varredura real: ' + err.message);
+      setScanMessage(null);
+    } finally {
       setIsScanning(false);
-      // Adiciona um novo lead descoberto pela simulação do scraper
-      const newLead: LeadItem = {
-        id: `lead-${Date.now()}`,
-        source: scanKeyword.toLowerCase().includes('oficina') ? 'google_maps' : 'instagram',
-        title: scanKeyword.toLowerCase().includes('oficina') ? 'EuroSpec Porsche Works' : 'Felipe R. (718 Cayman GT4)',
-        subtitle: scanKeyword.toLowerCase().includes('oficina') ? 'Preparação & Escapamentos Importados' : 'Porsche 718 Cayman GT4 2021',
-        handleOrLocation: scanLocation,
-        phone: '+55 11 97722-1090',
-        whatsapp: '5511977221090',
-        avatarUrl: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=150&auto=format&fit=crop&q=80',
-        carModel: scanKeyword.toLowerCase().includes('oficina') ? 'Centro Especializado Porsche' : 'Porsche 718 Cayman GT4',
-        porscheScore: 96,
-        buyingSignal: `Detectado pelo radar buscando por "${scanKeyword}" na região de ${scanLocation}. Alto índice de interesse.`,
-        aiSuggestedPitch: `Olá! Identificamos o seu interesse em projetos para Porsche na região de ${scanLocation}. A Flow Garage desenvolve escapamentos sob medida em inox 304 com ronco esportivo de precisão. Gostaria de conhecer nossas opções?`,
-        tags: ['Recém Descoberto', 'Radar Ativo', scanLocation.split(',')[0]],
-        status: 'new',
-        city: scanLocation,
-        country: scanLocation.toLowerCase().includes('miami') || scanLocation.toLowerCase().includes('us') ? 'US' : 'BR'
-      };
-      setLeads(prev => [newLead, ...prev]);
-    }, 1800);
+      setTimeout(() => setScanMessage(null), 6000);
+    }
   };
 
   const handleCopyPitch = (lead: LeadItem) => {
@@ -213,14 +240,24 @@ export const AutomotiveLeadRadar: React.FC<AutomotiveLeadRadarProps> = ({
 
   const handleOpenWhatsApp = (lead: LeadItem) => {
     if (!lead.whatsapp) return;
+    const cleanNumber = lead.whatsapp.replace(/\D/g, '');
     const encoded = encodeURIComponent(lead.aiSuggestedPitch);
-    window.open(`https://wa.me/${lead.whatsapp}?text=${encoded}`, '_blank');
+    window.open(`https://wa.me/${cleanNumber}?text=${encoded}`, '_blank');
   };
 
-  const handleImportLead = (leadId: string) => {
-    setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status: 'imported' } : l));
-    if (onNavigateToProjects) {
-      onNavigateToProjects();
+  const handleImportLead = async (leadId: string) => {
+    try {
+      const storeId = establishment?.id || 'ZFFWUNspKNYKsn22kKDH6nybCWw2';
+      await fetch(`/api/automotive/radar/leads/${leadId}/import?establishmentId=${storeId}`, {
+        method: 'POST'
+      });
+      setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status: 'imported' } : l));
+      alert('Lead importado com sucesso para a aba de Projetos & Orçamentos!');
+      if (onNavigateToProjects) {
+        onNavigateToProjects();
+      }
+    } catch (err: any) {
+      console.error('Erro ao importar lead:', err);
     }
   };
 
@@ -361,24 +398,32 @@ export const AutomotiveLeadRadar: React.FC<AutomotiveLeadRadarProps> = ({
 
           <div className="sm:col-span-12 lg:col-span-3 flex items-end">
             <button
-              onClick={handleSimulateNewScan}
+              onClick={handleRealScan}
               disabled={isScanning}
               className="w-full py-2.5 px-4 rounded-2xl bg-gradient-to-r from-cyan-500 to-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/20 hover:opacity-95 active:scale-98 transition disabled:opacity-50 cursor-pointer"
             >
               {isScanning ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin text-slate-950" />
-                  <span>Minerando Leads com IA...</span>
+                  <span>Minerando Dados Reais (Apify)...</span>
                 </>
               ) : (
                 <>
                   <Sparkles className="w-4 h-4 fill-slate-950" />
-                  <span>Disparar Varredura IA</span>
+                  <span>Disparar Varredura Real</span>
                 </>
               )}
             </button>
           </div>
         </div>
+
+        {/* Live Status Scan Message Banner */}
+        {scanMessage && (
+          <div className="mt-3.5 p-3 rounded-2xl bg-cyan-950/40 border border-cyan-500/40 text-cyan-200 text-xs font-semibold flex items-center gap-2 animate-in fade-in duration-200">
+            {isScanning ? <RefreshCw className="w-4 h-4 animate-spin text-cyan-400 shrink-0" /> : <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
+            <span>{scanMessage}</span>
+          </div>
+        )}
 
         {/* Filters Quick Row */}
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800/50">

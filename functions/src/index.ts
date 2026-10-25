@@ -13,6 +13,7 @@ import { GoogleGenAI } from '@google/genai';
 import { triageInboundMessageWithJev, qualifyLeadWithJev, screenPromptInjectionWithJev } from './typesafeJev';
 import { generateVoiceAudioBase64, VOICE_OPTIONS } from './voiceGenerator';
 import { isOwnerAdminMessage, processAdminCoPilotCommand } from './adminCoPilot';
+import { registerLeadRadarEndpoints } from './automotiveLeadRadar';
 
 dotenv.config();
 
@@ -80,6 +81,7 @@ const app = express();
 app.use(express.json());
 registerAutomotiveRoutes(app, db);
 registerCarVideoStudioRoutes(app, db, getGenAI());
+registerLeadRadarEndpoints(app, db);
 
 // In-memory cache for de-duplicating rapid Webhook calls from Evolution Go
 const processedMessages = new Map<string, number>();

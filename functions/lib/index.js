@@ -53,6 +53,7 @@ const genai_1 = require("@google/genai");
 const typesafeJev_1 = require("./typesafeJev");
 const voiceGenerator_1 = require("./voiceGenerator");
 const adminCoPilot_1 = require("./adminCoPilot");
+const automotiveLeadRadar_1 = require("./automotiveLeadRadar");
 dotenv_1.default.config();
 // Initialize Firebase Admin (in Cloud Functions runtime it uses default credentials automatically)
 if (firebase_admin_1.default.apps.length === 0) {
@@ -115,6 +116,7 @@ const app = (0, express_1.default)();
 app.use(express_1.default.json());
 (0, automotive_1.registerAutomotiveRoutes)(app, db);
 (0, carVideoStudio_1.registerCarVideoStudioRoutes)(app, db, getGenAI());
+(0, automotiveLeadRadar_1.registerLeadRadarEndpoints)(app, db);
 // In-memory cache for de-duplicating rapid Webhook calls from Evolution Go
 const processedMessages = new Map();
 const botSentMessages = new Map();
