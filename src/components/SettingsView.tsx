@@ -141,6 +141,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
+  const handleSelectVoice = async (voiceId: string) => {
+    setFormData(prev => ({ ...prev, aiVoiceId: voiceId }));
+    try {
+      await onSaveEstablishment({ aiVoiceId: voiceId });
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 2000);
+    } catch (err: any) {
+      console.error('Erro ao salvar voz selecionada:', err);
+    }
+  };
+
   const handleGeocodeAddress = async () => {
     if (!formData.address || formData.address.trim().length < 5) {
       alert('Por favor, preencha o campo de endereço completo primeiro.');
@@ -1398,14 +1409,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   {VOICE_OPTIONS.map((voice) => {
-                    const isSelected = (formData.aiVoiceId || 'pt-BR-FranciscaNeural') === voice.id;
+                    const defaultVoice = formData.segment === 'AUTOMOTIVE_PARTS' ? 'pt-BR-AntonioNeural' : 'pt-BR-FranciscaNeural';
+                    const isSelected = (formData.aiVoiceId || defaultVoice) === voice.id;
                     const isPlaying = playingVoiceId === voice.id;
                     const isLoading = loadingVoiceId === voice.id;
 
                     return (
                       <div
                         key={voice.id}
-                        onClick={() => setFormData(prev => ({ ...prev, aiVoiceId: voice.id }))}
+                        onClick={() => handleSelectVoice(voice.id)}
                         className={`p-3.5 rounded-xl border text-left transition relative cursor-pointer flex flex-col justify-between gap-3 ${
                           isSelected
                             ? 'bg-purple-950/25 border-purple-500/70 shadow-sm ring-1 ring-purple-500/40 text-white'

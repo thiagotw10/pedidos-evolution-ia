@@ -2333,7 +2333,8 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
         // If owner sent an audio, synthesize and reply in voice too!
         if (audioMsg && est.aiVoiceMirrorEnabled !== false) {
           try {
-            const chosenVoice = est.aiVoiceId || 'pt-BR-FranciscaNeural';
+            const defaultVoice = est.segment === 'AUTOMOTIVE_PARTS' ? 'pt-BR-AntonioNeural' : 'pt-BR-FranciscaNeural';
+            const chosenVoice = est.aiVoiceId || defaultVoice;
             console.log(`[Admin Co-Pilot] Sintetizando resposta em voz para o gestor (${chosenVoice})...`);
             const audioBase64 = await generateVoiceAudioBase64(copilotResult.replyText, chosenVoice);
             if (audioBase64) {
@@ -2855,7 +2856,8 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
       const isVoiceInbound = !!audioMsg;
       if (isVoiceInbound && est.aiVoiceMirrorEnabled !== false) {
         try {
-          const chosenVoice = est.aiVoiceId || 'pt-BR-FranciscaNeural';
+          const defaultVoice = est.segment === 'AUTOMOTIVE_PARTS' ? 'pt-BR-AntonioNeural' : 'pt-BR-FranciscaNeural';
+          const chosenVoice = est.aiVoiceId || defaultVoice;
           console.log(`[Voice Mirror] Cliente enviou áudio. Sintetizando voz neural (${chosenVoice}) para ${phone}...`);
           const audioBase64 = await generateVoiceAudioBase64(result.replyText, chosenVoice);
           if (audioBase64) {
