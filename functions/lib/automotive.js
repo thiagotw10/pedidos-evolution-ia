@@ -1304,7 +1304,14 @@ Retorne ESTRITAMENTE um objeto JSON no formato:
                             sentAudioBase64 = dubbedVoiceBase64;
                             textNote = `🎙️ "${transTarget}"\n(Falado por Pedro em PT: "${transPt}")`;
                             authorLabel = `Pedro (Áudio Traduzido para ${targetLang.toUpperCase()})`;
+                            console.log(`[Dubbing Audio Success] Generated ${sentAudioBase64.length} chars base64 for lang=${targetLang} voice=${langConfig.voice}`);
                         }
+                        else {
+                            console.warn('[Dubbing Audio Warn] generateVoiceAudioBase64 returned null for transTarget:', transTarget);
+                        }
+                    }
+                    else {
+                        console.warn('[Dubbing Audio Warn] Gemini did not return translatedText:', rawJson);
                     }
                 }
                 catch (transErr) {
