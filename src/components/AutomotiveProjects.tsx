@@ -619,8 +619,20 @@ export function AutomotiveProjects() {
     try {
       const data = await request(`/${project.id}/conversation`);
       if (data) {
-        setConversationMessages(Array.isArray(data.messages) ? data.messages : []);
+        const msgs = Array.isArray(data.messages) ? data.messages : [];
+        setConversationMessages(msgs);
         setConversationContext(data.context || null);
+
+        // Auto-detect conversation language from customer messages if project wasn't explicitly set
+        if (data.context?.detectedLanguage && data.context.detectedLanguage !== 'pt') {
+          setDirectMessageTargetLang(data.context.detectedLanguage);
+        } else {
+          const userTexts = msgs.filter((m: any) => m.sender === 'user').map((m: any) => m.text || '').join(' ').toLowerCase();
+          const isEn = /\b(hi|hello|hey|looking for|exhaust|pipe|catback|sound|video|image|images|photo|project|what|how|are you)\b/i.test(userTexts);
+          const isEs = /\b(hola|buenos dias|escape|coche|auto|fotos|cuanto|precio)\b/i.test(userTexts);
+          if (isEn) setDirectMessageTargetLang('en');
+          else if (isEs) setDirectMessageTargetLang('es');
+        }
       }
     } catch {
       // Fallback gracefully if no chat messages exist yet
@@ -1990,37 +2002,46 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
               />
 
               {/* International Translation Quick Bar */}
-              {(selected.country !== 'BR' || directMessageTargetLang !== 'pt') && (
-                <div className="flex items-center justify-between px-2 text-[11px] text-[#8696a0]">
-                  <div className="flex items-center gap-1.5">
-                    <Globe className="w-3 h-3 text-[#00a884]" />
-                    <span>Traduzir mensagem/áudio para:</span>
-                    <select
-                      value={directMessageTargetLang}
-                      onChange={e => setDirectMessageTargetLang(e.target.value)}
-                      className="bg-[#182229] border border-[#2a3942] rounded px-1.5 py-0.5 text-[#e9edef] text-[11px] focus:outline-none"
-                    >
-                      <option value="pt">🇧🇷 Português</option>
-                      <option value="en">🇺🇸 English</option>
-                      <option value="es">🇪🇸 Español</option>
-                      <option value="de">🇩🇪 Deutsch</option>
-                      <option value="fr">🇫🇷 Français</option>
-                      <option value="it">🇮🇹 Italiano</option>
-                    </select>
-                  </div>
-                  {directMessageTargetLang !== 'pt' && !isRecording && (
-                    <button
-                      type="button"
-                      disabled={translatingDirectMessage || !directMessageText.trim()}
-                      onClick={handleTranslateDirectMessage}
-                      className="text-[#00a884] font-semibold text-[11px] hover:underline flex items-center gap-1 disabled:opacity-40 cursor-pointer"
-                    >
-                      <Sparkles className="w-3 h-3" />
-                      <span>{translatingDirectMessage ? 'Traduzindo…' : 'Traduzir texto'}</span>
-                    </button>
-                  )}
+              <div className="flex items-center justify-between px-2.5 py-1 rounded-lg bg-[#182229] border border-[#2a3942] text-[11px] text-[#8696a0] select-none gap-2">
+                <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                  <Globe className={`w-3.5 h-3.5 shrink-0 ${directMessageTargetLang !== 'pt' ? 'text-[#00a884] animate-pulse' : 'text-[#8696a0]'}`} />
+                  <span className="text-[#e9edef] font-medium shrink-0 text-[11px]">Idioma do cliente:</span>
+                  <select
+                    value={directMessageTargetLang}
+                    onChange={e => setDirectMessageTargetLang(e.target.value)}
+                    className="bg-[#202c33] border border-[#2a3942] rounded px-1.5 py-0.5 text-[#e9edef] text-[11px] font-semibold focus:outline-none cursor-pointer"
+                  >
+                    <option value="pt">🇧🇷 Português</option>
+                    <option value="en">🇺🇸 English (Dublar Áudio/Texto)</option>
+                    <option value="es">🇪🇸 Español (Doblar Audio/Texto)</option>
+                    <option value="de">🇩🇪 Deutsch</option>
+                    <option value="fr">🇫🇷 Français</option>
+                    <option value="it">🇮🇹 Italiano</option>
+                  </select>
                 </div>
-              )}
+                {directMessageTargetLang !== 'pt' ? (
+                  <div className="flex items-center gap-2 shrink-0">
+                    {!isRecording && directMessageText.trim() && (
+                      <button
+                        type="button"
+                        disabled={translatingDirectMessage}
+                        onClick={handleTranslateDirectMessage}
+                        className="text-[#00a884] font-semibold text-[11px] hover:underline flex items-center gap-1 cursor-pointer"
+                        title="Pré-visualizar tradução do texto digitado"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        <span>{translatingDirectMessage ? 'Traduzindo…' : 'Traduzir texto'}</span>
+                      </button>
+                    )}
+                    <span className="text-[#00a884] font-bold text-[10px] hidden sm:flex items-center gap-1">
+                      <Sparkles className="w-3 h-3" />
+                      <span>Dublagem Neural Ativa</span>
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-slate-500 text-[10px] shrink-0">Sem tradução</span>
+                )}
+              </div>
 
               {/* Message Pill Input & Circular Send / Mic Button */}
               <div className="flex items-end gap-2">

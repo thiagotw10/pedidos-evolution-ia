@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AUTOMOTIVE_STAGES = void 0;
+exports.detectMessageLanguage = detectMessageLanguage;
 exports.translateAutomotiveText = translateAutomotiveText;
 exports.inferInternationalDetails = inferInternationalDetails;
 exports.normalizeBrPhoneVariants = normalizeBrPhoneVariants;
@@ -22,6 +23,40 @@ function getGenAI() {
     const envKey = process.env.GEMINI_API_KEY;
     const fallbackKey = Buffer.from('QVEuQWI4Uk42SThVeE1PeTYwUTFndklzMlk5c0tLLVFyemZTMGE5aWVJR0lWbEU2Mk1fenc=', 'base64').toString('utf8');
     return new genai_1.GoogleGenAI({ apiKey: envKey && envKey.trim() ? envKey.trim() : fallbackKey });
+}
+function detectMessageLanguage(text = '', historyTexts = [], contextLang) {
+    if (contextLang && ['en', 'es', 'de', 'fr', 'it'].includes(contextLang.toLowerCase())) {
+        const ptSwitch = /\b(ol[aá]|bom dia|boa tarde|boa noite|quero|obrigado|valeu|quanto custa|qual o valor)\b/i.test(text);
+        if (!ptSwitch)
+            return contextLang.toLowerCase();
+    }
+    const combined = [text, ...historyTexts.slice(-5)].join(' ').toLowerCase();
+    const enWords = [
+        'hi', 'hello', 'hey', 'how', 'are', 'you', 'my', 'name', 'is', 'looking', 'for', 'exhaust',
+        'pipe', 'catback', 'downpipe', 'sound', 'video', 'image', 'images', 'photo', 'photos',
+        'project', 'car', 'year', 'what', 'can', 'have', 'with', 'from', 'please', 'thanks', 'thank',
+        'specs', 'price', 'quote', 'shipping', 'valvetronic', 'system', 'tuning', 'intake', 'career',
+        'development', 'do', 'any', 'tell', 'me', 'send', 'picture', 'pictures'
+    ];
+    const esWords = [
+        'hola', 'buenos', 'dias', 'tardes', 'nombre', 'busco', 'escape', 'coche', 'auto', 'fotos',
+        'imagenes', 'sonido', 'ano', 'modelo', 'gracias', 'cuanto', 'precio', 'envio'
+    ];
+    let enCount = 0;
+    for (const w of enWords) {
+        if (new RegExp(`\\b${w}\\b`, 'i').test(combined))
+            enCount++;
+    }
+    let esCount = 0;
+    for (const w of esWords) {
+        if (new RegExp(`\\b${w}\\b`, 'i').test(combined))
+            esCount++;
+    }
+    if (enCount >= 2 && enCount >= esCount)
+        return 'en';
+    if (esCount >= 2 && esCount > enCount)
+        return 'es';
+    return 'pt';
 }
 async function translateAutomotiveText(text, targetLang) {
     if (!text || !text.trim())
@@ -1094,8 +1129,26 @@ function registerAutomotiveRoutes(app, db) {
             if (!messageText) {
                 return res.status(400).json({ error: 'Texto da mensagem não informado.' });
             }
-            const targetLang = req.body.targetLang;
-            if (req.body.autoTranslate && targetLang && targetLang !== 'pt') {
+            let targetLang = String(req.body.targetLang || '').trim().toLowerCase();
+            let autoTranslate = !!req.body.autoTranslate;
+            if (!targetLang || targetLang === 'pt') {
+                if (projectData?.detectedLanguage && projectData.detectedLanguage !== 'pt') {
+                    targetLang = projectData.detectedLanguage;
+                    autoTranslate = true;
+                }
+                else {
+                    const chatDoc = await db.collection('establishments').doc(storeId).collection('chats').doc(targetPhone).collection('messages').orderBy('timestamp', 'desc').limit(10).get().catch(() => null);
+                    if (chatDoc && !chatDoc.empty) {
+                        const customerMsgs = chatDoc.docs.filter(d => d.data().sender === 'user').map(d => d.data().text || '');
+                        const lang = detectMessageLanguage('', customerMsgs);
+                        if (lang !== 'pt') {
+                            targetLang = lang;
+                            autoTranslate = true;
+                        }
+                    }
+                }
+            }
+            if (autoTranslate && targetLang && targetLang !== 'pt') {
                 messageText = await translateAutomotiveText(messageText, targetLang);
             }
             const sendResult = await (0, whatsappSender_1.sendWhatsAppMessage)(evoUrl, evoKey, evoInst, targetPhone, messageText);
@@ -1178,9 +1231,25 @@ function registerAutomotiveRoutes(app, db) {
             const rawAudio = String(req.body.audioBase64 || '').trim();
             if (!rawAudio)
                 return res.status(400).json({ error: 'Áudio não informado.' });
+            const mimeType = String(req.body.mimeType || 'audio/webm');
             const cleanAudioBase64 = rawAudio.replace(/^data:[^;]+;base64,/, '');
-            const mimeType = req.body.mimeType || 'audio/webm';
-            const targetLang = req.body.targetLang || projectData?.detectedLanguage || 'pt';
+            let targetLang = String(req.body.targetLang || '').trim().toLowerCase();
+            if (!targetLang || targetLang === 'pt') {
+                if (projectData?.detectedLanguage && projectData.detectedLanguage !== 'pt') {
+                    targetLang = projectData.detectedLanguage;
+                }
+                else {
+                    const chatDoc = await db.collection('establishments').doc(storeId).collection('chats').doc(targetPhone).collection('messages').orderBy('timestamp', 'desc').limit(10).get().catch(() => null);
+                    if (chatDoc && !chatDoc.empty) {
+                        const customerMsgs = chatDoc.docs.filter(d => d.data().sender === 'user').map(d => d.data().text || '');
+                        const lang = detectMessageLanguage('', customerMsgs);
+                        if (lang !== 'pt')
+                            targetLang = lang;
+                    }
+                }
+            }
+            if (!targetLang)
+                targetLang = 'pt';
             const nowIso = new Date().toISOString();
             let sentAudioBase64 = cleanAudioBase64;
             let textNote = '🎙️ [Mensagem de áudio]';
@@ -1243,7 +1312,8 @@ Retorne ESTRITAMENTE um objeto JSON no formato:
                 }
             }
             // Envia como áudio de voz PTT no WhatsApp do cliente
-            const audioDataUri = `data:audio/mp3;base64,${sentAudioBase64}`;
+            const realMime = (sentAudioBase64 === cleanAudioBase64) ? (mimeType.split(';')[0] || 'audio/webm') : 'audio/mp3';
+            const audioDataUri = `data:${realMime};base64,${sentAudioBase64}`;
             const sendResult = await (0, whatsappSender_1.sendWhatsAppAudio)(evoUrl, evoKey, evoInst, targetPhone, audioDataUri);
             if (!sendResult.success) {
                 return res.status(500).json({ error: sendResult.error || 'Falha ao enviar áudio pelo WhatsApp.' });
@@ -1310,8 +1380,22 @@ Retorne ESTRITAMENTE um objeto JSON no formato:
             if (!mediaUrlOrBase64)
                 return res.status(400).json({ error: 'Mídia não informada.' });
             let caption = String(req.body.caption || '').trim();
-            const targetLang = req.body.targetLang;
-            if (req.body.autoTranslate && targetLang && targetLang !== 'pt' && caption) {
+            let targetLang = String(req.body.targetLang || '').trim().toLowerCase();
+            if (!targetLang || targetLang === 'pt') {
+                if (projectData?.detectedLanguage && projectData.detectedLanguage !== 'pt') {
+                    targetLang = projectData.detectedLanguage;
+                }
+                else {
+                    const chatDoc = await db.collection('establishments').doc(storeId).collection('chats').doc(targetPhone).collection('messages').orderBy('timestamp', 'desc').limit(10).get().catch(() => null);
+                    if (chatDoc && !chatDoc.empty) {
+                        const customerMsgs = chatDoc.docs.filter(d => d.data().sender === 'user').map(d => d.data().text || '');
+                        const lang = detectMessageLanguage('', customerMsgs);
+                        if (lang !== 'pt')
+                            targetLang = lang;
+                    }
+                }
+            }
+            if (targetLang && targetLang !== 'pt' && caption) {
                 caption = await translateAutomotiveText(caption, targetLang);
             }
             const type = req.body.type || 'image';

@@ -19,6 +19,42 @@ function getGenAI(): GoogleGenAI {
   return new GoogleGenAI({ apiKey: envKey && envKey.trim() ? envKey.trim() : fallbackKey });
 }
 
+export function detectMessageLanguage(text: string = '', historyTexts: string[] = [], contextLang?: string): string {
+  if (contextLang && ['en', 'es', 'de', 'fr', 'it'].includes(contextLang.toLowerCase())) {
+    const ptSwitch = /\b(ol[aá]|bom dia|boa tarde|boa noite|quero|obrigado|valeu|quanto custa|qual o valor)\b/i.test(text);
+    if (!ptSwitch) return contextLang.toLowerCase();
+  }
+
+  const combined = [text, ...historyTexts.slice(-5)].join(' ').toLowerCase();
+
+  const enWords = [
+    'hi', 'hello', 'hey', 'how', 'are', 'you', 'my', 'name', 'is', 'looking', 'for', 'exhaust',
+    'pipe', 'catback', 'downpipe', 'sound', 'video', 'image', 'images', 'photo', 'photos',
+    'project', 'car', 'year', 'what', 'can', 'have', 'with', 'from', 'please', 'thanks', 'thank',
+    'specs', 'price', 'quote', 'shipping', 'valvetronic', 'system', 'tuning', 'intake', 'career',
+    'development', 'do', 'any', 'tell', 'me', 'send', 'picture', 'pictures'
+  ];
+  
+  const esWords = [
+    'hola', 'buenos', 'dias', 'tardes', 'nombre', 'busco', 'escape', 'coche', 'auto', 'fotos',
+    'imagenes', 'sonido', 'ano', 'modelo', 'gracias', 'cuanto', 'precio', 'envio'
+  ];
+
+  let enCount = 0;
+  for (const w of enWords) {
+    if (new RegExp(`\\b${w}\\b`, 'i').test(combined)) enCount++;
+  }
+
+  let esCount = 0;
+  for (const w of esWords) {
+    if (new RegExp(`\\b${w}\\b`, 'i').test(combined)) esCount++;
+  }
+
+  if (enCount >= 2 && enCount >= esCount) return 'en';
+  if (esCount >= 2 && esCount > enCount) return 'es';
+  return 'pt';
+}
+
 export async function translateAutomotiveText(text: string, targetLang: string): Promise<string> {
   if (!text || !text.trim()) return '';
   const langNames: Record<string, string> = {
@@ -1158,8 +1194,26 @@ export function registerAutomotiveRoutes(app: Express, db: admin.firestore.Fires
         return res.status(400).json({ error: 'Texto da mensagem não informado.' });
       }
 
-      const targetLang = req.body.targetLang;
-      if (req.body.autoTranslate && targetLang && targetLang !== 'pt') {
+      let targetLang = String(req.body.targetLang || '').trim().toLowerCase();
+      let autoTranslate = !!req.body.autoTranslate;
+      if (!targetLang || targetLang === 'pt') {
+        if (projectData?.detectedLanguage && projectData.detectedLanguage !== 'pt') {
+          targetLang = projectData.detectedLanguage;
+          autoTranslate = true;
+        } else {
+          const chatDoc = await db.collection('establishments').doc(storeId).collection('chats').doc(targetPhone).collection('messages').orderBy('timestamp', 'desc').limit(10).get().catch(() => null);
+          if (chatDoc && !chatDoc.empty) {
+            const customerMsgs = chatDoc.docs.filter(d => d.data().sender === 'user').map(d => d.data().text || '');
+            const lang = detectMessageLanguage('', customerMsgs);
+            if (lang !== 'pt') {
+              targetLang = lang;
+              autoTranslate = true;
+            }
+          }
+        }
+      }
+
+      if (autoTranslate && targetLang && targetLang !== 'pt') {
         messageText = await translateAutomotiveText(messageText, targetLang);
       }
 
@@ -1249,9 +1303,22 @@ export function registerAutomotiveRoutes(app: Express, db: admin.firestore.Fires
       const rawAudio = String(req.body.audioBase64 || '').trim();
       if (!rawAudio) return res.status(400).json({ error: 'Áudio não informado.' });
 
+      const mimeType = String(req.body.mimeType || 'audio/webm');
       const cleanAudioBase64 = rawAudio.replace(/^data:[^;]+;base64,/, '');
-      const mimeType = req.body.mimeType || 'audio/webm';
-      const targetLang = req.body.targetLang || projectData?.detectedLanguage || 'pt';
+      let targetLang = String(req.body.targetLang || '').trim().toLowerCase();
+      if (!targetLang || targetLang === 'pt') {
+        if (projectData?.detectedLanguage && projectData.detectedLanguage !== 'pt') {
+          targetLang = projectData.detectedLanguage;
+        } else {
+          const chatDoc = await db.collection('establishments').doc(storeId).collection('chats').doc(targetPhone).collection('messages').orderBy('timestamp', 'desc').limit(10).get().catch(() => null);
+          if (chatDoc && !chatDoc.empty) {
+            const customerMsgs = chatDoc.docs.filter(d => d.data().sender === 'user').map(d => d.data().text || '');
+            const lang = detectMessageLanguage('', customerMsgs);
+            if (lang !== 'pt') targetLang = lang;
+          }
+        }
+      }
+      if (!targetLang) targetLang = 'pt';
 
       const nowIso = new Date().toISOString();
       let sentAudioBase64 = cleanAudioBase64;
@@ -1392,8 +1459,21 @@ Retorne ESTRITAMENTE um objeto JSON no formato:
       if (!mediaUrlOrBase64) return res.status(400).json({ error: 'Mídia não informada.' });
 
       let caption = String(req.body.caption || '').trim();
-      const targetLang = req.body.targetLang;
-      if (req.body.autoTranslate && targetLang && targetLang !== 'pt' && caption) {
+      let targetLang = String(req.body.targetLang || '').trim().toLowerCase();
+      if (!targetLang || targetLang === 'pt') {
+        if (projectData?.detectedLanguage && projectData.detectedLanguage !== 'pt') {
+          targetLang = projectData.detectedLanguage;
+        } else {
+          const chatDoc = await db.collection('establishments').doc(storeId).collection('chats').doc(targetPhone).collection('messages').orderBy('timestamp', 'desc').limit(10).get().catch(() => null);
+          if (chatDoc && !chatDoc.empty) {
+            const customerMsgs = chatDoc.docs.filter(d => d.data().sender === 'user').map(d => d.data().text || '');
+            const lang = detectMessageLanguage('', customerMsgs);
+            if (lang !== 'pt') targetLang = lang;
+          }
+        }
+      }
+
+      if (targetLang && targetLang !== 'pt' && caption) {
         caption = await translateAutomotiveText(caption, targetLang);
       }
 
