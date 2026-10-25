@@ -34,28 +34,30 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.VOICE_OPTIONS = void 0;
+exports.resolveVoiceConfig = resolveVoiceConfig;
 exports.cleanSpokenTextForTTS = cleanSpokenTextForTTS;
 exports.generateVoiceAudioBase64 = generateVoiceAudioBase64;
 /**
  * Neural Voice Generator (Espelho de Voz WhatsApp)
- * Powered by Microsoft Azure Speech Neural Engine via node-edge-tts with multi-layer fallback
+ * Powered by Google Cloud Text-to-Speech (Neural2 Engine) with multi-layer fallback
  */
+const text_to_speech_1 = require("@google-cloud/text-to-speech");
 const node_edge_tts_1 = require("node-edge-tts");
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const os = __importStar(require("os"));
 exports.VOICE_OPTIONS = [
     {
-        id: 'pt-BR-FranciscaNeural',
-        name: 'Francisca',
-        gender: 'Feminino',
-        tone: 'Simpática & Acolhedora (Padrão Recomendado)'
-    },
-    {
         id: 'pt-BR-AntonioNeural',
         name: 'Antonio',
         gender: 'Masculino',
-        tone: 'Firme, Educado & Comercial'
+        tone: 'Firme, Educado & Comercial (Padrão Flow Garage)'
+    },
+    {
+        id: 'pt-BR-FranciscaNeural',
+        name: 'Francisca',
+        gender: 'Feminino',
+        tone: 'Simpática & Acolhedora'
     },
     {
         id: 'pt-BR-ThalitaMultilingualNeural',
@@ -64,6 +66,85 @@ exports.VOICE_OPTIONS = [
         tone: 'Jovem, Descontraída & Dinâmica'
     }
 ];
+let gcpTtsClient = null;
+function getGcpTtsClient() {
+    if (!gcpTtsClient) {
+        gcpTtsClient = new text_to_speech_1.TextToSpeechClient();
+    }
+    return gcpTtsClient;
+}
+function resolveVoiceConfig(voiceId = '') {
+    const v = (voiceId || '').toLowerCase();
+    // English
+    if (v.startsWith('en')) {
+        const isFemale = v.includes('aria') || v.includes('jenny');
+        return {
+            languageCode: 'en-US',
+            name: isFemale ? 'en-US-Neural2-F' : 'en-US-Neural2-D',
+            ssmlGender: isFemale
+                ? text_to_speech_1.protos.google.cloud.texttospeech.v1.SsmlVoiceGender.FEMALE
+                : text_to_speech_1.protos.google.cloud.texttospeech.v1.SsmlVoiceGender.MALE
+        };
+    }
+    // Spanish
+    if (v.startsWith('es')) {
+        const isFemale = v.includes('elvira') || v.includes('dalia');
+        return {
+            languageCode: 'es-ES',
+            name: isFemale ? 'es-ES-Neural2-A' : 'es-ES-Neural2-B',
+            ssmlGender: isFemale
+                ? text_to_speech_1.protos.google.cloud.texttospeech.v1.SsmlVoiceGender.FEMALE
+                : text_to_speech_1.protos.google.cloud.texttospeech.v1.SsmlVoiceGender.MALE
+        };
+    }
+    // German
+    if (v.startsWith('de')) {
+        return {
+            languageCode: 'de-DE',
+            name: 'de-DE-Neural2-B',
+            ssmlGender: text_to_speech_1.protos.google.cloud.texttospeech.v1.SsmlVoiceGender.MALE
+        };
+    }
+    // French
+    if (v.startsWith('fr')) {
+        return {
+            languageCode: 'fr-FR',
+            name: 'fr-FR-Neural2-B',
+            ssmlGender: text_to_speech_1.protos.google.cloud.texttospeech.v1.SsmlVoiceGender.MALE
+        };
+    }
+    // Italian
+    if (v.startsWith('it')) {
+        return {
+            languageCode: 'it-IT',
+            name: 'it-IT-Neural2-C',
+            ssmlGender: text_to_speech_1.protos.google.cloud.texttospeech.v1.SsmlVoiceGender.MALE
+        };
+    }
+    // Default: Brazilian Portuguese
+    // Antonio -> Male (Neural2-B)
+    if (v.includes('antonio')) {
+        return {
+            languageCode: 'pt-BR',
+            name: 'pt-BR-Neural2-B',
+            ssmlGender: text_to_speech_1.protos.google.cloud.texttospeech.v1.SsmlVoiceGender.MALE
+        };
+    }
+    // Thalita -> Female Young (Neural2-C)
+    if (v.includes('thalita')) {
+        return {
+            languageCode: 'pt-BR',
+            name: 'pt-BR-Neural2-C',
+            ssmlGender: text_to_speech_1.protos.google.cloud.texttospeech.v1.SsmlVoiceGender.FEMALE
+        };
+    }
+    // Francisca / Default -> Female Welcoming (Neural2-A)
+    return {
+        languageCode: 'pt-BR',
+        name: 'pt-BR-Neural2-A',
+        ssmlGender: text_to_speech_1.protos.google.cloud.texttospeech.v1.SsmlVoiceGender.FEMALE
+    };
+}
 /**
  * Clean text from emojis, markdown, URLs, and formatting so spoken audio is natural
  */
@@ -82,6 +163,40 @@ function cleanSpokenTextForTTS(text) {
         clean = clean.slice(0, 600) + '...';
     }
     return clean;
+}
+/**
+ * Generate audio via Google Cloud Text-to-Speech (Neural2)
+ */
+async function generateGcpTts(text, voiceId) {
+    try {
+        const client = getGcpTtsClient();
+        const voiceConfig = resolveVoiceConfig(voiceId);
+        const [response] = await client.synthesizeSpeech({
+            input: { text },
+            voice: {
+                languageCode: voiceConfig.languageCode,
+                name: voiceConfig.name,
+                ssmlGender: voiceConfig.ssmlGender
+            },
+            audioConfig: {
+                audioEncoding: 'MP3',
+                speakingRate: 1.0,
+                pitch: 0.0
+            }
+        });
+        if (response.audioContent) {
+            const buffer = Buffer.from(response.audioContent);
+            if (buffer.length > 0) {
+                console.log(`[VoiceGenerator GCP] Sucesso gerando áudio: voz=${voiceConfig.name} (${voiceConfig.ssmlGender}), bytes=${buffer.length}`);
+                return buffer.toString('base64');
+            }
+        }
+        return null;
+    }
+    catch (err) {
+        console.warn('[VoiceGenerator GCP Error]:', err.message);
+        return null;
+    }
 }
 /**
  * Fallback to Google Translate TTS audio endpoint (returns mp3 base64)
@@ -119,13 +234,18 @@ async function generateGoogleTtsFallback(text, voiceId) {
 /**
  * Generate humanized neural audio as a Base64 MP3 string.
  */
-async function generateVoiceAudioBase64(text, voiceId = 'pt-BR-FranciscaNeural') {
+async function generateVoiceAudioBase64(text, voiceId = 'pt-BR-AntonioNeural') {
     if (!text || !text.trim())
         return null;
     const cleanSpokenText = cleanSpokenTextForTTS(text);
     if (!cleanSpokenText)
         return null;
-    // 1. Primary: node-edge-tts via in-memory streamAudio
+    // 1. Primary: Google Cloud Text-to-Speech (Official Neural2 Engine, zero blocking, distinct male/female voices)
+    const gcpAudio = await generateGcpTts(cleanSpokenText, voiceId);
+    if (gcpAudio) {
+        return gcpAudio;
+    }
+    // 2. Secondary: node-edge-tts via in-memory streamAudio
     try {
         const tts = new node_edge_tts_1.EdgeTTS({ voice: voiceId });
         const chunks = [];
@@ -142,7 +262,7 @@ async function generateVoiceAudioBase64(text, voiceId = 'pt-BR-FranciscaNeural')
     catch (streamErr) {
         console.warn('[VoiceGenerator streamAudio Error]:', streamErr?.message || streamErr);
     }
-    // 2. Secondary: node-edge-tts via temporary file ttsPromise
+    // 3. Tertiary: node-edge-tts via temporary file ttsPromise
     const tmpPath = path.join(os.tmpdir(), `tts_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.mp3`);
     try {
         const tts = new node_edge_tts_1.EdgeTTS({ voice: voiceId });
@@ -164,7 +284,7 @@ async function generateVoiceAudioBase64(text, voiceId = 'pt-BR-FranciscaNeural')
             catch { }
         }
     }
-    // 3. Tertiary: High-reliability Google Translate TTS fallback
+    // 4. Quaternary: Google Translate TTS fallback
     return await generateGoogleTtsFallback(cleanSpokenText, voiceId);
 }
 //# sourceMappingURL=voiceGenerator.js.map
