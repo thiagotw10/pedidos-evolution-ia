@@ -14,7 +14,8 @@ import {
   Shirt,
   Package,
   CreditCard,
-  Target
+  Target,
+  Compass
 } from 'lucide-react';
 import { Establishment } from '../types';
 import { getSegmentConfig, getSegmentCatalogIcon, getSegmentOrdersIcon } from '../utils/segments';
@@ -46,6 +47,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badge: pendingOrdersCount > 0 ? pendingOrdersCount : null,
       badgeColor: 'bg-emerald-500 text-black font-bold animate-pulse'
     },
+    ...(establishment?.segment === 'AUTOMOTIVE_PARTS' ? [{
+      id: 'radar',
+      label: 'Radar de Leads (Harvey & Maps)',
+      icon: Compass,
+      badge: 'IA Hunter',
+      badgeColor: 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+    }] : []),
     {
       id: 'traffic',
       label: 'Tráfego & Comissão',

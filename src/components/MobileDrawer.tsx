@@ -22,7 +22,8 @@ import {
   Shirt,
   Package,
   CreditCard,
-  Target
+  Target,
+  Compass
 } from 'lucide-react';
 import { Establishment } from '../types';
 import { getSubscriptionStatus } from '../utils/subscription';
@@ -64,6 +65,9 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
 
   const menuItems = [
     { id: 'orders', label: segConfig.ordersTitle, icon: OrdersIcon },
+    ...(establishment?.segment === 'AUTOMOTIVE_PARTS' ? [
+      { id: 'radar', label: 'Radar de Leads (Harvey & Maps)', icon: Compass, badge: 'IA Hunter' }
+    ] : []),
     { id: 'traffic', label: 'Tráfego & Comissão', icon: Target, badge: 'Meta CAPI' },
     { id: 'finance', label: 'Painel Financeiro', icon: TrendingUp },
     { id: 'billing', label: 'Planos & Créditos IA', icon: CreditCard },

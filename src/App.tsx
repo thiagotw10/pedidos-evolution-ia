@@ -20,6 +20,7 @@ import { CampaignsView } from './components/CampaignsView';
 import { FinanceView } from './components/FinanceView';
 import { BillingView } from './components/BillingView';
 import { TrafficGrowthView } from './components/TrafficGrowthView';
+import { AutomotiveLeadRadar } from './components/AutomotiveLeadRadar';
 import { PublicStorefront } from './components/PublicStorefront';
 import { AuthView } from './components/AuthView';
 import { HomeView } from './components/HomeView';
@@ -462,6 +463,13 @@ export default function App() {
 
             {currentTab === 'traffic' && (
               <TrafficGrowthView
+                establishment={establishment}
+                onNavigateToProjects={() => setCurrentTab('orders')}
+              />
+            )}
+
+            {currentTab === 'radar' && (
+              <AutomotiveLeadRadar
                 establishment={establishment}
                 onNavigateToProjects={() => setCurrentTab('orders')}
               />
