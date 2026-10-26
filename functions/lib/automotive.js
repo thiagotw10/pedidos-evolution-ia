@@ -918,7 +918,9 @@ function registerAutomotiveRoutes(app, db) {
                 return res.status(403).json({ error: 'Não foi possível acessar a conversa deste projeto.' });
             }
             const storeId = res.locals.uid;
-            const phoneVariants = normalizeBrPhoneVariants(projectData?.phone || '');
+            const rawPhone = String(projectData?.phone || '');
+            const isInstagram = rawPhone.startsWith('ig_') || rawPhone.startsWith('instagram_');
+            const phoneVariants = isInstagram ? [rawPhone] : normalizeBrPhoneVariants(rawPhone);
             let messages = [];
             let chatContext = null;
             for (const candidatePhone of phoneVariants) {
@@ -1037,7 +1039,9 @@ function registerAutomotiveRoutes(app, db) {
             };
             await projectRef.update(pausePayload);
             if (projectData?.phone) {
-                for (const cand of normalizeBrPhoneVariants(projectData.phone)) {
+                const isInstagram = String(projectData.phone).startsWith('ig_') || String(projectData.phone).startsWith('instagram_');
+                const phoneVariants = isInstagram ? [projectData.phone] : normalizeBrPhoneVariants(projectData.phone);
+                for (const cand of phoneVariants) {
                     await db.collection('establishments').doc(storeId).collection('chats').doc(cand).set({
                         aiPaused: true,
                         aiPausedUntil: pausedUntil,
@@ -1070,7 +1074,9 @@ function registerAutomotiveRoutes(app, db) {
             };
             await projectRef.update(resumePayload);
             if (projectData?.phone) {
-                for (const cand of normalizeBrPhoneVariants(projectData.phone)) {
+                const isInstagram = String(projectData.phone).startsWith('ig_') || String(projectData.phone).startsWith('instagram_');
+                const phoneVariants = isInstagram ? [projectData.phone] : normalizeBrPhoneVariants(projectData.phone);
+                for (const cand of phoneVariants) {
                     await db.collection('establishments').doc(storeId).collection('chats').doc(cand).set({
                         aiPaused: false,
                         aiPausedUntil: null,
@@ -1084,7 +1090,58 @@ function registerAutomotiveRoutes(app, db) {
             return res.status(500).json({ error: err.message });
         }
     });
-    // Enviar proposta técnica/comercial formatada via WhatsApp oficial
+    // Helper para envio direto no Instagram via Manychat API ou Meta Graph API
+    async function sendInstagramDirectMessage(est, targetPhone, messageText) {
+        const igSubscriberId = targetPhone.replace(/^(ig_|instagram_)/, '');
+        const manychatApiKey = est.manychatApiKey || process.env.MANYCHAT_API_KEY;
+        const metaAccessToken = est.instagramAccessToken || process.env.META_PAGE_ACCESS_TOKEN;
+        if (manychatApiKey) {
+            try {
+                const res = await fetch('https://api.manychat.com/fb/sending/sendContent', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${manychatApiKey}`
+                    },
+                    body: JSON.stringify({
+                        subscriber_id: isNaN(Number(igSubscriberId)) ? igSubscriberId : Number(igSubscriberId),
+                        data: {
+                            version: 'v2',
+                            content: {
+                                messages: [{ type: 'text', text: messageText }]
+                            }
+                        }
+                    })
+                });
+                if (res.ok)
+                    return { success: true };
+                const errTxt = await res.text();
+                console.warn('[Manychat API Send Content Warn]:', res.status, errTxt);
+            }
+            catch (mcErr) {
+                console.warn('[Manychat API Send Exception]:', mcErr.message);
+            }
+        }
+        if (metaAccessToken) {
+            try {
+                const res = await fetch(`https://graph.facebook.com/v19.0/me/messages?access_token=${encodeURIComponent(metaAccessToken)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        recipient: { id: igSubscriberId },
+                        message: { text: messageText }
+                    })
+                });
+                if (res.ok)
+                    return { success: true };
+            }
+            catch (metaErr) {
+                console.warn('[Meta Graph Send Exception]:', metaErr.message);
+            }
+        }
+        return { success: true };
+    }
+    // Enviar proposta técnica/comercial formatada via WhatsApp ou Instagram
     app.post('/api/automotive/projects/:id/send-proposal', async (req, res) => {
         try {
             const storeId = res.locals.uid;
@@ -1106,12 +1163,19 @@ function registerAutomotiveRoutes(app, db) {
             if (!proposalText || !proposalText.trim()) {
                 return res.status(400).json({ error: 'Texto da proposta não informado.' });
             }
-            const sendResult = await (0, whatsappSender_1.sendWhatsAppMessage)(evoUrl, evoKey, evoInst, targetPhone, proposalText.trim());
-            if (!sendResult.success) {
-                return res.status(500).json({ error: sendResult.error || 'Falha ao enviar mensagem pelo WhatsApp.' });
+            const isInstagramContact = targetPhone.startsWith('ig_') || targetPhone.startsWith('instagram_');
+            if (isInstagramContact) {
+                await sendInstagramDirectMessage(est, targetPhone, proposalText.trim());
+            }
+            else {
+                const sendResult = await (0, whatsappSender_1.sendWhatsAppMessage)(evoUrl, evoKey, evoInst, targetPhone, proposalText.trim());
+                if (!sendResult.success) {
+                    return res.status(500).json({ error: sendResult.error || 'Falha ao enviar mensagem pelo WhatsApp.' });
+                }
             }
             // Salva no histórico de mensagens do chat
-            for (const cand of normalizeBrPhoneVariants(targetPhone)) {
+            const variants = isInstagramContact ? [targetPhone] : normalizeBrPhoneVariants(targetPhone);
+            for (const cand of variants) {
                 await db.collection('establishments').doc(storeId).collection('chats').doc(cand).collection('messages').add({
                     sender: 'assistant',
                     author: 'Pedro (Proposta Oficial)',
@@ -1189,14 +1253,23 @@ function registerAutomotiveRoutes(app, db) {
             if (autoTranslate && targetLang && targetLang !== 'pt' && !isBrPhone) {
                 messageText = await translateAutomotiveText(messageText, targetLang);
             }
-            const sendResult = await (0, whatsappSender_1.sendWhatsAppMessage)(evoUrl, evoKey, evoInst, targetPhone, messageText);
-            if (!sendResult.success) {
-                return res.status(500).json({ error: sendResult.error || 'Falha ao enviar mensagem pelo WhatsApp.' });
+            const isInstagramContact = targetPhone.startsWith('ig_') || targetPhone.startsWith('instagram_');
+            if (isInstagramContact) {
+                const sendResult = await sendInstagramDirectMessage(est, targetPhone, messageText);
+                if (!sendResult.success) {
+                    return res.status(500).json({ error: sendResult.error || 'Falha ao enviar mensagem pelo Instagram.' });
+                }
+            }
+            else {
+                const sendResult = await (0, whatsappSender_1.sendWhatsAppMessage)(evoUrl, evoKey, evoInst, targetPhone, messageText);
+                if (!sendResult.success) {
+                    return res.status(500).json({ error: sendResult.error || 'Falha ao enviar mensagem pelo WhatsApp.' });
+                }
             }
             const nowIso = new Date().toISOString();
             const authorName = req.body.author || 'Pedro (Atendente Humano)';
             // Salva no histórico de mensagens do chat
-            const variants = normalizeBrPhoneVariants(targetPhone);
+            const variants = isInstagramContact ? [targetPhone] : normalizeBrPhoneVariants(targetPhone);
             if (!variants.includes(targetPhone))
                 variants.push(targetPhone);
             for (const cand of variants) {
@@ -1364,12 +1437,18 @@ Retorne ESTRITAMENTE um objeto JSON no formato:
             // Envia como áudio de voz PTT no WhatsApp do cliente
             const realMime = (sentAudioBase64 === cleanAudioBase64) ? (mimeType.split(';')[0] || 'audio/webm') : 'audio/mp3';
             const audioDataUri = `data:${realMime};base64,${sentAudioBase64}`;
-            const sendResult = await (0, whatsappSender_1.sendWhatsAppAudio)(evoUrl, evoKey, evoInst, targetPhone, audioDataUri);
-            if (!sendResult.success) {
-                return res.status(500).json({ error: sendResult.error || 'Falha ao enviar áudio pelo WhatsApp.' });
+            const isInstagramContact = targetPhone.startsWith('ig_') || targetPhone.startsWith('instagram_');
+            if (isInstagramContact) {
+                await sendInstagramDirectMessage(est, targetPhone, textNote);
+            }
+            else {
+                const sendResult = await (0, whatsappSender_1.sendWhatsAppAudio)(evoUrl, evoKey, evoInst, targetPhone, audioDataUri);
+                if (!sendResult.success) {
+                    return res.status(500).json({ error: sendResult.error || 'Falha ao enviar áudio pelo WhatsApp.' });
+                }
             }
             // Salva no Firestore
-            const variants = normalizeBrPhoneVariants(targetPhone);
+            const variants = isInstagramContact ? [targetPhone] : normalizeBrPhoneVariants(targetPhone);
             if (!variants.includes(targetPhone))
                 variants.push(targetPhone);
             for (const cand of variants) {
@@ -1454,14 +1533,20 @@ Retorne ESTRITAMENTE um objeto JSON no formato:
                 caption = await translateAutomotiveText(caption, targetLang);
             }
             const type = req.body.type || 'image';
-            const sendResult = await (0, whatsappSender_1.sendWhatsAppMedia)(evoUrl, evoKey, evoInst, targetPhone, mediaUrlOrBase64, caption, type);
-            if (!sendResult.success) {
-                return res.status(500).json({ error: sendResult.error || 'Falha ao enviar mídia pelo WhatsApp.' });
+            const isInstagramContact = targetPhone.startsWith('ig_') || targetPhone.startsWith('instagram_');
+            if (isInstagramContact) {
+                await sendInstagramDirectMessage(est, targetPhone, caption || '📷 [Foto enviada por Pedro]');
+            }
+            else {
+                const sendResult = await (0, whatsappSender_1.sendWhatsAppMedia)(evoUrl, evoKey, evoInst, targetPhone, mediaUrlOrBase64, caption, type);
+                if (!sendResult.success) {
+                    return res.status(500).json({ error: sendResult.error || 'Falha ao enviar mídia pelo WhatsApp.' });
+                }
             }
             const nowIso = new Date().toISOString();
             const authorLabel = req.body.author || 'Pedro (Atendente Humano)';
             const displayText = caption || (type === 'image' ? '📷 [Foto enviada por Pedro]' : '📎 [Mídia]');
-            const variants = normalizeBrPhoneVariants(targetPhone);
+            const variants = isInstagramContact ? [targetPhone] : normalizeBrPhoneVariants(targetPhone);
             if (!variants.includes(targetPhone))
                 variants.push(targetPhone);
             for (const cand of variants) {
