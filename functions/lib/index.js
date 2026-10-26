@@ -55,6 +55,7 @@ const voiceGenerator_1 = require("./voiceGenerator");
 const adminCoPilot_1 = require("./adminCoPilot");
 const automotiveLeadRadar_1 = require("./automotiveLeadRadar");
 const partnerWorkshops_1 = require("./partnerWorkshops");
+const instagramWebhook_1 = require("./instagramWebhook");
 dotenv_1.default.config();
 // Initialize Firebase Admin (in Cloud Functions runtime it uses default credentials automatically)
 if (firebase_admin_1.default.apps.length === 0) {
@@ -119,6 +120,7 @@ app.use(express_1.default.json());
 (0, carVideoStudio_1.registerCarVideoStudioRoutes)(app, db, getGenAI());
 (0, automotiveLeadRadar_1.registerLeadRadarEndpoints)(app, db);
 (0, partnerWorkshops_1.registerPartnerWorkshopEndpoints)(app, db);
+(0, instagramWebhook_1.registerInstagramWebhookRoutes)(app, db, processAiCustomerMessage);
 // In-memory cache for de-duplicating rapid Webhook calls from Evolution Go
 const processedMessages = new Map();
 const botSentMessages = new Map();

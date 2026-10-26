@@ -15,6 +15,7 @@ import { generateVoiceAudioBase64, VOICE_OPTIONS } from './voiceGenerator';
 import { isOwnerAdminMessage, processAdminCoPilotCommand } from './adminCoPilot';
 import { registerLeadRadarEndpoints } from './automotiveLeadRadar';
 import { registerPartnerWorkshopEndpoints, buildPartnerWorkshopsRagContext, PartnerWorkshop, DEFAULT_PARTNER_WORKSHOPS } from './partnerWorkshops';
+import { registerInstagramWebhookRoutes } from './instagramWebhook';
 
 dotenv.config();
 
@@ -84,6 +85,7 @@ registerAutomotiveRoutes(app, db);
 registerCarVideoStudioRoutes(app, db, getGenAI());
 registerLeadRadarEndpoints(app, db);
 registerPartnerWorkshopEndpoints(app, db);
+registerInstagramWebhookRoutes(app, db, processAiCustomerMessage);
 
 // In-memory cache for de-duplicating rapid Webhook calls from Evolution Go
 const processedMessages = new Map<string, number>();

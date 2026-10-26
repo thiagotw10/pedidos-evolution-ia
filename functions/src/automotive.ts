@@ -599,8 +599,9 @@ export async function saveAutomotiveContactAndSyncCrm(params: {
     attribution = null
   } = params;
 
-  const cleanPhone = String(customerPhone || '').replace(/\D/g, '') || customerPhone;
-  const phoneVariants = normalizeBrPhoneVariants(cleanPhone);
+  const isInstagram = String(customerPhone || '').startsWith('ig_') || String(customerPhone || '').startsWith('instagram_');
+  const cleanPhone = isInstagram ? customerPhone : (String(customerPhone || '').replace(/\D/g, '') || customerPhone);
+  const phoneVariants = isInstagram ? [customerPhone] : normalizeBrPhoneVariants(cleanPhone);
   const nowIso = new Date().toISOString();
 
   const chatDocRef = db.collection('establishments').doc(establishmentId).collection('chats').doc(customerPhone);

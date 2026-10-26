@@ -549,8 +549,9 @@ function buildAutomotiveSummaryText(ctx) {
 }
 async function saveAutomotiveContactAndSyncCrm(params) {
     const { db, establishmentId, customerPhone, customerName, incomingText, replyText, toolArgs, catalog = [], forceRegisterProject = false, attribution = null } = params;
-    const cleanPhone = String(customerPhone || '').replace(/\D/g, '') || customerPhone;
-    const phoneVariants = normalizeBrPhoneVariants(cleanPhone);
+    const isInstagram = String(customerPhone || '').startsWith('ig_') || String(customerPhone || '').startsWith('instagram_');
+    const cleanPhone = isInstagram ? customerPhone : (String(customerPhone || '').replace(/\D/g, '') || customerPhone);
+    const phoneVariants = isInstagram ? [customerPhone] : normalizeBrPhoneVariants(cleanPhone);
     const nowIso = new Date().toISOString();
     const chatDocRef = db.collection('establishments').doc(establishmentId).collection('chats').doc(customerPhone);
     const customerDocRef = db.collection('establishments').doc(establishmentId).collection('customers').doc(cleanPhone.replace(/\//g, '_'));
