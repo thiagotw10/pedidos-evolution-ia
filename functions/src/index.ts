@@ -659,27 +659,28 @@ function isEstablishmentOpenNow(est: any): { isOpen: boolean; reason?: string } 
   const parts = spFormatter.formatToParts(now);
   let hour = 0;
   let minute = 0;
+  let weekdayValue = '';
   
   for (const part of parts) {
-    if (part.type === 'hour') hour = parseInt(part.value, 10);
+    if (part.type === 'hour') hour = parseInt(part.value, 10) % 24;
     if (part.type === 'minute') minute = parseInt(part.value, 10);
+    if (part.type === 'weekday') weekdayValue = part.value;
   }
 
-  const spDate = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
-  const dayOfWeek = spDate.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  const weekdayMap: Record<string, string> = {
+    Sun: 'sunday',
+    Mon: 'monday',
+    Tue: 'tuesday',
+    Wed: 'wednesday',
+    Thu: 'thursday',
+    Fri: 'friday',
+    Sat: 'saturday'
+  };
+
+  const dayKeys = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const currentDayKey = weekdayMap[weekdayValue] || 'monday';
+  const dayOfWeek = dayKeys.indexOf(currentDayKey);
   const currentMinutes = hour * 60 + minute;
-
-  const dayKeys = [
-    'sunday',    // 0
-    'monday',    // 1
-    'tuesday',   // 2
-    'wednesday', // 3
-    'thursday',  // 4
-    'friday',    // 5
-    'saturday'   // 6
-  ];
-
-  const currentDayKey = dayKeys[dayOfWeek];
   const todayConfig = schedule[currentDayKey];
 
   const parseTimeToMinutes = (timeStr: string) => {
@@ -688,43 +689,52 @@ function isEstablishmentOpenNow(est: any): { isOpen: boolean; reason?: string } 
     return (h || 0) * 60 + (m || 0);
   };
 
+  let isOpen = false;
+
   // 1. Check today's schedule
   if (todayConfig && todayConfig.enabled) {
     const openMin = parseTimeToMinutes(todayConfig.open);
     const closeMin = parseTimeToMinutes(todayConfig.close);
 
-    if (closeMin > openMin) {
-      if (currentMinutes >= openMin && currentMinutes < closeMin) {
-        return { isOpen: true };
+    if (openMin === closeMin) {
+      isOpen = true; // 24h
+    } else if (closeMin > openMin) {
+      if (currentMinutes >= openMin && currentMinutes <= closeMin) {
+        isOpen = true;
       }
     } else if (closeMin < openMin) {
-      // Crosses midnight (e.g. 18:00 to 02:00)
+      // Crosses midnight (e.g. 18:00 to 02:00 next day)
       if (currentMinutes >= openMin) {
-        return { isOpen: true };
+        isOpen = true;
       }
-    } else {
-      // 24 hours if open === close
-      return { isOpen: true };
     }
   }
 
   // 2. Check yesterday's schedule in case it crossed midnight into today's early morning
-  const prevDayIndex = (dayOfWeek + 6) % 7;
-  const prevDayKey = dayKeys[prevDayIndex];
-  const prevDayConfig = schedule[prevDayKey];
+  if (!isOpen) {
+    const prevDayIndex = (dayOfWeek + 6) % 7;
+    const prevDayKey = dayKeys[prevDayIndex];
+    const prevDayConfig = schedule[prevDayKey];
 
-  if (prevDayConfig && prevDayConfig.enabled) {
-    const prevOpen = parseTimeToMinutes(prevDayConfig.open);
-    const prevClose = parseTimeToMinutes(prevDayConfig.close);
+    if (prevDayConfig && prevDayConfig.enabled) {
+      const prevOpen = parseTimeToMinutes(prevDayConfig.open);
+      const prevClose = parseTimeToMinutes(prevDayConfig.close);
 
-    if (prevClose < prevOpen) {
-      if (currentMinutes < prevClose) {
-        return { isOpen: true };
+      if (prevClose < prevOpen) {
+        if (currentMinutes <= prevClose) {
+          isOpen = true;
+        }
       }
     }
   }
 
-  return { isOpen: false, reason: 'Fora do horário de expediente da IA' };
+  console.log(`[Horário IA] Loja: "${est.name || 'Loja'}", Dia: ${currentDayKey}, Horário SP: ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} (${currentMinutes}m), Config: ${JSON.stringify(todayConfig)}, Aberto: ${isOpen}`);
+
+  if (isOpen) {
+    return { isOpen: true };
+  }
+
+  return { isOpen: false, reason: `Fora do horário de expediente da IA (${currentDayKey}: ${todayConfig?.open || '--:--'} às ${todayConfig?.close || '--:--'})` };
 }
 
 // Web Push Notification Helper (PWA Background Notifications)
