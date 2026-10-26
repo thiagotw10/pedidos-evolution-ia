@@ -19,39 +19,66 @@ function getGenAI(): GoogleGenAI {
   return new GoogleGenAI({ apiKey: envKey && envKey.trim() ? envKey.trim() : fallbackKey });
 }
 
-export function detectMessageLanguage(text: string = '', historyTexts: string[] = [], contextLang?: string): string {
-  if (contextLang && ['en', 'es', 'de', 'fr', 'it'].includes(contextLang.toLowerCase())) {
-    const ptSwitch = /\b(ol[aá]|bom dia|boa tarde|boa noite|quero|obrigado|valeu|quanto custa|qual o valor)\b/i.test(text);
-    if (!ptSwitch) return contextLang.toLowerCase();
+export function detectMessageLanguage(text: string = '', historyTexts: string[] = [], contextLang?: string, phone?: string): string {
+  const cleanPhone = String(phone || '').replace(/\D/g, '');
+  const isBrazilianPhone = cleanPhone.startsWith('55') || (cleanPhone.length >= 10 && cleanPhone.length <= 11 && !cleanPhone.startsWith('1'));
+  const currentText = String(text || '').trim();
+
+  // Strong Portuguese vocabulary / slang regex
+  const ptRegex = /\b(ol[aá]|bom dia|boa tarde|boa noite|opa|fala|eae|irm[aã]o|amigo|cara|beleza|tranquilo|quanto|custa|valor|pre[çc]o|ronco|escapamento|escape|ponteira|original|meu|minha|voc[eê]|voce|tem|fica|onde|instalar|envio|frete|qual|estou|gostaria|saber|obrigado|valeu|show|bacana|manda|foto|v[ií]deo|para|com|por favor|projeto|fazer|prepara[çc][aã]o|pe[çc]a|ano|carro|modelo|sim|n[aã]o|pode|ser|tudo|bem|aqui)\b/i;
+
+  // If current text has clear Portuguese words, it is ALWAYS Portuguese
+  if (ptRegex.test(currentText)) {
+    return 'pt';
   }
 
-  const combined = [text, ...historyTexts.slice(-5)].join(' ').toLowerCase();
+  // If customer is from a Brazilian phone number, default to 'pt' unless explicitly speaking English
+  if (isBrazilianPhone) {
+    const explicitEnRegex = /\b(how much|good morning|hello|hi there|looking for|i want|i have|can you|ship to|shipping cost|what is the price|quote for|my car is|year of|please send me)\b/i;
+    if (explicitEnRegex.test(currentText)) {
+      return 'en';
+    }
+    const explicitEsRegex = /\b(cuanto cuesta|buenos dias|buenas tardes|hola amigo|quiero saber|envio para|precio del escape)\b/i;
+    if (explicitEsRegex.test(currentText)) {
+      return 'es';
+    }
+    return 'pt';
+  }
 
-  const enWords = [
-    'hi', 'hello', 'hey', 'how', 'are', 'you', 'my', 'name', 'is', 'looking', 'for', 'exhaust',
-    'pipe', 'catback', 'downpipe', 'sound', 'video', 'image', 'images', 'photo', 'photos',
-    'project', 'car', 'year', 'what', 'can', 'have', 'with', 'from', 'please', 'thanks', 'thank',
-    'specs', 'price', 'quote', 'shipping', 'valvetronic', 'system', 'tuning', 'intake', 'career',
-    'development', 'do', 'any', 'tell', 'me', 'send', 'picture', 'pictures'
+  // If context was previously established
+  if (contextLang && ['pt', 'en', 'es', 'de', 'fr', 'it'].includes(contextLang.toLowerCase())) {
+    if (ptRegex.test(currentText)) return 'pt';
+    const enSwitch = /\b(how much|looking for|please|price|shipping|can you|hello|hi there)\b/i.test(currentText);
+    if (enSwitch) return 'en';
+    const esSwitch = /\b(hola|buenos|cuanto|precio|envio|gracias)\b/i.test(currentText);
+    if (esSwitch) return 'es';
+    return contextLang.toLowerCase();
+  }
+
+  // Combined text analysis (EXCLUDING false-friend prepositions like 'do', 'me', and common loanwords like 'exhaust', 'catback', 'downpipe', 'tuning')
+  const combined = [currentText, ...historyTexts.slice(-3)].join(' ').toLowerCase();
+
+  const enDistinctPhrases = [
+    'hello', 'hey there', 'how much', 'looking for', 'what is the price', 'can you send', 'please send',
+    'shipping cost', 'quote for', 'thank you', 'thanks a lot', 'my car is', 'is it available', 'how does it work'
   ];
-  
-  const esWords = [
-    'hola', 'buenos', 'dias', 'tardes', 'nombre', 'busco', 'escape', 'coche', 'auto', 'fotos',
-    'imagenes', 'sonido', 'ano', 'modelo', 'gracias', 'cuanto', 'precio', 'envio'
+
+  const esDistinctPhrases = [
+    'hola', 'buenos dias', 'buenas tardes', 'cuanto cuesta', 'busco', 'precio del', 'envio a', 'muchas gracias'
   ];
 
-  let enCount = 0;
-  for (const w of enWords) {
-    if (new RegExp(`\\b${w}\\b`, 'i').test(combined)) enCount++;
+  let enScore = 0;
+  for (const phrase of enDistinctPhrases) {
+    if (combined.includes(phrase)) enScore += 2;
   }
 
-  let esCount = 0;
-  for (const w of esWords) {
-    if (new RegExp(`\\b${w}\\b`, 'i').test(combined)) esCount++;
+  let esScore = 0;
+  for (const phrase of esDistinctPhrases) {
+    if (combined.includes(phrase)) esScore += 2;
   }
 
-  if (enCount >= 2 && enCount >= esCount) return 'en';
-  if (esCount >= 2 && esCount > enCount) return 'es';
+  if (enScore >= 2 && enScore >= esScore) return 'en';
+  if (esScore >= 2 && esScore > enScore) return 'es';
   return 'pt';
 }
 
@@ -168,7 +195,9 @@ export function inferInternationalDetails(phone: string, preferred?: { country?:
     else currency = 'USD';
   }
 
-  if (!detectedLanguage) {
+  if (country === 'BR') {
+    detectedLanguage = 'pt';
+  } else if (!detectedLanguage) {
     if (['BR', 'PT'].includes(country)) detectedLanguage = 'pt';
     else if (['ES', 'MX', 'AR', 'CL', 'CO', 'UY'].includes(country)) detectedLanguage = 'es';
     else if (country === 'DE') detectedLanguage = 'de';
@@ -1200,24 +1229,30 @@ export function registerAutomotiveRoutes(app: Express, db: admin.firestore.Fires
 
       let targetLang = String(req.body.targetLang || '').trim().toLowerCase();
       let autoTranslate = !!req.body.autoTranslate;
+      const cleanPhoneDigits = targetPhone.replace(/\D/g, '');
+      const isBrPhone = cleanPhoneDigits.startsWith('55') || (cleanPhoneDigits.length >= 10 && cleanPhoneDigits.length <= 11);
+
       if (!targetLang || targetLang === 'pt') {
-        if (projectData?.detectedLanguage && projectData.detectedLanguage !== 'pt') {
+        if (!isBrPhone && projectData?.detectedLanguage && projectData.detectedLanguage !== 'pt') {
           targetLang = projectData.detectedLanguage;
           autoTranslate = true;
-        } else {
+        } else if (!isBrPhone) {
           const chatDoc = await db.collection('establishments').doc(storeId).collection('chats').doc(targetPhone).collection('messages').orderBy('timestamp', 'desc').limit(10).get().catch(() => null);
           if (chatDoc && !chatDoc.empty) {
             const customerMsgs = chatDoc.docs.filter(d => d.data().sender === 'user').map(d => d.data().text || '');
-            const lang = detectMessageLanguage('', customerMsgs);
+            const lang = detectMessageLanguage('', customerMsgs, undefined, targetPhone);
             if (lang !== 'pt') {
               targetLang = lang;
               autoTranslate = true;
             }
           }
+        } else {
+          targetLang = 'pt';
+          autoTranslate = false;
         }
       }
 
-      if (autoTranslate && targetLang && targetLang !== 'pt') {
+      if (autoTranslate && targetLang && targetLang !== 'pt' && !isBrPhone) {
         messageText = await translateAutomotiveText(messageText, targetLang);
       }
 
@@ -1310,19 +1345,24 @@ export function registerAutomotiveRoutes(app: Express, db: admin.firestore.Fires
       const mimeType = String(req.body.mimeType || 'audio/webm');
       const cleanAudioBase64 = rawAudio.replace(/^data:[^;]+;base64,/, '');
       let targetLang = String(req.body.targetLang || '').trim().toLowerCase();
+      const cleanPhoneDigitsAudio = targetPhone.replace(/\D/g, '');
+      const isBrPhoneAudio = cleanPhoneDigitsAudio.startsWith('55') || (cleanPhoneDigitsAudio.length >= 10 && cleanPhoneDigitsAudio.length <= 11);
+
       if (!targetLang || targetLang === 'pt') {
-        if (projectData?.detectedLanguage && projectData.detectedLanguage !== 'pt') {
+        if (!isBrPhoneAudio && projectData?.detectedLanguage && projectData.detectedLanguage !== 'pt') {
           targetLang = projectData.detectedLanguage;
-        } else {
+        } else if (!isBrPhoneAudio) {
           const chatDoc = await db.collection('establishments').doc(storeId).collection('chats').doc(targetPhone).collection('messages').orderBy('timestamp', 'desc').limit(10).get().catch(() => null);
           if (chatDoc && !chatDoc.empty) {
             const customerMsgs = chatDoc.docs.filter(d => d.data().sender === 'user').map(d => d.data().text || '');
-            const lang = detectMessageLanguage('', customerMsgs);
+            const lang = detectMessageLanguage('', customerMsgs, undefined, targetPhone);
             if (lang !== 'pt') targetLang = lang;
           }
+        } else {
+          targetLang = 'pt';
         }
       }
-      if (!targetLang) targetLang = 'pt';
+      if (!targetLang || isBrPhoneAudio) targetLang = 'pt';
 
       const nowIso = new Date().toISOString();
       let sentAudioBase64 = cleanAudioBase64;
@@ -1469,20 +1509,25 @@ Retorne ESTRITAMENTE um objeto JSON no formato:
 
       let caption = String(req.body.caption || '').trim();
       let targetLang = String(req.body.targetLang || '').trim().toLowerCase();
+      const cleanPhoneDigitsMedia = targetPhone.replace(/\D/g, '');
+      const isBrPhoneMedia = cleanPhoneDigitsMedia.startsWith('55') || (cleanPhoneDigitsMedia.length >= 10 && cleanPhoneDigitsMedia.length <= 11);
+
       if (!targetLang || targetLang === 'pt') {
-        if (projectData?.detectedLanguage && projectData.detectedLanguage !== 'pt') {
+        if (!isBrPhoneMedia && projectData?.detectedLanguage && projectData.detectedLanguage !== 'pt') {
           targetLang = projectData.detectedLanguage;
-        } else {
+        } else if (!isBrPhoneMedia) {
           const chatDoc = await db.collection('establishments').doc(storeId).collection('chats').doc(targetPhone).collection('messages').orderBy('timestamp', 'desc').limit(10).get().catch(() => null);
           if (chatDoc && !chatDoc.empty) {
             const customerMsgs = chatDoc.docs.filter(d => d.data().sender === 'user').map(d => d.data().text || '');
-            const lang = detectMessageLanguage('', customerMsgs);
+            const lang = detectMessageLanguage('', customerMsgs, undefined, targetPhone);
             if (lang !== 'pt') targetLang = lang;
           }
+        } else {
+          targetLang = 'pt';
         }
       }
 
-      if (targetLang && targetLang !== 'pt' && caption) {
+      if (targetLang && targetLang !== 'pt' && !isBrPhoneMedia && caption) {
         caption = await translateAutomotiveText(caption, targetLang);
       }
 

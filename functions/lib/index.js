@@ -880,37 +880,62 @@ async function updateCustomerMemory(establishmentId, customerPhone, data) {
         console.warn('[Customer Memory] Não foi possível atualizar a memória:', err.message);
     }
 }
-function detectMessageLanguage(text = '', historyTexts = [], contextLang) {
-    if (contextLang && ['en', 'es', 'de', 'fr', 'it'].includes(contextLang.toLowerCase())) {
-        const ptSwitch = /\b(ol[aá]|bom dia|boa tarde|boa noite|quero|obrigado|valeu|quanto custa|qual o valor)\b/i.test(text);
-        if (!ptSwitch)
-            return contextLang.toLowerCase();
+function detectMessageLanguage(text = '', historyTexts = [], contextLang, phone) {
+    const cleanPhone = String(phone || '').replace(/\D/g, '');
+    const isBrazilianPhone = cleanPhone.startsWith('55') || (cleanPhone.length >= 10 && cleanPhone.length <= 11 && !cleanPhone.startsWith('1'));
+    const currentText = String(text || '').trim();
+    // Strong Portuguese vocabulary / slang regex
+    const ptRegex = /\b(ol[aá]|bom dia|boa tarde|boa noite|opa|fala|eae|irm[aã]o|amigo|cara|beleza|tranquilo|quanto|custa|valor|pre[çc]o|ronco|escapamento|escape|ponteira|original|meu|minha|voc[eê]|voce|tem|fica|onde|instalar|envio|frete|qual|estou|gostaria|saber|obrigado|valeu|show|bacana|manda|foto|v[ií]deo|para|com|por favor|projeto|fazer|prepara[çc][aã]o|pe[çc]a|ano|carro|modelo|sim|n[aã]o|pode|ser|tudo|bem|aqui)\b/i;
+    // If current text has clear Portuguese words, it is ALWAYS Portuguese
+    if (ptRegex.test(currentText)) {
+        return 'pt';
     }
-    const combined = [text, ...historyTexts.slice(-4)].join(' ').toLowerCase();
-    const enWords = [
-        'hi', 'hello', 'hey', 'how', 'are', 'you', 'my', 'name', 'is', 'looking', 'for', 'exhaust',
-        'pipe', 'catback', 'downpipe', 'sound', 'video', 'image', 'images', 'photo', 'photos',
-        'project', 'car', 'year', 'what', 'can', 'have', 'with', 'from', 'please', 'thanks', 'thank',
-        'specs', 'price', 'quote', 'shipping', 'valvetronic', 'system', 'tuning', 'intake', 'career',
-        'development', 'do', 'any', 'tell', 'me', 'send', 'picture', 'pictures'
+    // If customer is from a Brazilian phone number, default to 'pt' unless explicitly speaking English
+    if (isBrazilianPhone) {
+        const explicitEnRegex = /\b(how much|good morning|hello|hi there|looking for|i want|i have|can you|ship to|shipping cost|what is the price|quote for|my car is|year of|please send me)\b/i;
+        if (explicitEnRegex.test(currentText)) {
+            return 'en';
+        }
+        const explicitEsRegex = /\b(cuanto cuesta|buenos dias|buenas tardes|hola amigo|quiero saber|envio para|precio del escape)\b/i;
+        if (explicitEsRegex.test(currentText)) {
+            return 'es';
+        }
+        return 'pt';
+    }
+    // If context was previously established
+    if (contextLang && ['pt', 'en', 'es', 'de', 'fr', 'it'].includes(contextLang.toLowerCase())) {
+        if (ptRegex.test(currentText))
+            return 'pt';
+        const enSwitch = /\b(how much|looking for|please|price|shipping|can you|hello|hi there)\b/i.test(currentText);
+        if (enSwitch)
+            return 'en';
+        const esSwitch = /\b(hola|buenos|cuanto|precio|envio|gracias)\b/i.test(currentText);
+        if (esSwitch)
+            return 'es';
+        return contextLang.toLowerCase();
+    }
+    // Combined text analysis (EXCLUDING false-friend prepositions like 'do', 'me', and common loanwords like 'exhaust', 'catback', 'downpipe', 'tuning')
+    const combined = [currentText, ...historyTexts.slice(-3)].join(' ').toLowerCase();
+    const enDistinctPhrases = [
+        'hello', 'hey there', 'how much', 'looking for', 'what is the price', 'can you send', 'please send',
+        'shipping cost', 'quote for', 'thank you', 'thanks a lot', 'my car is', 'is it available', 'how does it work'
     ];
-    const esWords = [
-        'hola', 'buenos', 'dias', 'tardes', 'nombre', 'busco', 'escape', 'coche', 'auto', 'fotos',
-        'imagenes', 'sonido', 'ano', 'modelo', 'gracias', 'cuanto', 'precio', 'envio'
+    const esDistinctPhrases = [
+        'hola', 'buenos dias', 'buenas tardes', 'cuanto cuesta', 'busco', 'precio del', 'envio a', 'muchas gracias'
     ];
-    let enCount = 0;
-    for (const w of enWords) {
-        if (new RegExp(`\\b${w}\\b`, 'i').test(combined))
-            enCount++;
+    let enScore = 0;
+    for (const phrase of enDistinctPhrases) {
+        if (combined.includes(phrase))
+            enScore += 2;
     }
-    let esCount = 0;
-    for (const w of esWords) {
-        if (new RegExp(`\\b${w}\\b`, 'i').test(combined))
-            esCount++;
+    let esScore = 0;
+    for (const phrase of esDistinctPhrases) {
+        if (combined.includes(phrase))
+            esScore += 2;
     }
-    if (enCount >= 2 && enCount >= esCount)
+    if (enScore >= 2 && enScore >= esScore)
         return 'en';
-    if (esCount >= 2 && esCount > enCount)
+    if (esScore >= 2 && esScore > enScore)
         return 'es';
     return 'pt';
 }
@@ -1048,6 +1073,11 @@ COMO VOCÊ DEVE AGIR:
      Na sua resposta, confirme o endereço e avise que enviou o card interativo com o mapa logo abaixo.
 `;
     const savedAutoCtx = customerMemory.automotiveContext || {};
+    const cleanCustomerPhone = String(customerPhone || '').replace(/\D/g, '');
+    const isBrazilianCustomer = cleanCustomerPhone.startsWith('55') || (cleanCustomerPhone.length >= 10 && cleanCustomerPhone.length <= 11 && !cleanCustomerPhone.startsWith('1'));
+    if (isBrazilianCustomer) {
+        savedAutoCtx.detectedLanguage = 'pt';
+    }
     if (isAutomotive)
         systemInstruction = `Você é o Consultor Técnico de Projetos de Performance & Escapamentos de "${establishment.name || 'Nossa Oficina'}".
 Seu papel é oferecer um atendimento de alto nível pelo WhatsApp: seja apaixonado por carros, consultivo, cordial e objetivo. Conduza a conversa de forma fluida e natural, fazendo no máximo 1 ou 2 perguntas por vez para não cansar o cliente.
@@ -1097,8 +1127,10 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
    - Não invente preços, estoque, ganhos exatos de potência, homologação ou prazos. Explique que compatibilidade final, valores e frete são validados sob medida pelos especialistas da loja.
    - Use formatação limpa de WhatsApp: negrito com um asterisco (*texto*) e listas com '• '.
 6. ATENDIMENTO INTERNACIONAL & MULTILÍNGUE (GLOBAL EXHAUST SPECIALIST):
-   - Você atende entusiastas e clientes do MUNDO TODO (Brasil, Estados Unidos, Europa, América Latina).
-   - RESPONDA SEMPRE NO MESMO IDIOMA QUE O CLIENTE ENVIAR A MENSAGEM (Inglês, Espanhol, Português, etc.). Se o cliente falar em inglês, responda em inglês fluente e técnico. Se falar em espanhol, responda em espanhol.
+   - REGRA SUPREMA DE IDIOMA: O idioma padrão e obrigatório da FLOW GARAGE EXHAUST é PORTUGUÊS DO BRASIL (pt-BR).
+   - Se o cliente enviar mensagem em português (ex: "Bom dia", "Bom dia irmão", "Olá", "Quanto custa o escape?", "Quero ver fotos"), VOCÊ DEVE RESPONDER OBRIGATORIAMENTE EM PORTUGUÊS (pt-BR). NUNCA responda em inglês para clientes que falaram em português ou possuem número com DDD do Brasil (+55)!
+   - Termos automotivos como "catback, downpipe, valvetronic, plug and play, inox 304, TIG, bypass, intake, ronco" são termos técnicos usados normalmente no Brasil e NÃO significam que a conversa é em inglês.
+   - Responda em inglês APENAS se a mensagem do cliente for escrita integralmente em inglês por um cliente estrangeiro (ex: "Hello, what is the price of this exhaust?").
    - Para clientes em inglês, utilize terminologia automotiva correta: *catback exhaust, downpipes, valvetronic system, full titanium, TIG welds, stainless steel 304, cold start sound clips, no cabin drone, plug and play fitment*.
    - Para envio internacional: solicite o país e ZIP Code / Postal Code para cotação de frete aéreo internacional expresso (DHL / FedEx Express).
    - Para clientes no exterior, trabalhe com referências em Dólar (USD $) ou Euro (EUR €).
@@ -1743,13 +1775,14 @@ ${partnerWorkshopsRag ? `\n${partnerWorkshopsRag}\n` : ''}`;
             }
         }
         // Detect active conversation language
-        const conversationLang = detectMessageLanguage(textForAi || incomingText, (history || []).map((h) => h.text), automotiveToolArgs?.detectedLanguage || savedAutoCtx.detectedLanguage);
+        const conversationLang = detectMessageLanguage(textForAi || incomingText, (history || []).map((h) => h.text), automotiveToolArgs?.detectedLanguage || savedAutoCtx.detectedLanguage, customerPhone);
         if (isAutomotive) {
-            if (conversationLang && automotiveToolArgs) {
-                automotiveToolArgs.detectedLanguage = conversationLang;
+            const finalLang = isBrazilianCustomer ? 'pt' : (conversationLang || 'pt');
+            if (automotiveToolArgs) {
+                automotiveToolArgs.detectedLanguage = finalLang;
             }
-            else if (conversationLang) {
-                automotiveToolArgs = { detectedLanguage: conversationLang };
+            else {
+                automotiveToolArgs = { detectedLanguage: finalLang };
             }
             const autoSync = await (0, automotive_1.saveAutomotiveContactAndSyncCrm)({
                 db,
@@ -1823,11 +1856,11 @@ ${partnerWorkshopsRag ? `\n${partnerWorkshopsRag}\n` : ''}`;
                 replyText = isAutomotive ? 'Como posso ajudar com seu projeto? Qual é o modelo e ano do veículo?' : 'Desculpe, não consegui entender perfeitamente. Como posso te ajudar com o catálogo?';
             }
         }
-        // Auto-translate replyText and media captions if conversation is in English, Spanish or another language
-        if (conversationLang !== 'pt' && replyText) {
+        // Auto-translate replyText and media captions ONLY for verified foreign contacts who spoke in English/Spanish
+        if (!isBrazilianCustomer && conversationLang !== 'pt' && replyText) {
             replyText = await (0, automotive_1.translateAutomotiveText)(replyText, conversationLang);
         }
-        if (conversationLang !== 'pt' && mediaList.length > 0) {
+        if (!isBrazilianCustomer && conversationLang !== 'pt' && mediaList.length > 0) {
             for (const m of mediaList) {
                 if (m.caption) {
                     m.caption = await (0, automotive_1.translateAutomotiveText)(m.caption, conversationLang);
