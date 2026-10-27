@@ -45,6 +45,29 @@ async function sendMetaInstagramMessage(accessToken: string, recipientId: string
 }
 
 /**
+ * Downloads media from a public URL and converts to base64 for Gemini multimodal
+ */
+async function downloadMediaFromUrl(
+  url: string,
+  defaultMime = 'image/jpeg'
+): Promise<{ mimeType: string; data: string } | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const arrayBuffer = await res.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const contentType = (res.headers.get('content-type') || defaultMime).split(';')[0];
+    return {
+      mimeType: contentType,
+      data: buffer.toString('base64')
+    };
+  } catch (err: any) {
+    console.warn('[Download Media Error]:', err.message);
+    return null;
+  }
+}
+
+/**
  * Registers all Instagram integration & Webhook endpoints
  */
 export function registerInstagramWebhookRoutes(
@@ -189,6 +212,28 @@ export function registerInstagramWebhookRoutes(
           });
         }
 
+        // Extract Media (Image / Voice Note Audio)
+        let incomingMediaUrl = String(
+          rawMessagingItem?.message?.attachments?.[0]?.payload?.url ||
+          body.mediaUrl ||
+          body.media_url ||
+          body.last_input_media ||
+          ''
+        ).trim();
+
+        const attachmentType = String(rawMessagingItem?.message?.attachments?.[0]?.type || body.mediaType || body.type || '').toLowerCase();
+        let defaultMime = attachmentType === 'audio' ? 'audio/mp4' : (attachmentType === 'video' ? 'video/mp4' : 'image/jpeg');
+
+        let mediaPart: { mimeType: string; data: string } | undefined = undefined;
+        if (incomingMediaUrl) {
+          console.log(`[Instagram Webhook] Baixando mídia anexada do seguidor (${attachmentType || 'imagem/áudio'})...`);
+          const downloaded = await downloadMediaFromUrl(incomingMediaUrl, defaultMime);
+          if (downloaded) {
+            mediaPart = downloaded;
+            console.log(`[Instagram Webhook] Mídia baixada e enviada para Gemini multimodal: ${downloaded.mimeType} (${Math.round(downloaded.data.length / 1024)} KB)`);
+          }
+        }
+
         // Save incoming message in chat history
         const nowIso = new Date().toISOString();
         await chatDocRef.set({
@@ -197,7 +242,7 @@ export function registerInstagramWebhookRoutes(
           instagramUsername: username || existingChat.instagramUsername || null,
           channel: 'instagram',
           leadSource: 'Instagram Direct',
-          lastMessage: incomingText,
+          lastMessage: incomingText || (mediaPart?.mimeType.startsWith('audio/') ? '🎙️ [Áudio]' : '📷 [Mídia]'),
           lastMessageAt: nowIso,
           unreadByHuman: true
         }, { merge: true });
@@ -208,11 +253,34 @@ export function registerInstagramWebhookRoutes(
           igUserKey,
           incomingText,
           finalDisplayName,
-          undefined,
+          mediaPart,
           'gemini-3.1-flash-lite'
         );
 
         const replyText = aiResult.replyText || 'Olá! Como posso ajudar com o seu projeto esportivo hoje? 🏁';
+
+        // Format dynamic messages for Instagram Direct (Fotos, Vídeos e Texto)
+        const dynamicMessages: any[] = [];
+        if (aiResult.mediaList && aiResult.mediaList.length > 0) {
+          for (const m of aiResult.mediaList) {
+            if (m.url) {
+              dynamicMessages.push({
+                type: m.type === 'video' ? 'video' : 'image',
+                url: m.url
+              });
+            }
+          }
+        } else if (aiResult.mediaToSend?.url) {
+          dynamicMessages.push({
+            type: aiResult.mediaToSend.type === 'video' ? 'video' : 'image',
+            url: aiResult.mediaToSend.url
+          });
+        }
+
+        dynamicMessages.push({
+          type: 'text',
+          text: replyText
+        });
 
         // If direct Meta Graph API and store has token, dispatch directly
         const accessToken = storeData.instagramAccessToken || process.env.META_PAGE_ACCESS_TOKEN;
@@ -233,12 +301,7 @@ export function registerInstagramWebhookRoutes(
           orderCreated: aiResult.orderCreated || null,
           version: 'v2',
           content: {
-            messages: [
-              {
-                type: 'text',
-                text: replyText
-              }
-            ]
+            messages: dynamicMessages
           },
           mediaList: aiResult.mediaList || [],
           mediaToSend: aiResult.mediaToSend || null

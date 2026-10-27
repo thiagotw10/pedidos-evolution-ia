@@ -29,6 +29,27 @@ async function sendMetaInstagramMessage(accessToken, recipientId, text) {
     }
 }
 /**
+ * Downloads media from a public URL and converts to base64 for Gemini multimodal
+ */
+async function downloadMediaFromUrl(url, defaultMime = 'image/jpeg') {
+    try {
+        const res = await fetch(url);
+        if (!res.ok)
+            return null;
+        const arrayBuffer = await res.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        const contentType = (res.headers.get('content-type') || defaultMime).split(';')[0];
+        return {
+            mimeType: contentType,
+            data: buffer.toString('base64')
+        };
+    }
+    catch (err) {
+        console.warn('[Download Media Error]:', err.message);
+        return null;
+    }
+}
+/**
  * Registers all Instagram integration & Webhook endpoints
  */
 function registerInstagramWebhookRoutes(app, db, processAiCustomerMessage) {
@@ -135,6 +156,23 @@ function registerInstagramWebhookRoutes(app, db, processAiCustomerMessage) {
                     content: { messages: [] }
                 });
             }
+            // Extract Media (Image / Voice Note Audio)
+            let incomingMediaUrl = String(rawMessagingItem?.message?.attachments?.[0]?.payload?.url ||
+                body.mediaUrl ||
+                body.media_url ||
+                body.last_input_media ||
+                '').trim();
+            const attachmentType = String(rawMessagingItem?.message?.attachments?.[0]?.type || body.mediaType || body.type || '').toLowerCase();
+            let defaultMime = attachmentType === 'audio' ? 'audio/mp4' : (attachmentType === 'video' ? 'video/mp4' : 'image/jpeg');
+            let mediaPart = undefined;
+            if (incomingMediaUrl) {
+                console.log(`[Instagram Webhook] Baixando mídia anexada do seguidor (${attachmentType || 'imagem/áudio'})...`);
+                const downloaded = await downloadMediaFromUrl(incomingMediaUrl, defaultMime);
+                if (downloaded) {
+                    mediaPart = downloaded;
+                    console.log(`[Instagram Webhook] Mídia baixada e enviada para Gemini multimodal: ${downloaded.mimeType} (${Math.round(downloaded.data.length / 1024)} KB)`);
+                }
+            }
             // Save incoming message in chat history
             const nowIso = new Date().toISOString();
             await chatDocRef.set({
@@ -143,13 +181,35 @@ function registerInstagramWebhookRoutes(app, db, processAiCustomerMessage) {
                 instagramUsername: username || existingChat.instagramUsername || null,
                 channel: 'instagram',
                 leadSource: 'Instagram Direct',
-                lastMessage: incomingText,
+                lastMessage: incomingText || (mediaPart?.mimeType.startsWith('audio/') ? '🎙️ [Áudio]' : '📷 [Mídia]'),
                 lastMessageAt: nowIso,
                 unreadByHuman: true
             }, { merge: true });
             // Invoke unified Gemini 2.5 Engine with full Flow Garage context, Catalog & CRM sync
-            const aiResult = await processAiCustomerMessage(storeId, igUserKey, incomingText, finalDisplayName, undefined, 'gemini-3.1-flash-lite');
+            const aiResult = await processAiCustomerMessage(storeId, igUserKey, incomingText, finalDisplayName, mediaPart, 'gemini-3.1-flash-lite');
             const replyText = aiResult.replyText || 'Olá! Como posso ajudar com o seu projeto esportivo hoje? 🏁';
+            // Format dynamic messages for Instagram Direct (Fotos, Vídeos e Texto)
+            const dynamicMessages = [];
+            if (aiResult.mediaList && aiResult.mediaList.length > 0) {
+                for (const m of aiResult.mediaList) {
+                    if (m.url) {
+                        dynamicMessages.push({
+                            type: m.type === 'video' ? 'video' : 'image',
+                            url: m.url
+                        });
+                    }
+                }
+            }
+            else if (aiResult.mediaToSend?.url) {
+                dynamicMessages.push({
+                    type: aiResult.mediaToSend.type === 'video' ? 'video' : 'image',
+                    url: aiResult.mediaToSend.url
+                });
+            }
+            dynamicMessages.push({
+                type: 'text',
+                text: replyText
+            });
             // If direct Meta Graph API and store has token, dispatch directly
             const accessToken = storeData.instagramAccessToken || process.env.META_PAGE_ACCESS_TOKEN;
             if (isMetaRaw && accessToken && rawMessagingItem?.sender?.id) {
@@ -168,12 +228,7 @@ function registerInstagramWebhookRoutes(app, db, processAiCustomerMessage) {
                 orderCreated: aiResult.orderCreated || null,
                 version: 'v2',
                 content: {
-                    messages: [
-                        {
-                            type: 'text',
-                            text: replyText
-                        }
-                    ]
+                    messages: dynamicMessages
                 },
                 mediaList: aiResult.mediaList || [],
                 mediaToSend: aiResult.mediaToSend || null
