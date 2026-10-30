@@ -1,3 +1,4 @@
+import {auth} from '../lib/firebase';
 export const VAPID_PUBLIC_KEY = 'BCNLWQuTLyzcjLpu47mZ8EN_aSvsQRDg3FkhgwiOvk7cMZIoBnpXnX7Lv-vI5dcweDnqpNOjt11Dp18-Hb0y_1c';
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
@@ -80,9 +81,11 @@ export async function subscribeToPushNotifications(establishmentId: string): Pro
     }
 
     // Salva a inscrição no backend
+    const token = await auth.currentUser?.getIdToken();
+    if (!token) return {success:false,error:'Entre novamente para ativar notificações.'};
     const res = await fetch('/api/notifications/subscribe', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
         establishmentId,
         subscription: subscription.toJSON(),

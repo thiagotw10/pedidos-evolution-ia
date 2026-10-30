@@ -88,3 +88,7 @@ Se você desejar abrir esta pasta como um projeto/janela independente:
 2. Selecione a pasta:
    `/Users/thiagojosedeoliveira/Downloads/psicocall---teleconsulta-para-psicólogos (2)/pedidos-evolution-ia`
 *(Ou você pode mover/copiar a pasta `pedidos-evolution-ia` para qualquer outro local do seu computador, mantendo seus arquivos intactos!)*
+
+## Instagram Direct
+
+Integração direta com Instagram Login, usando o mesmo motor de IA do WhatsApp. Configuração do aplicativo Meta, publicação e migração do ManyChat: [guia de Instagram Direct](docs/instagram-direto.md).

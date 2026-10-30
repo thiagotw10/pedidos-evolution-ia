@@ -3,7 +3,8 @@ import {
   ShoppingBag, 
   UtensilsCrossed, 
   MessageSquareCode, 
-  Smartphone, 
+  Smartphone,
+  Instagram,
   Settings, 
   Sparkles,
   Bot,
@@ -51,16 +52,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
     ...(establishment?.segment === 'AUTOMOTIVE_PARTS' ? [
       {
         id: 'radar',
-        label: 'Radar de Leads (Harvey & Maps)',
+        label: 'Radar de Leads',
         icon: Compass,
-        badge: 'IA Hunter',
+        badge: null,
         badgeColor: 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
       },
       {
         id: 'workshops',
-        label: 'Rede de Oficinas Parceiras',
+        label: 'Oficinas Parceiras',
         icon: Wrench,
-        badge: 'RAG IA',
+        badge: null,
         badgeColor: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
       }
     ] : []),
@@ -68,7 +69,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'traffic',
       label: 'Tráfego & Comissão',
       icon: Target,
-      badge: 'Meta CAPI',
+      badge: null,
       badgeColor: 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
     },
     {
@@ -101,11 +102,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'whatsapp',
       label: 'Conexão WhatsApp',
       icon: Smartphone,
-      badge: isWhatsAppConnected ? 'Online' : 'Desconectado',
+      badge: isWhatsAppConnected ? 'Online' : 'Offline',
       badgeColor: isWhatsAppConnected 
         ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
         : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
     },
+    { id: 'inbox', label: 'Conversas', icon: MessageSquareCode, badge: null },
+    { id: 'instagram', label: 'Conexão Instagram', icon: Instagram, badge: null },
     {
       id: 'settings',
       label: 'Configurações & IA',
@@ -126,7 +129,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="flex items-center gap-1.5">
               <h1 className="font-extrabold text-lg text-white tracking-tight">ia<span className="text-emerald-400">Pedido</span></h1>
             </div>
-            <p className="text-xs text-slate-400 font-medium">WhatsApp & IA</p>
+            <p className="text-xs text-slate-400 font-medium">{segConfig.id === 'AFFILIATES' ? 'Instagram & Afiliados' : 'WhatsApp & IA'}</p>
           </div>
         </div>
       </div>
@@ -136,25 +139,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="px-3 pb-3 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
           Menu Principal
         </div>
-        {menuItems.filter(item => segConfig.id !== 'AUTOMOTIVE_PARTS' || !['finance', 'campaigns'].includes(item.id)).map((item) => {
+        {menuItems.filter(item => (segConfig.id !== 'AUTOMOTIVE_PARTS' || !['finance', 'campaigns'].includes(item.id)) && (segConfig.id !== 'AFFILIATES' || ['orders','products','inbox','instagram','billing','settings'].includes(item.id))).map((item) => {
           const Icon = item.icon;
           const isActive = currentTab === item.id;
           return (
             <button
               key={item.id}
               onClick={() => setCurrentTab(item.id)}
-              className={`w-full min-h-12 flex items-center justify-between px-4 py-3 rounded-xl font-medium text-sm transition-all duration-200 cursor-pointer ${
+              title={item.label}
+              className={`w-full h-12 flex items-center justify-between gap-2 border border-transparent px-3 py-3 text-left rounded-xl font-medium text-sm transition-all duration-200 cursor-pointer ${
                 isActive
-                  ? 'bg-gradient-to-r from-emerald-500/20 to-teal-500/10 text-emerald-300 border border-emerald-500/30 shadow-md shadow-emerald-950/40'
+                  ? 'bg-gradient-to-r from-emerald-500/20 to-teal-500/10 text-emerald-300 border-emerald-500/30 shadow-md shadow-emerald-950/40'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
               }`}
             >
-              <div className="flex items-center gap-3">
-                <Icon className={`w-5 h-5 transition-colors ${isActive ? 'text-emerald-400' : 'text-slate-400'}`} />
-                <span>{item.label}</span>
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <Icon className={`w-5 h-5 shrink-0 transition-colors ${isActive ? 'text-emerald-400' : 'text-slate-400'}`} />
+                <span className="truncate leading-5">{item.label}</span>
               </div>
               {item.badge && (
-                <span className={`text-xs px-2 py-0.5 rounded-full ${item.badgeColor || 'bg-slate-800 text-slate-300'}`}>
+                <span className={`shrink-0 whitespace-nowrap text-[10px] px-1.5 py-0.5 rounded-full ${item.badgeColor || 'bg-slate-800 text-slate-300'}`}>
                   {item.badge}
                 </span>
               )}
@@ -164,7 +168,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </nav>
 
       {/* System Status Footer */}
-      <div className="p-4 border-t border-slate-800/60 m-3 rounded-2xl bg-slate-950/60 border border-slate-800/80">
+      {segConfig.id !== 'AFFILIATES' && <div className="p-4 border-t border-slate-800/60 m-3 rounded-2xl bg-slate-950/60 border border-slate-800/80">
         <div className="flex items-center gap-2 mb-2">
           <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
           <span className="text-xs font-semibold text-slate-300">Atendimento WhatsApp</span>
@@ -176,7 +180,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <Sparkles className="w-3 h-3" /> Conectada
           </span>
         </div>
-      </div>
+      </div>}
     </aside>
   );
 };

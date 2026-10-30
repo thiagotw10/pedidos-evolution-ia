@@ -1,280 +1,551 @@
 "use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.registerInstagramWebhookRoutes = registerInstagramWebhookRoutes;
-const DEFAULT_FLOW_GARAGE_ID = 'ZFFWUNspKNYKsn22kKDH6nybCWw2';
-const META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN || 'evolution_ia_instagram_meta';
-/**
- * Sends a message via Meta Instagram Messaging Graph API
- */
-async function sendMetaInstagramMessage(accessToken, recipientId, text) {
-    try {
-        const res = await fetch(`https://graph.facebook.com/v19.0/me/messages?access_token=${encodeURIComponent(accessToken)}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                recipient: { id: recipientId },
-                message: { text }
-            })
-        });
-        if (!res.ok) {
-            const errText = await res.text();
-            console.warn('[Instagram Graph API Error]:', res.status, errText);
-            return false;
-        }
-        return true;
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
     }
-    catch (err) {
-        console.warn('[Instagram Graph API Send Exception]:', err.message);
-        return false;
-    }
-}
-/**
- * Downloads media from a public URL and converts to base64 for Gemini multimodal
- */
-async function downloadMediaFromUrl(url, defaultMime = 'image/jpeg') {
-    try {
-        const res = await fetch(url);
-        if (!res.ok)
-            return null;
-        const arrayBuffer = await res.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        const contentType = (res.headers.get('content-type') || defaultMime).split(';')[0];
-        return {
-            mimeType: contentType,
-            data: buffer.toString('base64')
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
         };
-    }
-    catch (err) {
-        console.warn('[Download Media Error]:', err.message);
-        return null;
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.INSTAGRAM_TEXT_MAX_BYTES = void 0;
+exports.validInstagramSignature = validInstagramSignature;
+exports.extractInstagramMessages = extractInstagramMessages;
+exports.registerInstagramWebhookRoutes = registerInstagramWebhookRoutes;
+exports.instagramTextParts = instagramTextParts;
+exports.processInstagramEvent = processInstagramEvent;
+exports.refreshInstagramTokens = refreshInstagramTokens;
+exports.sendInstagramDirect = sendInstagramDirect;
+const affiliate_1 = require("./affiliate");
+const admin = __importStar(require("firebase-admin"));
+const crypto_1 = __importDefault(require("crypto"));
+const CONNECTIONS = 'instagramConnections';
+const EVENTS = 'instagramEvents';
+const now = () => new Date().toISOString();
+const hash = (value) => crypto_1.default.createHash('sha256').update(value).digest('hex');
+const connectionRef = (db, store) => db.collection(CONNECTIONS).doc(store);
+const config = () => ({
+    appId: process.env.INSTAGRAM_APP_ID || '',
+    secret: process.env.INSTAGRAM_APP_SECRET || '',
+    verifyToken: process.env.INSTAGRAM_VERIFY_TOKEN || '',
+    origin: (process.env.INSTAGRAM_PUBLIC_URL || 'https://iapedido.web.app').replace(/\/$/, ''),
+    version: process.env.INSTAGRAM_GRAPH_VERSION || 'v26.0'
+});
+function validInstagramSignature(raw, signature, secret) {
+    if (!secret || !/^sha256=[a-f0-9]{64}$/i.test(signature))
+        return false;
+    const expected = crypto_1.default.createHmac('sha256', secret).update(raw).digest();
+    return crypto_1.default.timingSafeEqual(expected, Buffer.from(signature.slice(7), 'hex'));
+}
+function extractInstagramMessages(body) {
+    if (body?.object !== 'instagram' || !Array.isArray(body.entry))
+        return [];
+    return body.entry.flatMap((entry) => [
+        ...(Array.isArray(entry.messaging) ? entry.messaging : []),
+        ...(Array.isArray(entry.changes) ? entry.changes.filter((change) => change?.field === 'messages').map((change) => change.value) : [])
+    ].filter((item) => item?.message?.mid && !item.message.is_echo && !item.message.is_deleted
+        && item.sender?.id && item.recipient?.id && item.sender.id !== item.recipient.id
+        && (item.message.text || item.message.attachments?.length))
+        .map((item) => ({ accountId: String(item.recipient.id), senderId: String(item.sender.id),
+        mid: String(item.message.mid), timestamp: Number(item.timestamp) > 0 ? Number(item.timestamp) * (Number(item.timestamp) < 1e12 ? 1000 : 1) : Date.now(),
+        text: String(item.message.text || ''), attachments: item.message.attachments || [] })));
+}
+class InstagramApiError extends Error {
+    constructor(code, retryable) {
+        super(`Instagram API: ${code}`);
+        this.code = code;
+        this.retryable = retryable;
     }
 }
-/**
- * Registers all Instagram integration & Webhook endpoints
- */
-function registerInstagramWebhookRoutes(app, db, processAiCustomerMessage) {
-    /**
-     * 1. GET Webhook Verification for Meta Graph API / Facebook Login for Business
-     */
-    app.get(['/api/instagram/webhook', '/api/instagram/webhook/:establishmentId', '/api/meta/instagram-webhook'], (req, res) => {
-        const mode = req.query['hub.mode'];
-        const token = req.query['hub.verify_token'];
-        const challenge = req.query['hub.challenge'];
-        console.log(`[Instagram Webhook Verification] Mode: ${mode}, Token: ${token}`);
-        if (mode === 'subscribe' && (token === META_VERIFY_TOKEN || String(token).length > 3)) {
-            console.log('[Instagram Webhook Verification] Meta webhook subscription confirmed!');
-            return res.status(200).send(challenge);
-        }
-        return res.status(403).json({ error: 'Token de verificação inválido.' });
+async function graph(path, token, method = 'GET', body) {
+    const response = await fetch(`https://graph.instagram.com/${config().version}/${path}`, {
+        method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(20000)
     });
-    /**
-     * 2. POST Webhook: Handles incoming messages from Manychat & Meta Graph API
-     */
-    app.post(['/api/instagram/webhook', '/api/instagram/webhook/:establishmentId', '/api/meta/instagram-webhook'], async (req, res) => {
+    const data = await response.json();
+    if (!response.ok || data.error) {
+        const code = Number(data.error?.code || response.status);
+        throw new InstagramApiError(code, response.status >= 500 || response.status === 429 || !!data.error?.is_transient);
+    }
+    return data;
+}
+async function tokenRequest(url, options) {
+    const response = await fetch(url, { ...options, signal: AbortSignal.timeout(20000) });
+    const data = await response.json();
+    if (!response.ok || data.error || !data.access_token)
+        throw new Error('Não foi possível autorizar o Instagram. Tente conectar novamente.');
+    return data;
+}
+// This collection is server-only. Tokens never live on the public establishment document.
+async function saveConnection(db, storeId, token, expiresIn) {
+    const profile = await graph('me?fields=user_id,username', token);
+    const accountId = String(profile.user_id || '');
+    if (!/^\d+$/.test(accountId))
+        throw new Error('A Meta não retornou o identificador da conta profissional.');
+    await db.runTransaction(async (tx) => {
+        const mapping = db.collection('instagramAccounts').doc(accountId);
+        const current = await tx.get(mapping);
+        const previous = await tx.get(connectionRef(db, storeId));
+        if (current.exists && current.data()?.storeId !== storeId)
+            throw new Error('Esta conta já está conectada a outra loja.');
+        const oldId = previous.data()?.accountId;
+        if (oldId && oldId !== accountId)
+            tx.delete(db.collection('instagramAccounts').doc(oldId));
+        tx.set(mapping, { storeId });
+        tx.set(connectionRef(db, storeId), { accountId, username: profile.username || '', accessToken: token,
+            connected: false, enabled: false, connectedAt: now(), refreshedAt: now(),
+            expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(), lastError: null });
+    });
+    const affiliate = (await db.collection('establishments').doc(storeId).get()).data()?.segment === affiliate_1.AFFILIATE_SEGMENT;
+    let affiliatePermissions = false;
+    if (affiliate) {
+        const permissions = await graph('me/permissions', token);
+        const granted = (permissions.data || []).filter((p) => p.status === 'granted').map((p) => p.permission);
+        affiliatePermissions = ['instagram_business_content_publish', 'instagram_business_manage_comments'].every(p => granted.includes(p));
+    }
+    await graph('me/subscribed_apps', token, 'POST', { subscribed_fields: affiliatePermissions ? 'messages,comments' : 'messages' });
+    await connectionRef(db, storeId).update({ affiliatePermissions });
+    await connectionRef(db, storeId).update({ connected: true });
+}
+function registerInstagramWebhookRoutes(app, db, processAi, deps = {}) {
+    (0, affiliate_1.registerAffiliateRoutes)(app, db, graph);
+    const owned = (handler) => async (req, res) => {
+        let uid;
         try {
-            const body = req.body || {};
-            const query = req.query || {};
-            const params = req.params || {};
-            // Resolve Target Establishment
-            const storeId = (params.establishmentId ||
-                query.establishmentId ||
-                query.storeId ||
-                body.establishmentId ||
-                body.storeId ||
-                DEFAULT_FLOW_GARAGE_ID).trim();
-            console.log(`[Instagram Webhook] Nova requisição para loja: "${storeId}"`);
-            // Check if Meta Graph API raw webhook payload
-            const isMetaRaw = body.object === 'instagram' || body.object === 'page';
-            let rawMessagingItem = null;
-            if (isMetaRaw && Array.isArray(body.entry) && body.entry[0]?.messaging?.[0]) {
-                rawMessagingItem = body.entry[0].messaging[0];
-            }
-            // Extract Follower / Contact Info
-            let senderId = String(rawMessagingItem?.sender?.id ||
-                body.user_id ||
-                body.senderId ||
-                body.userId ||
-                body.id ||
-                body.sender?.id ||
-                body.contact?.id ||
-                '').trim();
-            let senderName = String(body.name ||
-                [body.first_name, body.last_name].filter(Boolean).join(' ') ||
-                body.username ||
-                body.sender?.name ||
-                rawMessagingItem?.sender?.name ||
-                '').trim();
-            let username = String(body.username || body.handle || '').trim().replace(/^@/, '');
-            // Extract Message Text
-            let incomingText = String(rawMessagingItem?.message?.text ||
-                body.last_input_text ||
-                body.message ||
-                body.text ||
-                body.body ||
-                body.content ||
-                '').trim();
-            // If Manychat sends an empty message or trigger event
-            if (!incomingText) {
-                incomingText = 'Olá! Gostaria de saber mais sobre os escapamentos esportivos.';
-            }
-            // Fallback sender ID if testing without user_id
-            if (!senderId) {
-                senderId = username ? `user_${username}` : `guest_${Date.now()}`;
-            }
-            const igUserKey = senderId.startsWith('ig_') ? senderId : `ig_${senderId}`;
-            const finalDisplayName = senderName || (username ? `@${username}` : `Seguidor Instagram (${senderId.slice(-6)})`);
-            console.log(`[Instagram Webhook] Processando DM de ${finalDisplayName} (${igUserKey}): "${incomingText.slice(0, 60)}"`);
-            // Load store data
-            const storeDoc = await db.collection('establishments').doc(storeId).get();
-            const storeData = storeDoc.data() || {};
-            // Check Human Takeover / AI Pause on this Instagram chat
-            const chatDocRef = db.collection('establishments').doc(storeId).collection('chats').doc(igUserKey);
-            const existingChatSnap = await chatDocRef.get().catch(() => null);
-            const existingChat = existingChatSnap?.data() || {};
-            const isAiPaused = existingChat.aiPaused && (!existingChat.aiPausedUntil || new Date(existingChat.aiPausedUntil).getTime() > Date.now());
-            if (isAiPaused) {
-                console.log(`[Instagram Human Takeover] ⏸️ IA pausada para ${igUserKey} (Pedro ou atendente no controle).`);
-                const nowIso = new Date().toISOString();
-                await chatDocRef.collection('messages').add({
-                    sender: 'user',
-                    text: incomingText,
-                    timestamp: nowIso,
-                    channel: 'instagram'
-                });
-                await chatDocRef.set({
-                    lastMessage: incomingText,
-                    lastMessageAt: nowIso,
-                    lastSender: 'user',
-                    unreadByHuman: true
-                }, { merge: true });
-                return res.status(200).json({
-                    success: true,
-                    status: 'ai_paused_for_human',
-                    reply: '',
-                    text: '',
-                    version: 'v2',
-                    content: { messages: [] }
-                });
-            }
-            // Extract Media (Image / Voice Note Audio)
-            let incomingMediaUrl = String(rawMessagingItem?.message?.attachments?.[0]?.payload?.url ||
-                body.mediaUrl ||
-                body.media_url ||
-                body.last_input_media ||
-                '').trim();
-            const attachmentType = String(rawMessagingItem?.message?.attachments?.[0]?.type || body.mediaType || body.type || '').toLowerCase();
-            let defaultMime = attachmentType === 'audio' ? 'audio/mp4' : (attachmentType === 'video' ? 'video/mp4' : 'image/jpeg');
-            let mediaPart = undefined;
-            if (incomingMediaUrl) {
-                console.log(`[Instagram Webhook] Baixando mídia anexada do seguidor (${attachmentType || 'imagem/áudio'})...`);
-                const downloaded = await downloadMediaFromUrl(incomingMediaUrl, defaultMime);
-                if (downloaded) {
-                    mediaPart = downloaded;
-                    console.log(`[Instagram Webhook] Mídia baixada e enviada para Gemini multimodal: ${downloaded.mimeType} (${Math.round(downloaded.data.length / 1024)} KB)`);
+            uid = (await admin.auth().verifyIdToken((req.headers.authorization || '').replace(/^Bearer /, ''))).uid;
+        }
+        catch {
+            return res.status(401).json({ error: 'Entre novamente para gerenciar o Instagram.' });
+        }
+        const storeId = String(req.query.establishmentId || req.body?.establishmentId || '');
+        if (!storeId || uid !== storeId)
+            return res.status(403).json({ error: 'Acesso permitido somente ao dono da loja.' });
+        try {
+            return await handler(req, res, storeId);
+        }
+        catch (error) {
+            console.error('[Instagram management]', error instanceof InstagramApiError ? error.message : 'Configuration operation failed');
+            return res.status(400).json({ error: error instanceof InstagramApiError
+                    ? `A Meta recusou a operação (código ${error.code}). Confira as permissões e reconecte a conta.`
+                    : 'Não foi possível concluir a conexão. Confira a configuração do aplicativo Meta e tente novamente.' });
+        }
+    };
+    app.get('/api/instagram/status', owned(async (_req, res, storeId) => {
+        const c = config();
+        const data = (await connectionRef(db, storeId).get()).data() || {};
+        const webhook = (await db.collection('instagramSystem').doc('webhook').get()).data();
+        const store = (await db.collection('establishments').doc(storeId).get()).data() || {};
+        return res.json({ configured: !!(c.appId && c.secret && c.verifyToken),
+            missing: [!c.appId && 'INSTAGRAM_APP_ID', !c.secret && 'INSTAGRAM_APP_SECRET', !c.verifyToken && 'INSTAGRAM_VERIFY_TOKEN'].filter(Boolean),
+            respectSchedule: data.respectSchedule !== false, storeOpen: deps.operatingHours ? deps.operatingHours(store).isOpen : true,
+            affiliatePermissions: data.affiliatePermissions === true, connected: !!data.connected, enabled: !!data.enabled, username: data.username || null,
+            accountId: data.accountId || null, expiresAt: data.expiresAt || null, lastError: data.lastError || null,
+            lastInboundAt: data.lastInboundAt || null, lastOutboundAt: data.lastOutboundAt || null,
+            webhookVerifiedAt: webhook?.verifiedAt || null,
+            webhookUrl: `${c.origin}/api/instagram/webhook`, redirectUri: `${c.origin}/api/instagram/callback`,
+            verifyToken: c.verifyToken });
+    }));
+    app.post('/api/instagram/connect', owned(async (_req, res, storeId) => {
+        const c = config();
+        if (!c.appId || !c.secret || !c.verifyToken)
+            return res.status(503).json({ error: 'Configure as credenciais do aplicativo Instagram no servidor primeiro.' });
+        const state = crypto_1.default.randomBytes(32).toString('hex');
+        await db.collection('instagramOauthStates').doc(hash(state)).set({ storeId, expiresAt: Date.now() + 10 * 60 * 1000 });
+        const affiliate = (await db.collection('establishments').doc(storeId).get()).data()?.segment === affiliate_1.AFFILIATE_SEGMENT;
+        const query = new URLSearchParams({ client_id: c.appId, redirect_uri: `${c.origin}/api/instagram/callback`,
+            response_type: 'code', scope: 'instagram_business_basic,instagram_business_manage_messages' + (affiliate ? ',instagram_business_content_publish,instagram_business_manage_comments' : ''),
+            enable_fb_login: '0', force_authentication: '1', state });
+        return res.json({ url: `https://www.instagram.com/oauth/authorize?${query}` });
+    }));
+    app.get('/api/instagram/callback', async (req, res) => {
+        res.set('Cache-Control', 'no-store');
+        try {
+            const state = String(req.query.state || '');
+            if (!/^[a-f0-9]{64}$/.test(state))
+                return res.status(400).send('Autorização inválida. Volte ao painel e conecte novamente.');
+            const ref = db.collection('instagramOauthStates').doc(hash(state));
+            const storeId = await db.runTransaction(async (tx) => {
+                const saved = await tx.get(ref);
+                if (!saved.exists || saved.data().expiresAt < Date.now())
+                    throw new Error('Expired state');
+                tx.delete(ref);
+                return saved.data().storeId;
+            });
+            if (req.query.error || !req.query.code)
+                return res.redirect(`${config().origin}/?instagram=cancelled`);
+            const c = config();
+            const short = await tokenRequest('https://api.instagram.com/oauth/access_token', {
+                method: 'POST', body: new URLSearchParams({ client_id: c.appId, client_secret: c.secret,
+                    grant_type: 'authorization_code', redirect_uri: `${c.origin}/api/instagram/callback`, code: String(req.query.code) })
+            });
+            const long = await tokenRequest(`https://graph.instagram.com/access_token?${new URLSearchParams({
+                grant_type: 'ig_exchange_token', client_secret: c.secret, access_token: short.access_token
+            })}`);
+            await saveConnection(db, storeId, long.access_token, Number(long.expires_in || 5184000));
+            return res.redirect(`${c.origin}/?instagram=connected`);
+        }
+        catch {
+            return res.redirect(`${config().origin}/?instagram=error`);
+        }
+    });
+    app.post('/api/instagram/enable', owned(async (req, res, storeId) => {
+        const ref = connectionRef(db, storeId);
+        const data = (await ref.get()).data();
+        if (!data?.connected)
+            return res.status(400).json({ error: 'Conecte sua conta primeiro.' });
+        if (req.body.enabled !== true && req.body.enabled !== false)
+            return res.status(400).json({ error: 'Informe se a IA deve ser ativada.' });
+        if (req.body.enabled && new Date(data.expiresAt).getTime() <= Date.now())
+            return res.status(400).json({ error: 'A autorização expirou. Reconecte sua conta.' });
+        if (req.body.enabled)
+            await graph('me?fields=user_id', data.accessToken);
+        if (req.body.respectSchedule !== undefined && typeof req.body.respectSchedule !== 'boolean')
+            return res.status(400).json({ error: 'Configuração de horário inválida.' });
+        await ref.update({ enabled: req.body.enabled, ...(typeof req.body.respectSchedule === 'boolean' ? { respectSchedule: req.body.respectSchedule } : {}) });
+        return res.json({ success: true });
+    }));
+    app.post('/api/instagram/disconnect', owned(async (_req, res, storeId) => {
+        const ref = connectionRef(db, storeId);
+        const data = (await ref.get()).data();
+        // Pause locally before revoking so a failed remote revoke cannot leave the bot running.
+        if (data)
+            await ref.update({ enabled: false });
+        if (data?.accessToken)
+            await graph('me/subscribed_apps', data.accessToken, 'DELETE');
+        const batch = db.batch();
+        batch.delete(ref);
+        if (data?.accountId)
+            batch.delete(db.collection('instagramAccounts').doc(data.accountId));
+        await batch.commit();
+        return res.json({ success: true });
+    }));
+    const paths = ['/api/instagram/webhook', '/api/instagram/webhook/:establishmentId', '/api/meta/instagram-webhook'];
+    app.get(paths, async (req, res) => {
+        const c = config();
+        if (!c.verifyToken || req.query['hub.mode'] !== 'subscribe' || req.query['hub.verify_token'] !== c.verifyToken
+            || typeof req.query['hub.challenge'] !== 'string')
+            return res.sendStatus(403);
+        await db.collection('instagramSystem').doc('webhook').set({ verifiedAt: now() });
+        return res.status(200).send(req.query['hub.challenge']);
+    });
+    app.post(paths, async (req, res) => {
+        const raw = req.rawBody;
+        if (!Buffer.isBuffer(raw) || !validInstagramSignature(raw, String(req.headers['x-hub-signature-256'] || ''), config().secret))
+            return res.sendStatus(401);
+        try {
+            const ids = [];
+            for (const message of [...extractInstagramMessages(req.body), ...(0, affiliate_1.extractAffiliateComments)(req.body)]) {
+                const mapping = (await db.collection('instagramAccounts').doc(message.accountId).get()).data();
+                if (!mapping?.storeId)
+                    continue;
+                if (message.kind === 'affiliate_comment' && (await db.collection('establishments').doc(mapping.storeId).get()).data()?.segment !== affiliate_1.AFFILIATE_SEGMENT)
+                    continue;
+                const id = hash(`${message.accountId}:${message.mid}`);
+                try {
+                    await db.collection(EVENTS).doc(id).create({ ...message, storeId: mapping.storeId,
+                        status: 'pending', attempts: 0, receivedAt: now(), expiresAt: new Date(Date.now() + 7 * 86400000) });
+                    ids.push(id);
+                }
+                catch (error) {
+                    if (error.code !== 6 && error.code !== 'already-exists')
+                        throw error;
                 }
             }
-            // Save incoming message in chat history
-            const nowIso = new Date().toISOString();
-            await chatDocRef.set({
-                customerPhone: igUserKey,
-                customerName: finalDisplayName,
-                instagramUsername: username || existingChat.instagramUsername || null,
-                channel: 'instagram',
-                leadSource: 'Instagram Direct',
-                lastMessage: incomingText || (mediaPart?.mimeType.startsWith('audio/') ? '🎙️ [Áudio]' : '📷 [Mídia]'),
-                lastMessageAt: nowIso,
-                unreadByHuman: true
-            }, { merge: true });
-            // Invoke unified Gemini 2.5 Engine with full Flow Garage context, Catalog & CRM sync
-            const aiResult = await processAiCustomerMessage(storeId, igUserKey, incomingText, finalDisplayName, mediaPart, 'gemini-3.1-flash-lite');
-            const replyText = aiResult.replyText || 'Olá! Como posso ajudar com o seu projeto esportivo hoje? 🏁';
-            // Format dynamic messages for Instagram Direct (Fotos, Vídeos e Texto)
-            const dynamicMessages = [];
-            if (aiResult.mediaList && aiResult.mediaList.length > 0) {
-                for (const m of aiResult.mediaList) {
-                    if (m.url) {
-                        dynamicMessages.push({
-                            type: m.type === 'video' ? 'video' : 'image',
-                            url: m.url
-                        });
+            // Production uses a durable Firestore trigger. Local development awaits the same worker.
+            if (deps.inlineWorker)
+                for (const id of ids)
+                    await processInstagramEvent(db, id, processAi, deps);
+            return res.status(200).send('EVENT_RECEIVED');
+        }
+        catch {
+            return res.sendStatus(503); // Meta retries; stable event IDs prevent duplicate processing.
+        }
+    });
+}
+exports.INSTAGRAM_TEXT_MAX_BYTES = 900;
+function instagramTextParts(text) {
+    const clean = text.replace(/\r\n?/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    if (!clean)
+        return [];
+    // Node 22 supports grapheme segmentation: keep joined emoji and accents together.
+    const segmenter = new Intl.Segmenter('pt-BR', { granularity: 'grapheme' });
+    const units = Array.from(segmenter.segment(clean), (part) => part.segment)
+        .flatMap(unit => Buffer.byteLength(unit, 'utf8') <= exports.INSTAGRAM_TEXT_MAX_BYTES ? [unit] : Array.from(unit));
+    const parts = [];
+    let start = 0;
+    while (start < units.length) {
+        let end = start;
+        let bytes = 0;
+        let paragraph = 0;
+        let line = 0;
+        let sentence = 0;
+        let word = 0;
+        let prefix = '';
+        while (end < units.length) {
+            const size = Buffer.byteLength(units[end], 'utf8');
+            if (bytes + size > exports.INSTAGRAM_TEXT_MAX_BYTES)
+                break;
+            prefix += units[end];
+            bytes += size;
+            end++;
+            if (/\s/u.test(units[end - 1])) {
+                word = end;
+                // Avoid a tiny first bubble just because the greeting has a blank line.
+                if (bytes >= exports.INSTAGRAM_TEXT_MAX_BYTES * 0.4) {
+                    if (prefix.endsWith('\n\n'))
+                        paragraph = end;
+                    if (units[end - 1] === '\n')
+                        line = end;
+                    if (/[.!?…]["'”’)]*\s+$/u.test(prefix))
+                        sentence = end;
+                }
+            }
+        }
+        const cut = end === units.length ? end : paragraph || line || sentence || word || end;
+        const part = units.slice(start, cut).join('').trim();
+        if (part)
+            parts.push(part);
+        start = cut;
+        while (start < units.length && /^\s+$/u.test(units[start]))
+            start++;
+    }
+    return parts;
+}
+// Download only Meta CDN attachments; reject redirects and bound memory/time usage.
+async function downloadAttachment(attachment) {
+    if (!['image', 'audio', 'video'].includes(attachment?.type))
+        return;
+    const url = new URL(attachment.payload?.url || '');
+    if (url.protocol !== 'https:' || !(url.hostname.endsWith('.cdninstagram.com') || url.hostname.endsWith('.fbcdn.net') || url.hostname.endsWith('.fbsbx.com')))
+        return;
+    const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(15000) });
+    if (!response.ok || !response.body)
+        return;
+    const mimeType = (response.headers.get('content-type') || '').split(';')[0];
+    if (!/^(image|audio|video)\//.test(mimeType))
+        return;
+    const max = 15 * 1024 * 1024;
+    const reader = response.body.getReader();
+    const chunks = [];
+    let size = 0;
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done)
+            break;
+        size += value.length;
+        if (size > max) {
+            await reader.cancel();
+            return;
+        }
+        chunks.push(Buffer.from(value));
+    }
+    return { mimeType, data: Buffer.concat(chunks).toString('base64') };
+}
+async function processInstagramEvent(db, eventId, processAi, deps = {}) {
+    const ref = db.collection(EVENTS).doc(eventId);
+    const event = (await ref.get()).data();
+    if (!event || ['sent', 'ignored', 'failed'].includes(event.status))
+        return;
+    if (event.kind === 'affiliate_comment')
+        return (0, affiliate_1.processAffiliateComment)(db, eventId, graph);
+    const chatKey = `ig_${event.senderId}`;
+    const chat = db.collection('establishments').doc(event.storeId).collection('chats').doc(chatKey);
+    const lock = db.collection('instagramLocks').doc(hash(`${event.storeId}:${chatKey}`));
+    const lease = crypto_1.default.randomUUID();
+    const acquired = await db.runTransaction(async (tx) => {
+        const locked = (await tx.get(lock)).data();
+        const current = (await tx.get(ref)).data();
+        if (!current || ['sent', 'ignored', 'failed'].includes(current.status))
+            return false;
+        if (locked?.until > Date.now())
+            throw new Error('Instagram conversation busy; retry');
+        tx.set(lock, { lease, until: Date.now() + 300000 });
+        tx.update(ref, { attempts: admin.firestore.FieldValue.increment(1), status: 'processing' });
+        return true;
+    });
+    if (!acquired)
+        return;
+    const connection = connectionRef(db, event.storeId);
+    try {
+        const c = (await connection.get()).data();
+        const store = (await db.collection('establishments').doc(event.storeId).get()).data();
+        const inbound = chat.collection('messages').doc(eventId);
+        if (store && !(await inbound.get()).exists) {
+            const attachments = (event.attachments || []).map((a) => ({ type: a.type, url: a.payload?.url || a.url || '' })).filter((a) => /^https:\/\//.test(a.url));
+            await inbound.set({ sender: 'user', text: event.text || '[Mídia recebida pelo Instagram]',
+                timestamp: new Date(event.timestamp).toISOString(), channel: 'instagram',
+                media: attachments.map((a) => ({ url: a.url, type: a.type })),
+                mediaUrl: attachments.find((a) => a.type === 'image')?.url || null,
+                audioUrl: attachments.find((a) => a.type === 'audio')?.url || null });
+            await chat.set({ channel: 'instagram', customerPhone: chatKey, instagramSenderId: event.senderId, instagramAccountId: event.accountId }, { merge: true });
+        }
+        if (!c?.connected || !c.enabled || c.accountId !== event.accountId || !store || Date.now() - event.timestamp > 23 * 3600000) {
+            await ref.update({ status: 'ignored', reason: 'inactive_or_expired_window' });
+            return;
+        }
+        await connection.update({ lastInboundAt: now() });
+        const existing = (await chat.get()).data() || {};
+        const paused = existing.aiPaused && (!existing.aiPausedUntil || new Date(existing.aiPausedUntil).getTime() > Date.now());
+        const outsideHours = c.respectSchedule !== false && deps.operatingHours && !deps.operatingHours(store).isOpen;
+        await chat.set({ channel: 'instagram', customerPhone: chatKey, customerName: existing.customerName || 'Cliente Instagram',
+            leadSource: 'Instagram Direct', instagramSenderId: event.senderId, instagramAccountId: event.accountId, lastInboundAt: new Date(event.timestamp).toISOString(), unreadByHuman: true }, { merge: true });
+        let plan = event.plan;
+        if (!plan) {
+            const text = event.text || `[${event.attachments[0]?.type || 'Mídia'} recebida pelo Instagram]`;
+            if (paused || outsideHours) {
+                if (paused || store.aiOutOfHoursAction !== 'AUTO_REPLY') {
+                    await ref.update({ status: 'ignored', reason: paused ? 'human_takeover' : 'outside_hours' });
+                    return;
+                }
+                plan = instagramTextParts(store.aiOutOfHoursMessage || 'Olá! Recebemos sua mensagem e retornaremos no horário de atendimento.').map(text => ({ text }));
+                const autoMessage = chat.collection('messages').doc(`auto_${eventId}`);
+                await autoMessage.set({ sender: 'assistant', origin: 'ai', text: plan.map(p => p.text).join('\n\n'), timestamp: now(), channel: 'instagram', deliveryStatus: 'pending' });
+                await ref.update({ assistantMessageId: autoMessage.id });
+            }
+            else {
+                const media = await downloadAttachment(event.attachments[0]);
+                if (deps.reserveCredit) {
+                    const reserved = await deps.reserveCredit(event.storeId, text, 'gemini-3.1-flash-lite');
+                    if (!reserved.allowed) {
+                        await ref.update({ status: 'ignored', reason: 'billing_required' });
+                        return;
                     }
                 }
+                const result = store.segment === affiliate_1.AFFILIATE_SEGMENT
+                    ? await (0, affiliate_1.affiliateDirectReply)(db, event.storeId, chatKey, text)
+                    : await processAi(event.storeId, chatKey, text, existing.customerName || 'Cliente Instagram', media, 'gemini-3.1-flash-lite', 'instagram', eventId);
+                if (result.assistantMessageId)
+                    await ref.update({ assistantMessageId: result.assistantMessageId });
+                const mediaList = result.mediaList?.length ? result.mediaList : result.mediaToSend ? [result.mediaToSend] : [];
+                const mediaMessages = mediaList.slice(0, 10).filter(m => /^https:\/\//.test(m.url)).map(m => ({ attachment: {
+                        type: m.type === 'video' ? 'video' : 'image', payload: { url: m.url }
+                    } }));
+                let reply = result.replyText || 'Olá! Como posso ajudar?';
+                if (result.locationToSend)
+                    reply += `\n📍 ${result.locationToSend.name}: ${result.locationToSend.address}\nhttps://www.google.com/maps?q=${result.locationToSend.latitude},${result.locationToSend.longitude}`;
+                // Present the response before its attachments; persist this exact order for retries.
+                plan = [...instagramTextParts(reply).map(text => ({ text })), ...mediaMessages];
             }
-            else if (aiResult.mediaToSend?.url) {
-                dynamicMessages.push({
-                    type: aiResult.mediaToSend.type === 'video' ? 'video' : 'image',
-                    url: aiResult.mediaToSend.url
-                });
-            }
-            dynamicMessages.push({
-                type: 'text',
-                text: replyText
-            });
-            // If direct Meta Graph API and store has token, dispatch directly
-            const accessToken = storeData.instagramAccessToken || process.env.META_PAGE_ACCESS_TOKEN;
-            if (isMetaRaw && accessToken && rawMessagingItem?.sender?.id) {
-                await sendMetaInstagramMessage(accessToken, rawMessagingItem.sender.id, replyText);
-            }
-            // Format universal response compatible with:
-            // 1) Manychat External Request (Response Mapping -> $.reply or $.text)
-            // 2) Manychat Dynamic Block (v2 content.messages)
-            // 3) Custom API Clients / n8n / Zapier
-            return res.status(200).json({
-                success: true,
-                reply: replyText,
-                text: replyText,
-                replyText: replyText,
-                customerName: finalDisplayName,
-                orderCreated: aiResult.orderCreated || null,
-                version: 'v2',
-                content: {
-                    messages: dynamicMessages
-                },
-                mediaList: aiResult.mediaList || [],
-                mediaToSend: aiResult.mediaToSend || null
-            });
+            await ref.update({ plan, nextPart: 0 });
         }
-        catch (err) {
-            console.error('[Instagram Webhook Error]:', err);
-            return res.status(500).json({
-                success: false,
-                error: err.message || 'Falha ao processar mensagem do Instagram',
-                reply: 'Olá! Nosso sistema está atualizando o catálogo técnico. Um consultor já vai te responder por aqui! 🏁',
-                version: 'v2',
-                content: {
-                    messages: [
-                        {
-                            type: 'text',
-                            text: 'Olá! Nosso sistema está atualizando o catálogo técnico. Um consultor já vai te responder por aqui! 🏁'
-                        }
-                    ]
-                }
-            });
+        for (let i = Number(event.nextPart || 0); i < plan.length; i++) {
+            // Recheck pause/disconnect during long responses before sending each part.
+            const live = (await connection.get()).data();
+            const liveChat = (await chat.get()).data();
+            const newlyPaused = (liveChat?.aiPaused && (!liveChat.aiPausedUntil || new Date(liveChat.aiPausedUntil).getTime() > Date.now())) || (liveChat?.aiPausedAt && liveChat.aiPausedAt !== existing.aiPausedAt);
+            if (newlyPaused || !live?.enabled || !live.connected) {
+                const messageId = (await ref.get()).data()?.assistantMessageId;
+                if (messageId)
+                    await chat.collection('messages').doc(messageId).update({ deliveryStatus: i > 0 ? 'partial' : 'cancelled', deliveredParts: i });
+                await ref.update({ status: 'ignored', reason: 'disabled_during_send' });
+                return;
+            }
+            const data = await graph(`${c.accountId}/messages`, c.accessToken, 'POST', { recipient: { id: event.senderId }, message: plan[i] });
+            await ref.update({ nextPart: i + 1, lastMessageId: data.message_id || null });
         }
-    });
-    /**
-     * 3. POST /api/instagram/test: Test endpoint to simulate an Instagram Direct message
-     */
-    app.post('/api/instagram/test', async (req, res) => {
+        const assistantId = (await ref.get()).data()?.assistantMessageId;
+        if (assistantId)
+            await chat.collection('messages').doc(assistantId).update({ deliveryStatus: 'sent' });
+        await ref.update({ status: 'sent', sentAt: now() });
+        await connection.update({ lastOutboundAt: now(), lastError: null });
+        await chat.set({ lastOutboundAt: now(), instagramDeliveryStatus: 'sent' }, { merge: true });
+    }
+    catch (error) {
+        const permanent = error instanceof InstagramApiError && !error.retryable;
+        const assistantId = (await ref.get()).data()?.assistantMessageId;
+        const failed = permanent || Number(event.attempts || 0) >= 4;
+        if (assistantId)
+            await chat.collection('messages').doc(assistantId).update({ deliveryStatus: failed ? 'failed' : 'pending' }).catch(() => { });
+        await ref.update({ status: failed ? 'failed' : 'pending', lastError: error instanceof InstagramApiError ? error.message : 'Falha no processamento. Nova tentativa agendada.' });
+        await connection.set({ lastError: error instanceof InstagramApiError
+                ? `A Meta recusou o envio (código ${error.code}). Confira a autorização da conta.`
+                : 'Falha ao processar uma mensagem. Consulte os eventos do Instagram.' }, { merge: true });
+        await chat.set({ instagramDeliveryStatus: failed ? 'failed' : 'pending' }, { merge: true });
+        if (!failed)
+            throw error;
+    }
+    finally {
+        await db.runTransaction(async (tx) => {
+            if ((await tx.get(lock)).data()?.lease === lease)
+                tx.delete(lock);
+        });
+    }
+}
+async function refreshInstagramTokens(db) {
+    const connections = await db.collection(CONNECTIONS).where('connected', '==', true).get();
+    for (const snap of connections.docs) {
+        const data = snap.data();
+        if (new Date(data.expiresAt).getTime() > Date.now() + 15 * 86400000)
+            continue;
         try {
-            const storeId = String(req.body.establishmentId || DEFAULT_FLOW_GARAGE_ID).trim();
-            const text = String(req.body.text || req.body.message || 'Bom dia irmão! Tenho um Porsche 911 Carrera S 2024 e quero um ronco mais encorpado. Quanto custa?').trim();
-            const username = String(req.body.username || 'cliente_teste_porsche').trim();
-            const testKey = `ig_test_${username}`;
-            const aiResult = await processAiCustomerMessage(storeId, testKey, text, `@${username}`, undefined, 'gemini-3.1-flash-lite');
-            return res.status(200).json({
-                success: true,
-                testKey,
-                username,
-                inputText: text,
-                reply: aiResult.replyText,
-                projectCreated: aiResult.orderCreated || null,
-                mediaList: aiResult.mediaList || []
+            const refreshed = await tokenRequest(`https://graph.instagram.com/refresh_access_token?${new URLSearchParams({ grant_type: 'ig_refresh_token', access_token: data.accessToken })}`);
+            await db.runTransaction(async (tx) => {
+                const current = (await tx.get(snap.ref)).data();
+                if (current?.accessToken !== data.accessToken)
+                    return;
+                tx.update(snap.ref, { accessToken: refreshed.access_token, refreshedAt: now(),
+                    expiresAt: new Date(Date.now() + Number(refreshed.expires_in || 5184000) * 1000).toISOString(), lastError: null });
             });
         }
-        catch (err) {
-            return res.status(500).json({ success: false, error: err.message });
+        catch {
+            await snap.ref.update({ lastError: 'Não foi possível renovar a autorização. Reconecte o Instagram.' });
         }
-    });
+    }
+}
+// Shared by the authenticated CRM routes. Never treats a ManyChat subscriber ID as an Instagram recipient.
+async function sendInstagramDirect(db, storeId, contactKey, text, attachment) {
+    const c = (await connectionRef(db, storeId).get()).data();
+    const chat = (await db.collection('establishments').doc(storeId).collection('chats').doc(contactKey).get()).data();
+    if (!c?.connected)
+        return { success: false, error: 'Conecte o Instagram da loja primeiro.' };
+    if (!chat?.instagramSenderId || chat.instagramAccountId !== c.accountId)
+        return { success: false, error: 'Este contato precisa enviar uma nova mensagem pelo Direct após a conexão. O ID antigo do ManyChat não pode ser usado na API do Instagram.' };
+    if (!chat.lastInboundAt || Date.now() - new Date(chat.lastInboundAt).getTime() >= 24 * 3600000)
+        return { success: false, error: 'A janela de resposta do Instagram encerrou. Aguarde uma nova mensagem do cliente.' };
+    try {
+        if (attachment && (!/^https:\/\//.test(attachment.url) || !['image', 'video', 'audio'].includes(attachment.type)))
+            return { success: false, error: 'No Instagram, envie uma mídia com URL HTTPS pública.' };
+        for (const part of instagramTextParts(text))
+            await graph(`${c.accountId}/messages`, c.accessToken, 'POST', {
+                recipient: { id: chat.instagramSenderId }, message: { text: part }
+            });
+        if (attachment) {
+            await graph(`${c.accountId}/messages`, c.accessToken, 'POST', { recipient: { id: chat.instagramSenderId },
+                message: { attachment: { type: attachment.type, payload: { url: attachment.url } } } });
+        }
+        await connectionRef(db, storeId).update({ lastOutboundAt: now(), lastError: null });
+        return { success: true };
+    }
+    catch {
+        return { success: false, error: 'O Instagram recusou o envio. Confira a autorização e a janela de atendimento.' };
+    }
 }
 //# sourceMappingURL=instagramWebhook.js.map

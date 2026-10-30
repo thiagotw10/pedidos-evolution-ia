@@ -71,7 +71,8 @@ self.addEventListener('notificationclick', (event) => {
       for (let client of windowClients) {
         if ('focus' in client) {
           client.postMessage({
-            type: 'NEW_ORDER_PUSH_CLICKED',
+            type: 'OPEN_NOTIFICATION',
+            url: targetUrl,
             orderId: event.notification.data?.orderId
           });
           return client.focus();

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Volume2, VolumeX, Smartphone, Store, Clock, LogOut, User, Menu, Download } from 'lucide-react';
+import { Volume2, VolumeX, Smartphone, Instagram, Store, Clock, LogOut, User, Menu, Download } from 'lucide-react';
 import { Establishment } from '../types';
 
 interface HeaderProps {
@@ -46,11 +46,11 @@ export const Header: React.FC<HeaderProps> = ({
             <p className="text-[10px] text-slate-400 sm:hidden truncate flex items-center gap-1 mt-0.5">
               <span className="text-emerald-400 font-semibold">• Online</span>
               <span className="text-slate-600">|</span>
-              <span className="truncate">{establishment?.segment === 'AUTOMOTIVE_PARTS' ? 'Oficina & Performance' : 'Painel de Vendas'}</span>
+              <span className="truncate">{establishment?.segment === 'AFFILIATES' ? 'Afiliados & Achadinhos' : establishment?.segment === 'AUTOMOTIVE_PARTS' ? 'Oficina & Performance' : 'Painel de Vendas'}</span>
             </p>
             <p className="text-[10px] sm:text-xs text-slate-400 hidden sm:flex items-center gap-1.5 truncate">
               <Clock className="w-3 h-3 text-slate-500 shrink-0" />
-              <span className="truncate">{establishment?.operatingHours || 'Aberto hoje'}</span>
+              <span className="truncate">{establishment?.segment === 'AFFILIATES' ? 'Conteúdo, produtos e conversas' : establishment?.operatingHours || 'Aberto hoje'}</span>
             </p>
           </div>
         </button>
@@ -73,7 +73,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Sound Alert Toggle (Desktop in header, mobile in drawer) */}
         <button
           onClick={() => setSoundEnabled(!soundEnabled)}
-          style={establishment?.segment === 'AUTOMOTIVE_PARTS' ? { display: 'none' } : undefined}
+          style={['AUTOMOTIVE_PARTS','AFFILIATES'].includes(establishment?.segment || '') ? { display: 'none' } : undefined}
           title={soundEnabled ? 'Alerta sonoro de novo pedido ativado' : 'Alerta sonoro desativado'}
           className={`hidden sm:flex p-2 sm:px-3.5 sm:py-2 rounded-xl text-xs font-semibold items-center gap-2 transition cursor-pointer border ${
             soundEnabled
@@ -88,12 +88,12 @@ export const Header: React.FC<HeaderProps> = ({
         {/* WhatsApp Status (Desktop in header, mobile in bottom nav) */}
         <button
           onClick={onOpenWhatsApp}
-          title={establishment?.evolutionConnected ? 'WhatsApp Conectado' : 'WhatsApp Desconectado'}
+          title={establishment?.segment === 'AFFILIATES' ? 'Gerenciar Instagram' : establishment?.evolutionConnected ? 'WhatsApp Conectado' : 'WhatsApp Desconectado'}
           className="hidden sm:flex p-2 sm:px-3.5 sm:py-2 rounded-xl text-xs font-semibold items-center gap-2 bg-slate-800/90 border border-slate-700/80 hover:border-slate-600 transition cursor-pointer text-slate-200 shadow-sm"
         >
-          <Smartphone className="w-4 h-4 text-emerald-400" />
-          <span>WhatsApp</span>
-          <span className={`w-2 h-2 rounded-full ${establishment?.evolutionConnected ? 'bg-emerald-400' : 'bg-amber-400 animate-ping'}`} />
+          {establishment?.segment === 'AFFILIATES' ? <Instagram className="w-4 h-4 text-pink-400" /> : <Smartphone className="w-4 h-4 text-emerald-400" />}
+          <span>{establishment?.segment === 'AFFILIATES' ? 'Instagram' : 'WhatsApp'}</span>
+          {establishment?.segment !== 'AFFILIATES' && <span className={`w-2 h-2 rounded-full ${establishment?.evolutionConnected ? 'bg-emerald-400' : 'bg-amber-400 animate-ping'}`} />}
         </button>
 
         {/* User Session & Logout (Desktop) */}

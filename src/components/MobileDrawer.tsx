@@ -6,7 +6,8 @@ import {
   UtensilsCrossed, 
   Megaphone, 
   MessageSquareCode, 
-  Smartphone, 
+  Smartphone,
+  Instagram,
   Settings, 
   Sparkles, 
   LogOut, 
@@ -67,16 +68,18 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
   const menuItems = [
     { id: 'orders', label: segConfig.ordersTitle, icon: OrdersIcon },
     ...(establishment?.segment === 'AUTOMOTIVE_PARTS' ? [
-      { id: 'radar', label: 'Radar de Leads (Harvey & Maps)', icon: Compass, badge: 'IA Hunter' },
-      { id: 'workshops', label: 'Rede de Oficinas Parceiras', icon: Wrench, badge: 'RAG IA' }
+      { id: 'radar', label: 'Radar de Leads', icon: Compass },
+      { id: 'workshops', label: 'Oficinas Parceiras', icon: Wrench }
     ] : []),
-    { id: 'traffic', label: 'Tráfego & Comissão', icon: Target, badge: 'Meta CAPI' },
+    { id: 'traffic', label: 'Tráfego & Comissão', icon: Target },
     { id: 'finance', label: 'Painel Financeiro', icon: TrendingUp },
     { id: 'billing', label: 'Planos & Créditos IA', icon: CreditCard },
     { id: 'products', label: segConfig.catalogTitle, icon: CatalogIcon },
     { id: 'campaigns', label: 'Disparos & Campanhas', icon: Megaphone },
     { id: 'simulator', label: 'Simulador da IA', icon: MessageSquareCode, badge: 'Testar' },
     { id: 'whatsapp', label: 'Conexão WhatsApp', icon: Smartphone },
+    { id: 'inbox', label: 'Conversas', icon: MessageSquareCode, badge: null },
+    { id: 'instagram', label: 'Conexão Instagram', icon: Instagram },
     { id: 'settings', label: 'Configurações & IA', icon: Settings },
   ];
 
@@ -146,7 +149,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
         <div className="flex gap-2 mb-4">
           <button
             onClick={() => setSoundEnabled(!soundEnabled)}
-            style={establishment?.segment === 'AUTOMOTIVE_PARTS' ? { display: 'none' } : undefined}
+            style={['AUTOMOTIVE_PARTS','AFFILIATES'].includes(establishment?.segment || '') ? { display: 'none' } : undefined}
             className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition cursor-pointer border ${
               soundEnabled
                 ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
@@ -185,25 +188,26 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
           <p className="px-2 text-[10px] font-bold tracking-wider text-slate-500 uppercase mb-2">
             Módulos do Sistema
           </p>
-          {menuItems.filter(item => establishment?.segment !== 'AUTOMOTIVE_PARTS' || !['finance', 'campaigns'].includes(item.id)).map(item => {
+          {menuItems.filter(item => (establishment?.segment !== 'AUTOMOTIVE_PARTS' || !['finance', 'campaigns'].includes(item.id)) && (segConfig.id !== 'AFFILIATES' || ['orders','products','inbox','instagram','billing','settings'].includes(item.id))).map(item => {
             const Icon = item.icon;
             const isActive = currentTab === item.id;
             return (
               <button
                 key={item.id}
                 onClick={() => handleSelectTab(item.id)}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
+                title={item.label}
+                className={`w-full h-11 flex items-center justify-between gap-2 border border-transparent px-3.5 py-2.5 text-left rounded-xl text-xs font-semibold transition cursor-pointer ${
                   isActive
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold'
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30 font-bold'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
                 }`}
               >
-                <div className="flex items-center gap-3">
-                  <Icon className={`w-4 h-4 ${isActive ? 'text-emerald-400' : 'text-slate-400'}`} />
-                  <span>{item.label}</span>
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-emerald-400' : 'text-slate-400'}`} />
+                  <span className="truncate leading-5">{item.label}</span>
                 </div>
                 {item.badge && (
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">
+                  <span className="shrink-0 whitespace-nowrap text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">
                     {item.badge}
                   </span>
                 )}

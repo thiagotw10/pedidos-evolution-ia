@@ -31,10 +31,10 @@ self.addEventListener('push', (event) => {
     }
   }
 
-  const isChatNotification = orderData.url?.includes('projectId') || 
-                             orderData.projectId || 
-                             title.includes('WhatsApp') || 
-                             title.includes('💬') || 
+  const isChatNotification = orderData.isChat || orderData.url?.includes('tab=inbox') || orderData.url?.includes('projectId') ||
+                             orderData.projectId ||
+                             title.includes('WhatsApp') ||
+                             title.includes('💬') ||
                              title.includes('Lead') ||
                              title.includes('Atendimento');
 
@@ -46,7 +46,7 @@ self.addEventListener('push', (event) => {
     icon: '/icon-192.png',
     badge: '/icon-192.png',
     vibrate: [300, 150, 300, 150, 450],
-    tag: orderData.projectId ? `chat-${orderData.projectId}` : (orderData.orderId ? `order-${orderData.orderId}` : `iapedido-${Date.now()}`),
+    tag: orderData.url?.includes('tab=inbox') ? `chat-${orderData.url}` : orderData.projectId ? `chat-${orderData.projectId}` : (orderData.orderId ? `order-${orderData.orderId}` : `iapedido-${Date.now()}`),
     renotify: true,
     requireInteraction: true, // Mantém a notificação visível até o lojista clicar
     data: {
@@ -82,7 +82,8 @@ self.addEventListener('notificationclick', (event) => {
       for (let client of windowClients) {
         if ('focus' in client) {
           client.postMessage({
-            type: 'NEW_ORDER_PUSH_CLICKED',
+            type: 'OPEN_NOTIFICATION',
+            url: targetUrl,
             orderId: event.notification.data?.orderId
           });
           return client.focus();

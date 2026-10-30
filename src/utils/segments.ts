@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 
 export type BusinessSegment = 
+  | 'AFFILIATES'
   | 'FOOD'
   | 'VEHICLES'
   | 'AUTOMOTIVE_PARTS'
@@ -77,6 +78,20 @@ export const SEGMENT_CONFIGS: Record<BusinessSegment, SegmentConfig> = {
     sampleItemName: 'Projeto de escapamento — referência', sampleCategory: 'Porsche 992', samplePrice: 0,
     sampleDescription: 'Descreva aqui o veículo e a configuração real deste projeto. Aplicação sob análise técnica.',
     deliveryTypeLabels: { delivery: 'Consultar envio nacional', pickup: 'Consultar atendimento local' }, hasDeliveryTeam: false, hasDeliveryFee: false
+  },
+  AFFILIATES: {
+    id: 'AFFILIATES', label: 'Afiliados & Achadinhos', shortLabel: 'Achadinhos', emoji: '🛍️',
+    categoryDesc: 'Criadores de conteúdo e divulgação de produtos com links de afiliado',
+    catalogTitle: 'Meus Achadinhos', catalogSubtitle: 'Produtos, links de afiliado e vídeos autorizados para divulgação.',
+    itemAddLabel: 'Cadastrar achadinho', itemNoun: 'Achadinho', itemPluralNoun: 'Achadinhos', categoryNoun: 'Categoria',
+    ordersTitle: 'Conteúdo & Reels', ordersNoun: 'Publicação', ordersPluralNoun: 'Publicações', receiptTitle: 'Resumo da divulgação',
+    copilotEmoji: '🛍️', copilotTitle: 'Assistente de achadinhos',
+    statusLabels: {pending:'Rascunho',inProgress:'Em produção',dispatched:'Publicado',ready:'Pronto',completed:'Concluído',cancelled:'Arquivado'},
+    defaultWelcome: 'Oi! Bem-vindo ao {loja} 😊 Qual achadinho você está procurando?',
+    defaultPrompt: 'Ajude a localizar produtos e links de afiliado cadastrados. Nunca invente links, cupons, preços, estoque ou condições de entrega. A compra acontece no marketplace, não na plataforma. Informe que links são de afiliado.',
+    sampleItemName: 'Organizador de cozinha', sampleCategory: 'Casa & Organização', samplePrice: 0,
+    sampleDescription: 'Cadastre apenas características confirmadas no anúncio.',
+    deliveryTypeLabels: {delivery:'Comprar no marketplace',pickup:'Link de afiliado'},hasDeliveryTeam:false,hasDeliveryFee:false
   },
   FOOD: {
     id: 'FOOD',
@@ -316,6 +331,7 @@ export const SEGMENT_CONFIGS: Record<BusinessSegment, SegmentConfig> = {
 
 export const SEGMENT_OPTIONS: SegmentConfig[] = [
   SEGMENT_CONFIGS.AUTOMOTIVE_PARTS,
+  SEGMENT_CONFIGS.AFFILIATES,
   SEGMENT_CONFIGS.FOOD,
   SEGMENT_CONFIGS.VEHICLES,
   SEGMENT_CONFIGS.REAL_ESTATE,
@@ -328,6 +344,7 @@ export function getSegmentConfig(segment?: string): SegmentConfig {
   if (!segment) return SEGMENT_CONFIGS.FOOD;
   
   const normalized = segment.toUpperCase();
+  if (normalized === 'AFFILIATES') return SEGMENT_CONFIGS.AFFILIATES;
   if (normalized === 'AUTOMOTIVE_PARTS') return SEGMENT_CONFIGS.AUTOMOTIVE_PARTS;
   if (normalized.includes('VEIC') || normalized.includes('CARRO') || normalized.includes('MOTO') || normalized.includes('AUTO')) {
     return SEGMENT_CONFIGS.VEHICLES;
@@ -359,6 +376,7 @@ export function getSegmentConfig(segment?: string): SegmentConfig {
 export function getSegmentCatalogIcon(segment?: string): LucideIcon {
   const seg = getSegmentConfig(segment);
   switch (seg.id) {
+    case 'AFFILIATES': return ShoppingBag;
     case 'AUTOMOTIVE_PARTS': return Car;
     case 'VEHICLES': return Car;
     case 'REAL_ESTATE': return Home;
@@ -372,6 +390,7 @@ export function getSegmentCatalogIcon(segment?: string): LucideIcon {
 export function getSegmentOrdersIcon(segment?: string): LucideIcon {
   const seg = getSegmentConfig(segment);
   switch (seg.id) {
+    case 'AFFILIATES': return ShoppingBag;
     case 'AUTOMOTIVE_PARTS': return ClipboardList;
     case 'VEHICLES': return ClipboardList;
     case 'REAL_ESTATE': return CalendarCheck;

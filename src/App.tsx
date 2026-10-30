@@ -1,3 +1,4 @@
+import { AffiliateWorkspace } from './components/AffiliateWorkspace';
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   collection, 
@@ -12,8 +13,11 @@ import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { OrdersView } from './components/OrdersView';
 import { AutomotiveProjects } from './components/AutomotiveProjects';
+import { InboxView } from './components/InboxView';
+import { subscribeToPushNotifications } from './utils/pwaNotifications';
 import { ProductsView } from './components/ProductsView';
 import { SimulatorView } from './components/SimulatorView';
+import { InstagramView } from './components/InstagramView';
 import { WhatsAppView } from './components/WhatsAppView';
 import { SettingsView } from './components/SettingsView';
 import { CampaignsView } from './components/CampaignsView';
@@ -55,7 +59,7 @@ export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const publicStoreId = window.location.pathname.match(/^\/loja\/([^/]+)/)?.[1] || new URLSearchParams(window.location.search).get('loja');
 
-  const [currentTab, setCurrentTab] = useState<string>('orders');
+  const [currentTab, setCurrentTab] = useState<string>(new URLSearchParams(window.location.search).has('instagram') ? 'instagram' : (new URLSearchParams(window.location.search).get('tab') || 'orders'));
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [establishment, setEstablishment] = useState<Establishment | null>(null);
@@ -64,6 +68,26 @@ export default function App() {
   const [soundEnabled, setSoundEnabled] = useState(true);
 
   const prevOrdersCountRef = useRef<number>(0);
+
+  useEffect(() => {
+    const navigate = () => setCurrentTab(new URLSearchParams(location.search).get('tab') || 'orders');
+    const push = (event: MessageEvent) => {
+      if (event.data?.type !== 'OPEN_NOTIFICATION' || !event.data.url) return;
+      const target = new URL(event.data.url, location.origin);
+      if (target.origin !== location.origin) return;
+      history.pushState({}, '', target);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    };
+    window.addEventListener('popstate', navigate);
+    navigator.serviceWorker?.addEventListener('message', push);
+    return () => {window.removeEventListener('popstate',navigate);navigator.serviceWorker?.removeEventListener('message',push);};
+  }, []);
+  useEffect(() => {
+    if (currentUser && 'Notification' in window && Notification.permission === 'granted') {
+      void subscribeToPushNotifications(currentUser.uid);
+    }
+  }, [currentUser?.uid]);
+
 
   // Capture PWA beforeinstallprompt globally
   useEffect(() => {
@@ -126,7 +150,7 @@ export default function App() {
   // 1. Listen for Orders in Real-Time (Firestore)
   useEffect(() => {
     if (!isAuthenticated) return;
-    if (establishment?.segment === 'AUTOMOTIVE_PARTS') { setOrders([]); setLoadingOrders(false); return; }
+    if (['AUTOMOTIVE_PARTS','AFFILIATES'].includes(establishment?.segment || '')) { setOrders([]); setLoadingOrders(false); return; }
     setLoadingOrders(true);
     fetchOrdersFallback();
     try {
@@ -433,7 +457,7 @@ export default function App() {
             establishment={establishment}
             soundEnabled={soundEnabled}
             setSoundEnabled={setSoundEnabled}
-            onOpenWhatsApp={() => setCurrentTab('whatsapp')}
+            onOpenWhatsApp={() => setCurrentTab(establishment?.segment === 'AFFILIATES' ? 'instagram' : 'whatsapp')}
             onOpenSettings={() => setCurrentTab('settings')}
             onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
             onOpenMenu={() => setIsMobileDrawerOpen(true)}
@@ -450,8 +474,10 @@ export default function App() {
           />
 
           <main className="flex-1 pb-24 md:pb-16 min-w-0 w-full overflow-x-hidden">
+            {establishment?.segment === 'AFFILIATES' && ['orders','products'].includes(currentTab) && <AffiliateWorkspace establishmentId={storeId} view={currentTab === 'products' ? 'products' : 'posts'} onOpenInstagram={() => setCurrentTab('instagram')} />}
             {currentTab === 'orders' && establishment?.segment === 'AUTOMOTIVE_PARTS' && <AutomotiveProjects />}
-            {currentTab === 'orders' && establishment?.segment !== 'AUTOMOTIVE_PARTS' && (
+            {currentTab === 'inbox' && <InboxView />}
+            {currentTab === 'orders' && !['AUTOMOTIVE_PARTS','AFFILIATES'].includes(establishment?.segment || '') && (
               <OrdersView
                 orders={orders}
                 onUpdateStatus={handleUpdateOrderStatus}
@@ -462,28 +488,28 @@ export default function App() {
               />
             )}
 
-            {currentTab === 'traffic' && (
+            {currentTab === 'traffic' && establishment?.segment !== 'AFFILIATES' && (
               <TrafficGrowthView
                 establishment={establishment}
                 onNavigateToProjects={() => setCurrentTab('orders')}
               />
             )}
 
-            {currentTab === 'radar' && (
+            {currentTab === 'radar' && establishment?.segment !== 'AFFILIATES' && (
               <AutomotiveLeadRadar
                 establishment={establishment}
                 onNavigateToProjects={() => setCurrentTab('orders')}
               />
             )}
 
-            {currentTab === 'workshops' && (
+            {currentTab === 'workshops' && establishment?.segment !== 'AFFILIATES' && (
               <AutomotivePartnerWorkshops
                 establishment={establishment}
                 onNavigateToRadar={() => setCurrentTab('radar')}
               />
             )}
 
-            {currentTab === 'finance' && establishment?.segment !== 'AUTOMOTIVE_PARTS' && (
+            {currentTab === 'finance' && establishment?.segment !== 'AFFILIATES' && establishment?.segment !== 'AUTOMOTIVE_PARTS' && (
               <FinanceView
                 orders={orders}
                 establishment={establishment}
@@ -498,7 +524,7 @@ export default function App() {
               />
             )}
 
-            {currentTab === 'products' && (
+            {currentTab === 'products' && establishment?.segment !== 'AFFILIATES' && (
               <ProductsView
                 products={products}
                 establishmentId={storeId}
@@ -509,7 +535,7 @@ export default function App() {
               />
             )}
 
-            {currentTab === 'campaigns' && establishment?.segment !== 'AUTOMOTIVE_PARTS' && (
+            {currentTab === 'campaigns' && establishment?.segment !== 'AFFILIATES' && establishment?.segment !== 'AUTOMOTIVE_PARTS' && (
               <CampaignsView
                 establishmentId={storeId}
                 establishment={establishment}
@@ -517,7 +543,7 @@ export default function App() {
               />
             )}
 
-            {currentTab === 'simulator' && (
+            {currentTab === 'simulator' && establishment?.segment !== 'AFFILIATES' && (
               <SimulatorView
                 establishmentId={storeId}
                 establishment={establishment}
@@ -528,7 +554,9 @@ export default function App() {
               />
             )}
 
-            {currentTab === 'whatsapp' && (
+            {currentTab === 'instagram' && <InstagramView establishmentId={storeId} affiliate={establishment?.segment === 'AFFILIATES'} />}
+
+            {currentTab === 'whatsapp' && establishment?.segment !== 'AFFILIATES' && (
               <WhatsAppView
                 establishment={establishment}
                 onSaveEstablishment={handleSaveEstablishment}

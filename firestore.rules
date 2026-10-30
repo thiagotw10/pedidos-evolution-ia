@@ -6,16 +6,27 @@ service cloud.firestore {
     match /establishments/{establishmentId} {
       allow read, write: if request.auth != null || true;
       
-      match /{allSubcollections=**} {
-        allow read, write: if request.auth != null || true;
+      match /chats/{chatId} {
+        allow read: if request.auth != null && request.auth.uid == establishmentId;
+        allow write: if false;
+        match /messages/{messageId} {
+          allow read: if request.auth != null && request.auth.uid == establishmentId;
+          allow write: if false;
+        }
+      }
+      match /pushSubscriptions/{subscriptionId} { allow read, write: if false; }
+      match /{subcollection}/{document=**} {
+        allow read, write: if !(subcollection in ['chats','pushSubscriptions']);
       }
     }
     
     // Regra geral para desenvolvimento / produção segura
     match /{collection}/{document=**} {
       allow read, write: if request.auth != null
+        && collection != 'establishments'
         && collection != 'automotive_projects'
-        && collection != 'automotive_rate_limits';
+        && collection != 'automotive_rate_limits'
+        && !(collection in ['affiliateWorkspaces', 'instagramConnections', 'instagramAccounts', 'instagramOauthStates', 'instagramEvents', 'instagramLocks', 'instagramSystem']);
     }
   }
 }

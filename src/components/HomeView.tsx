@@ -745,6 +745,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onGoToAuth }) => {
           </p>
 
           <div className="flex items-center gap-4">
+            <a href="/privacidade.html" className="hover:text-slate-300">Privacidade</a>
             <button onClick={() => onGoToAuth('login')} className="hover:text-slate-300 cursor-pointer">Login</button>
             <button onClick={() => onGoToAuth('register')} className="hover:text-slate-300 cursor-pointer">Criar Conta</button>
           </div>

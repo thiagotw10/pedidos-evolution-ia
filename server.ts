@@ -1,3 +1,6 @@
+import { affiliateDirectReply, AFFILIATE_SEGMENT } from './functions/src/affiliate';
+import {registerInboxRoutes} from './functions/src/inbox';
+import { registerInstagramWebhookRoutes } from './functions/src/instagramWebhook';
 import express from 'express';
 import { registerAutomotiveRoutes, saveAutomotiveContactAndSyncCrm, AutomotiveConversationContext } from './functions/src/automotive';
 import { extractTrafficAttribution } from './functions/src/metaCapi';
@@ -604,7 +607,10 @@ async function processAiCustomerMessage(
   establishmentId: string,
   customerPhone: string,
   incomingText: string,
-  customerNameParam?: string
+  customerNameParam?: string,
+  mediaPart?: { mimeType: string; data: string },
+  _model?: string,
+  channel: 'whatsapp' | 'instagram' = 'whatsapp'
 ): Promise<{
   replyText: string;
   orderCreated?: any;
@@ -618,7 +624,7 @@ async function processAiCustomerMessage(
   const { cleanText, attribution } = extractTrafficAttribution(incomingText);
   const textForAi = cleanText || incomingText;
 
-  const safePhone = customerPhone.replace(/\D/g, '') || customerPhone;
+  const safePhone = channel === 'instagram' ? customerPhone : customerPhone.replace(/\D/g, '') || customerPhone;
   const customerMemorySnap = await db.collection('establishments').doc(establishmentId).collection('customers').doc(safePhone).get().catch(() => null);
   const customerMemory = customerMemorySnap?.data() || {};
   const savedAutoCtx: AutomotiveConversationContext = customerMemory.automotiveContext || {};
@@ -638,6 +644,8 @@ async function processAiCustomerMessage(
     text: incomingText,
     timestamp: new Date().toISOString()
   });
+
+  if (establishment.segment === AFFILIATE_SEGMENT) return affiliateDirectReply(db, establishmentId, customerPhone, textForAi, channel);
 
   const menuText = products.map((p: any) => 
     `- [ID: ${p.id}] ${p.name} (R$ ${Number(p.price).toFixed(2)}) [Categoria: ${p.category}]: ${p.description || ''}`
@@ -845,6 +853,11 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
 
   try {
     // Format conversation history for Gemini
+    if (channel === 'instagram') {
+      systemInstruction = systemInstruction.replace(/WhatsApp/gi, 'Instagram Direct');
+      systemInstruction += '\nCANAL INSTAGRAM: Responda no Direct em texto simples. Não sugira recursos exclusivos do WhatsApp. Para localização use endereço e link de mapa. Não trate o identificador ig_ como telefone.';
+      systemInstruction += '\nESTILO DO DIRECT: Prefira respostas curtas, em geral de 2 a 4 frases e até cerca de 600 caracteres, sem omitir informações essenciais. Use 1 ou 2 parágrafos naturais, sem quebrar linha depois de cada frase. Faça no máximo uma pergunta por resposta. Evite repetir apresentações, elogios longos e explicações já dadas. Use listas apenas quando ajudarem ou forem solicitadas. Não divida a resposta em várias mensagens por conta própria; o envio organiza os blocos quando necessário.';
+    }
     const contents: any[] = [];
     
     // Add past messages
@@ -858,7 +871,7 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
     // Add current user message
     contents.push({
       role: 'user',
-      parts: [{ text: textForAi }]
+      parts: [{ text: textForAi }, ...(mediaPart ? [{ inlineData: mediaPart }] : [])]
     });
 
     const activeTools = isAutomotive
@@ -1121,8 +1134,10 @@ async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
 
-  app.use(express.json());
+  app.use(express.json({ limit:'28mb', verify: (req, _res, buffer) => { (req as any).rawBody = buffer; } }));
+  registerInstagramWebhookRoutes(app, db, processAiCustomerMessage, { inlineWorker: true });
   registerAutomotiveRoutes(app, db);
+registerInboxRoutes(app, db);
 
   // Helper to resolve establishmentId in multi-tenant requests
   function getStoreId(req: express.Request): string {

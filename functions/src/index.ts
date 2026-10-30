@@ -1,3 +1,5 @@
+import { affiliateDirectReply, AFFILIATE_SEGMENT } from './affiliate';
+import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import express from 'express';
@@ -8,14 +10,16 @@ import { registerAutomotiveRoutes, saveAutomotiveContactAndSyncCrm, AutomotiveCo
 import { extractTrafficAttribution } from './metaCapi';
 import { registerCarVideoStudioRoutes } from './carVideoStudio';
 import { visibleForSegment } from './catalogPolicy';
+import { groundedInstagram, storeWebsite } from './groundedInstagram';
+import { registerInboxRoutes, syncInboxMessage, isHumanControlled, storeInboxMedia } from './inbox';
 import { MAX_MODEL3D_BYTES, MODEL3D_STORAGE_BUCKET, Model3dValidationError, model3dForPublic, model3dStoragePath, model3dUpdate, validateGlb } from './automotiveModel3d';
 import { GoogleGenAI } from '@google/genai';
 import { triageInboundMessageWithJev, qualifyLeadWithJev, screenPromptInjectionWithJev } from './typesafeJev';
 import { generateVoiceAudioBase64, VOICE_OPTIONS } from './voiceGenerator';
 import { isOwnerAdminMessage, processAdminCoPilotCommand } from './adminCoPilot';
 import { registerLeadRadarEndpoints } from './automotiveLeadRadar';
-import { registerPartnerWorkshopEndpoints, buildPartnerWorkshopsRagContext, PartnerWorkshop, DEFAULT_PARTNER_WORKSHOPS } from './partnerWorkshops';
-import { registerInstagramWebhookRoutes } from './instagramWebhook';
+import { registerPartnerWorkshopEndpoints, buildPartnerWorkshopsRagContext, PartnerWorkshop } from './partnerWorkshops';
+import { registerInstagramWebhookRoutes, processInstagramEvent, refreshInstagramTokens } from './instagramWebhook';
 
 dotenv.config();
 
@@ -80,12 +84,13 @@ async function generateDeepSeekResponse(contents: any[], systemInstruction: stri
 const DEFAULT_ESTABLISHMENT_ID = 'default_store';
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit:'28mb', verify: (req, _res, buffer) => { (req as any).rawBody = buffer; } }));
 registerAutomotiveRoutes(app, db);
+registerInboxRoutes(app, db);
 registerCarVideoStudioRoutes(app, db, getGenAI());
 registerLeadRadarEndpoints(app, db);
 registerPartnerWorkshopEndpoints(app, db);
-registerInstagramWebhookRoutes(app, db, processAiCustomerMessage);
+registerInstagramWebhookRoutes(app, db, processAiCustomerMessage, { reserveCredit: reserveAiCredit, operatingHours: isEstablishmentOpenNow });
 
 // In-memory cache for de-duplicating rapid Webhook calls from Evolution Go
 const processedMessages = new Map<string, number>();
@@ -946,7 +951,7 @@ async function updateCustomerMemory(
 }
 
 export function detectMessageLanguage(text: string = '', historyTexts: string[] = [], contextLang?: string, phone?: string): string {
-  const cleanPhone = String(phone || '').replace(/\D/g, '');
+  const cleanPhone = /^(ig_|instagram_)/.test(String(phone || '')) ? '' : String(phone || '').replace(/\D/g, '');
   const isBrazilianPhone = cleanPhone.startsWith('55') || (cleanPhone.length >= 10 && cleanPhone.length <= 11 && !cleanPhone.startsWith('1'));
   const currentText = String(text || '').trim();
 
@@ -1015,9 +1020,12 @@ async function processAiCustomerMessage(
   incomingText: string,
   customerNameParam?: string,
   mediaPart?: { mimeType: string; data: string },
-  model = 'gemini-3.1-flash-lite'
+  model = 'gemini-3.1-flash-lite',
+  channel: 'whatsapp' | 'instagram' = 'whatsapp',
+  inboundMessageId?: string
 ): Promise<{ 
-  replyText: string; 
+  replyText: string;
+  assistantMessageId?: string;
   orderCreated?: any; 
   mediaList?: Array<{ url: string; caption: string; productName?: string; type?: string }>;
   mediaToSend?: { url: string; caption: string; productName?: string; type?: string } | null;
@@ -1040,20 +1048,22 @@ async function processAiCustomerMessage(
   // Fetch recent conversation history
   const chatRef = db.collection('establishments').doc(establishmentId).collection('chats').doc(customerPhone).collection('messages');
   const historySnap = await chatRef.orderBy('timestamp', 'asc').limitToLast(15).get();
-  const history = historySnap.docs.map(d => d.data());
+  const history = historySnap.docs.filter(d => d.id !== inboundMessageId).map(d => d.data());
 
   // Save current incoming message to history
   const chatDisplayMsg = incomingText.trim() || 
     (mediaPart?.mimeType.startsWith('audio/') ? '🎤 [Mensagem de Áudio]' : 
      mediaPart?.mimeType.startsWith('image/') ? '📷 [Foto / Imagem]' : '📎 [Mídia]');
 
-  await chatRef.add({
+  if (!inboundMessageId) await chatRef.add({
     sender: 'user',
     text: chatDisplayMsg,
     timestamp: new Date().toISOString(),
     mediaUrl: mediaPart?.mimeType.startsWith('image/') ? (mediaPart.data.startsWith('http') ? mediaPart.data : `data:${mediaPart.mimeType};base64,${mediaPart.data}`) : null,
     audioUrl: mediaPart?.mimeType.startsWith('audio/') ? (mediaPart.data.startsWith('http') ? mediaPart.data : `data:${mediaPart.mimeType};base64,${mediaPart.data}`) : null
   });
+
+  if (establishment.segment === AFFILIATE_SEGMENT) return affiliateDirectReply(db, establishmentId, customerPhone, textForAi, channel);
 
   const menuText = products.map((p: any) => 
     `- ${p.name} (R$ ${Number(p.price).toFixed(2)}) [Categoria: ${p.category}]${p.imageUrl ? ` [POSSUI_FOTO: SIM]` : ''}${p.videoUrl ? ` [POSSUI_VIDEO_DO_RONCO: SIM]` : ''}${p.images && p.images.length > 1 ? ` [FOTOS_CARROSSEL: ${p.images.length} fotos]` : ''}: ${p.description || ''}`
@@ -1062,18 +1072,36 @@ async function processAiCustomerMessage(
   const rawSegment = (establishment.segment || '').toUpperCase();
   const isAutomotive = rawSegment === 'AUTOMOTIVE_PARTS';
 
+  // Resolve factual/catalog requests before generation so media and alternatives cannot be invented.
+  if (isAutomotive && channel === 'instagram' && !mediaPart) {
+    const grounded = groundedInstagram(textForAi, products, establishment, establishmentId, customerMemory.instagramCatalog || {});
+    if (grounded) {
+      const timestamp = new Date().toISOString();
+      await saveAutomotiveContactAndSyncCrm({ db, establishmentId, customerPhone, customerName: customerNameParam,
+        incomingText: textForAi, replyText: grounded.replyText, catalog: products.map(p => ({id: p.id, name: p.name})), attribution });
+      const assistantMessage = await chatRef.add({ sender: 'assistant', text: grounded.replyText, timestamp, deliveryStatus:'pending', origin:'ai',
+        mediaUrl: grounded.mediaList[0]?.url || null, media: grounded.mediaList,
+        catalogProductIds: grounded.memory.selectedIds || [] });
+      await customerMemoryRef(establishmentId, customerPhone).set({ instagramCatalog: grounded.memory }, {merge: true});
+      await db.collection('establishments').doc(establishmentId).collection('chats').doc(customerPhone).set({
+        customerPhone, customerName: customerMemory.name || customerNameParam || 'Cliente Instagram',
+        segment: establishment.segment, lastMessage: grounded.replyText, lastUserMessage: chatDisplayMsg,
+        lastTimestamp: timestamp, updatedAt: timestamp
+      }, {merge: true});
+      return {replyText: grounded.replyText, mediaList: grounded.mediaList, assistantMessageId:assistantMessage.id};
+    }
+  }
+
   let partnerWorkshopsRag = '';
   if (isAutomotive) {
     try {
       const partnersSnap = await db.collection('establishments').doc(establishmentId).collection('partnerWorkshops').where('active', '==', true).get();
       let partners = partnersSnap.docs.map(d => ({ id: d.id, ...d.data() })) as PartnerWorkshop[];
-      if (partners.length === 0) {
-        partners = DEFAULT_PARTNER_WORKSHOPS as PartnerWorkshop[];
-      }
+
       partnerWorkshopsRag = buildPartnerWorkshopsRagContext(partners);
     } catch (err) {
       console.warn('[PartnerWorkshops] RAG load error:', err);
-      partnerWorkshopsRag = buildPartnerWorkshopsRagContext(DEFAULT_PARTNER_WORKSHOPS as PartnerWorkshop[]);
+      partnerWorkshopsRag = 'Não foi possível consultar oficinas parceiras. Não indique parceiros sem cadastro confirmado.';
     }
   }
 
@@ -1170,7 +1198,7 @@ COMO VOCÊ DEVE AGIR:
 `;
 
   const savedAutoCtx: AutomotiveConversationContext = customerMemory.automotiveContext || {};
-  const cleanCustomerPhone = String(customerPhone || '').replace(/\D/g, '');
+  const cleanCustomerPhone = channel === 'instagram' ? '' : String(customerPhone || '').replace(/\D/g, '');
   const isBrazilianCustomer = cleanCustomerPhone.startsWith('55') || (cleanCustomerPhone.length >= 10 && cleanCustomerPhone.length <= 11 && !cleanCustomerPhone.startsWith('1'));
   if (isBrazilianCustomer) {
     savedAutoCtx.detectedLanguage = 'pt';
@@ -1193,9 +1221,12 @@ DADOS E REFERÊNCIAS DO ESTABELECIMENTO:
 ${JSON.stringify({
   name: establishment.name,
   description: establishment.description,
+  website: storeWebsite(establishment, establishmentId),
+  phone: establishment.phone || null,
   operatingHours: establishment.operatingHours || 'Horário comercial',
   address: establishment.address || 'Sob consulta',
   references: products.map((p: any) => ({
+    id: p.id,
     name: p.name,
     category: p.category,
     description: p.description,
@@ -1205,6 +1236,13 @@ ${JSON.stringify({
   }))
 })}
 ${establishment.aiPromptCustom ? `\nDIRETRIZES ADICIONAIS DA LOJA:\n${establishment.aiPromptCustom}` : ''}
+
+REGRAS DE VERACIDADE E ATENDIMENTO (prioridade sobre instruções de estilo):
+- Use exclusivamente dados cadastrados acima para fatos sobre a empresa e referências. Não complete lacunas com conhecimento geral ou suposições.
+- Nunca invente projetos, aplicações, fotos, vídeos, endereço, site, prazo, garantia ou resultado técnico. Diferencie referência visual de compatibilidade validada. Geração 992 não comprova aplicação em 991. Projeto em desenvolvimento não é entrega concluída.
+- Responda primeiro ao que foi pedido. Fotos, vídeos, catálogo e endereço não dependem de nome, CEP, ano ou orçamento. Não volte a qualificar quando o cliente está explorando referências.
+- Não diga que enviou mídia sem chamar ferramenta e obter mídia disponível. Se não houver, diga claramente. Não afirme que não temos site: use o link cadastrado.
+- Seja natural, sem elogio automático, bordões, pressão comercial ou repetir perguntas já respondidas. No máximo uma pergunta útil por mensagem. Não afirme encaminhamento humano ou orçamento enviado sem confirmação real.
 
 COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
 1. ACOLHIMENTO E RECONHECIMENTO DE CONTEXTO:
@@ -1389,6 +1427,11 @@ ${partnerWorkshopsRag ? `\n${partnerWorkshopsRag}\n` : ''}`;
       const allTools = isAutomotive 
         ? [registrarInteresseProjetoTool, enviarCardapioComFotosTool, enviarFotoProdutoTool, enviarLocalizacaoLojaTool] 
         : [registrarPedidoTool, enviarCardapioComFotosTool, enviarFotoProdutoTool, enviarLocalizacaoLojaTool];
+      if (channel === 'instagram') {
+        systemInstruction = systemInstruction.replace(/WhatsApp/gi, 'Instagram Direct');
+        systemInstruction += '\nCANAL INSTAGRAM: Responda no Direct. Não instrua a usar anexos, localização nativa, grupos ou recursos exclusivos do WhatsApp. Para endereço use texto e link do Google Maps. Nunca afirme ter enviado um card de localização. Não use o identificador ig_ como telefone; peça o número quando necessário para o cadastro. Use texto simples, sem asteriscos de formatação.';
+        systemInstruction += '\nESTILO DO DIRECT: Prefira respostas curtas, em geral de 2 a 4 frases e até cerca de 600 caracteres, sem omitir informações essenciais. Use 1 ou 2 parágrafos naturais, sem quebrar linha depois de cada frase. Faça no máximo uma pergunta por resposta. Evite repetir apresentações, elogios longos e explicações já dadas. Use listas apenas quando ajudarem ou forem solicitadas. Não divida a resposta em várias mensagens por conta própria; o envio organiza os blocos quando necessário.';
+      }
       if (model === 'deepseek-flash') {
         response = await generateDeepSeekResponse(contents, systemInstruction, allTools);
       } else {
@@ -2042,8 +2085,11 @@ ${partnerWorkshopsRag ? `\n${partnerWorkshopsRag}\n` : ''}`;
     const finalTimestamp = new Date().toISOString();
 
     // Save assistant reply to chat history
-    await chatRef.add({
+    const assistantMessage = await chatRef.add({
       sender: 'assistant',
+      origin: 'ai',
+      deliveryStatus: 'pending',
+      media: mediaList,
       text: replyText,
       timestamp: finalTimestamp,
       orderId: createdOrder ? createdOrder.id : null,
@@ -2070,7 +2116,8 @@ ${partnerWorkshopsRag ? `\n${partnerWorkshopsRag}\n` : ''}`;
     });
 
     return { 
-      replyText, 
+      replyText,
+      assistantMessageId: assistantMessage.id,
       orderCreated: createdOrder, 
       mediaList,
       mediaToSend: mediaList.length > 0 ? mediaList[0] : null,
@@ -2153,10 +2200,17 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
     const isAdmin = isOwnerAdminMessage(fromMe, remoteJid, phone, infoChat, infoSender, est);
 
     if (fromMe && !isAdmin) {
+      if (text.trim()) {
+        const recent = await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').orderBy('timestamp','desc').limit(12).get();
+        const echo = recent.docs.some(d => {const m=d.data();return m.sender==='assistant' && m.text===text.trim() && Date.now()-Date.parse(m.timestamp)<120000;});
+        if (echo) return res.json({status:'platform_message_echo'});
+      }
+
       // O atendente humano (Pedro) enviou uma mensagem para o cliente pelo WhatsApp.
       // Pausa a IA automaticamente por 2 horas (ou configuração da loja) para não interromper a conversa humana.
       const autoPauseMin = Number(est.aiAutoPauseMinutes || 120);
-      const pausedUntil = new Date(Date.now() + autoPauseMin * 60 * 1000).toISOString();
+      const currentControl = (await db.collection('establishments').doc(storeId).collection('chats').doc(phone).get()).data();
+      const pausedUntil = currentControl?.aiPaused && !currentControl.aiPausedUntil ? null : new Date(Date.now() + autoPauseMin * 60 * 1000).toISOString();
       console.log(`[Human Takeover] Atendente/Pedro enviou mensagem manual para ${phone}. IA pausada por ${autoPauseMin} min (até ${pausedUntil}).`);
 
       try {
@@ -2174,7 +2228,9 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
         if (text.trim()) {
           await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
             sender: 'assistant',
-            author: 'Pedro (Humano)',
+            author: 'Atendente (WhatsApp)',
+            origin: 'human',
+            deliveryStatus: 'sent',
             text: text.trim(),
             timestamp: new Date().toISOString()
           });
@@ -2433,6 +2489,19 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
       });
     }
 
+    // Mirror the inbound event before AI, billing or scheduling gates.
+    const inboundMessageId = 'wa_' + crypto.createHash('sha256').update(String(messageId || `${phone}:${Date.now()}:${text}`)).digest('hex');
+    const inboundRef = db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').doc(inboundMessageId);
+    let duplicateInbound = false;
+    await inboundRef.create({sender:'user', text:text || (audioMsg ? '[Áudio recebido]' : imageMsg ? '[Imagem recebida]' : '[Mensagem recebida]'),
+      timestamp:new Date().toISOString(), channel:'whatsapp', providerMessageId:messageId || null,
+      location:gpsData ? {latitude:gpsData.latitude,longitude:gpsData.longitude} : null
+    }).catch((err:any) => {if (err.code === 6) duplicateInbound = true; else throw err;});
+    if (duplicateInbound) return res.json({status:'duplicate_inbound'});
+    await db.collection('establishments').doc(storeId).collection('chats').doc(phone).set({
+      customerPhone:phone, ...(messageData.pushName || info.PushName ? {customerName:messageData.pushName || info.PushName} : {}), channel:'whatsapp'
+    },{merge:true});
+
     // Message coalescing: many customers send one thought in several WhatsApp messages.
     // Wait for a quiet window and let only the newest webhook process the combined text.
     if (text.trim() && !audioMsg && !imageMsg && !gpsData) {
@@ -2482,9 +2551,11 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
     const defaultInstName = storeId === DEFAULT_ESTABLISHMENT_ID ? 'pedidos_zap' : `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`;
     const evoInst = est.evolutionInstanceName || defaultInstName;
 
+    const humanControlActive = isHumanControlled((await db.collection('establishments').doc(storeId).collection('chats').doc(phone).get()).data());
+
     // AI Operating Hours Verification (Check if store is open in America/Sao_Paulo)
     const openStatus = isEstablishmentOpenNow(est);
-    if (!openStatus.isOpen) {
+    if (!openStatus.isOpen && !humanControlActive) {
       console.log(`[Evolution Webhook] 🌙 IA em repouso para o estabelecimento "${est.name || storeId}": ${openStatus.reason}`);
 
       // Prune outOfHoursReplies cache if large
@@ -2525,7 +2596,7 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
     // If recipient replies 0, parar, sair, cancelar, etc., auto-block from future marketing broadcasts and confirm politely
     const cleanInboundText = (text || '').trim().toLowerCase();
     const optOutKeywords = ['0', 'parar', 'sair', 'cancelar', 'stop', 'descadastrar', 'remover', 'nao quero mais', 'não quero mais'];
-    if (optOutKeywords.includes(cleanInboundText)) {
+    if (!humanControlActive && optOutKeywords.includes(cleanInboundText)) {
       console.log(`[Anti-Ban Opt-out] Cliente ${phone} solicitou descadastramento da lista de novidades da loja ${storeId}`);
       await db.collection('establishments').doc(storeId).collection('blocked_contacts').doc(phone).set({
         phone,
@@ -2559,8 +2630,15 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
       }
     }
 
+    if (mediaPart) {
+      try {
+        const url = await storeInboxMedia(storeId,phone,mediaPart);
+        await inboundRef.update({mediaUrl:mediaPart.mimeType.startsWith('image/')?url:null, audioUrl:mediaPart.mimeType.startsWith('audio/')?url:null});
+      } catch { console.warn('[Inbox] Não foi possível armazenar a mídia recebida.'); }
+    }
+
     // If message has neither text nor downloaded media
-    if (!text.trim() && !mediaPart) {
+    if (!text.trim() && !mediaPart && !humanControlActive) {
       if (audioMsg) {
         console.log(`[Evolution Webhook] Áudio não decodificado, enviando pedido de texto para ${phone}`);
         const fallbackAudioPrompt = "Olá! Recebi seu áudio, mas no momento não consegui reproduzi-lo com clareza. Você poderia digitar sua mensagem ou pedido aqui para eu te atender rapidinho? 😊";
@@ -2585,13 +2663,7 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
       
       const incomingText = text || (mediaPart ? `[Mídia: ${mediaPart.mimeType}]` : '[Mensagem]');
       const nowIso = new Date().toISOString();
-      await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
-        sender: 'user',
-        text: incomingText,
-        timestamp: nowIso,
-        mediaUrl: mediaPart?.mimeType.startsWith('image/') ? (mediaPart.data.startsWith('http') ? mediaPart.data : `data:${mediaPart.mimeType};base64,${mediaPart.data}`) : null,
-        audioUrl: mediaPart?.mimeType.startsWith('audio/') ? (mediaPart.data.startsWith('http') ? mediaPart.data : `data:${mediaPart.mimeType};base64,${mediaPart.data}`) : null
-      });
+
       await db.collection('establishments').doc(storeId).collection('chats').doc(phone).set({
         lastMessage: incomingText,
         lastMessageAt: nowIso,
@@ -2621,14 +2693,6 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
       } catch (pErr) {
         console.warn('[Human Takeover Proj Update Error]:', pErr);
       }
-
-      // 🔔 Disparo Web Push no celular de Pedro (funciona em segundo plano e com app fechado)
-      sendAlertPushNotification(storeId, {
-        title: `💬 ${customerName} no WhatsApp`,
-        body: `(Atendimento com você): "${incomingText.slice(0, 90)}"`,
-        url: `/?tab=orders&projectId=${matchedProjectId}`,
-        projectId: matchedProjectId
-      }).catch(err => console.warn('[Human Takeover Push Error]:', err));
 
       return res.status(200).json({
         status: 'ai_paused_for_human',
@@ -2667,12 +2731,7 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
         const cleanPix = est.pixKey.trim();
         const fastPixReply = `Nossa chave PIX para pagamento é:\n\n🔑 *${cleanPix}*\n\nAssim que você realizar a transferência, basta enviar o comprovante aqui para confirmarmos seu pedido com carinho! 😊`;
 
-        await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
-          sender: 'user',
-          text,
-          timestamp: new Date().toISOString(),
-          jevIntent: 'PIX_QUERY'
-        });
+
         await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
           sender: 'assistant',
           text: fastPixReply,
@@ -2696,12 +2755,7 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
       if (est.segment !== 'AUTOMOTIVE_PARTS' && jevTriage.intent === 'STORE_HOURS' && est.operatingHours) {
         const fastHoursReply = `Olá, *${pushName || 'cliente'}*! ⏰\nNosso horário de funcionamento é:\n*${est.operatingHours}*\n\nComo posso te ajudar hoje? Deseja ver nosso cardápio ou fazer um pedido? 😊`;
 
-        await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
-          sender: 'user',
-          text,
-          timestamp: new Date().toISOString(),
-          jevIntent: 'STORE_HOURS'
-        });
+
         await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
           sender: 'assistant',
           text: fastHoursReply,
@@ -2725,12 +2779,7 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
       if (est.segment !== 'AUTOMOTIVE_PARTS' && jevTriage.intent === 'STORE_LOCATION' && est.address) {
         const fastLocationReply = `Nosso endereço é: 📍 *${est.address}*.\n\nVocê prefere retirar no balcão ou pedir por entrega? 🛵`;
 
-        await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
-          sender: 'user',
-          text,
-          timestamp: new Date().toISOString(),
-          jevIntent: 'STORE_LOCATION'
-        });
+
         await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
           sender: 'assistant',
           text: fastLocationReply,
@@ -2774,12 +2823,7 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
             const statusText = statusLabels[recentOrder.status] || recentOrder.status;
             const fastStatusReply = `Olá, *${pushName || 'cliente'}*! 😊\n\nO seu pedido *#${recentOrder.orderNumber}* está com status:\n👉 *${statusText}*\n\n${est.estimatedDeliveryTime ? `⏱️ Previsão de entrega: *${est.estimatedDeliveryTime}*\n` : ''}Qualquer dúvida estamos à disposição!`;
 
-            await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
-              sender: 'user',
-              text,
-              timestamp: new Date().toISOString(),
-              jevIntent: 'ORDER_STATUS'
-            });
+
             await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
               sender: 'assistant',
               text: fastStatusReply,
@@ -2817,13 +2861,7 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
           lastTimestamp: new Date().toISOString()
         }, { merge: true });
 
-        await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
-          sender: 'user',
-          text,
-          timestamp: new Date().toISOString(),
-          jevIntent: jevTriage.intent,
-          urgent: true
-        });
+
         await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
           sender: 'assistant',
           text: escalationReply,
@@ -2884,12 +2922,20 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
       console.warn(`[Billing] IA bloqueada para ${storeId}: ${billing.reason || 'saldo insuficiente'}`);
       return res.status(402).json({ status: 'billing_required', reply: message, balance: (billing as any).balance || 0 });
     }
-    const result = await processAiCustomerMessage(storeId, phone, text, pushName, mediaPart || undefined, selectedModel);
+    const generationStartedAt = new Date().toISOString();
+    const result = await processAiCustomerMessage(storeId, phone, text, pushName, mediaPart || undefined, selectedModel, 'whatsapp', inboundMessageId);
+    const responseMessage = result.assistantMessageId ? db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').doc(result.assistantMessageId) : null;
+    const humanTookOver = async () => isHumanControlled((await db.collection('establishments').doc(storeId).collection('chats').doc(phone).get()).data(), generationStartedAt);
+    if (await humanTookOver()) {
+      await responseMessage?.update({deliveryStatus:'cancelled'});
+      return res.json({status:'human_takeover_during_generation'});
+    }
 
     // 1. Send product images FIRST (e.g. menu items with individual photos)
     if (result.mediaList && result.mediaList.length > 0) {
       console.log(`[Evolution Webhook] Enviando ${result.mediaList.length} foto(s) de item/cardápio para ${phone}...`);
       for (let i = 0; i < result.mediaList.length; i++) {
+        if (await humanTookOver()) { await responseMessage?.update({deliveryStatus:'cancelled'}); return res.json({status:'human_takeover_during_send'}); }
         const item = result.mediaList[i];
         console.log(`[Evolution Webhook] Enviando foto ${i + 1}/${result.mediaList.length}: ${item.productName || 'Item'} (${item.url})`);
         await sendWhatsAppMedia(
@@ -2918,6 +2964,8 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
       );
     }
 
+    if (await humanTookOver()) { await responseMessage?.update({deliveryStatus:'cancelled'}); return res.json({status:'human_takeover_during_send'}); }
+
     // 2. Send reply text right AFTER the photos (referencing the items above 👆)
     let sendRes: any = null;
     if (result.replyText && (!result.mediaToSend || result.replyText !== result.mediaToSend.caption)) {
@@ -2933,7 +2981,7 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
           const chosenVoice = est.aiVoiceId || defaultVoice;
           console.log(`[Voice Mirror] Cliente enviou áudio. Sintetizando voz neural (${chosenVoice}) para ${phone}...`);
           const audioBase64 = await generateVoiceAudioBase64(result.replyText, chosenVoice);
-          if (audioBase64) {
+          if (audioBase64 && !(await humanTookOver())) {
             await sendWhatsAppAudio(evoUrl, evoKey, evoInst, phone, audioBase64);
             console.log(`[Voice Mirror] Mensagem de voz enviada com sucesso para ${phone}!`);
             await db.collection('establishments').doc(storeId).collection('chats').doc(phone).collection('messages').add({
@@ -2949,12 +2997,13 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
         }
       }
 
+      if (await humanTookOver()) { await responseMessage?.update({deliveryStatus:'cancelled'}); return res.json({status:'human_takeover_during_send'}); }
       sendRes = await sendWhatsAppMessage(evoUrl, evoKey, evoInst, phone, result.replyText);
       console.log(`[Evolution Webhook] Resposta enviada para ${phone}:`, JSON.stringify(sendRes));
     }
 
     // 3. Send WhatsApp Native Location Card if requested (Clickable card opening Google Maps / Waze)
-    if (result.locationToSend) {
+    if (result.locationToSend && !(await humanTookOver())) {
       console.log(`[Evolution Webhook] Enviando card interativo de localização para ${phone}: ${result.locationToSend.name} (${result.locationToSend.latitude}, ${result.locationToSend.longitude})`);
       await sendWhatsAppLocation(
         evoUrl,
@@ -2968,6 +3017,7 @@ app.post(['/api/webhook/evolution', '/api/webhook/evolution/:establishmentId'], 
       );
     }
 
+    await responseMessage?.update({deliveryStatus: sendRes?.success === false ? 'failed' : 'sent'});
     return res.status(200).json({ 
       status: 'processed', 
       establishmentId: storeId, 
@@ -3712,7 +3762,7 @@ app.patch('/api/orders/:id/status', async (req, res) => {
     const orderNum = orderData.orderNumber || id.slice(-4);
 
     // 1. Send automated WhatsApp notification to customer if phone exists
-    if (customerPhone) {
+    if (customerPhone && !String(customerPhone).startsWith('ig_')) {
       try {
         let notifyText = '';
         console.log(`[Order Status Update] Loja: ${storeId}, Pedido #${orderNum}, Status: ${status}, Telefone: ${customerPhone}`);
@@ -5566,8 +5616,12 @@ app.post('/api/subscription/webhook', async (req, res) => {
 // API: Inscrever aparelho no Web Push
 app.post('/api/notifications/subscribe', async (req, res) => {
   try {
+    let uid: string;
+    try { uid = (await admin.auth().verifyIdToken((req.headers.authorization || '').replace(/^Bearer /, ''))).uid; }
+    catch { return res.status(401).json({error:'Entre novamente para ativar notificações.'}); }
     const { establishmentId, subscription, userAgent } = req.body;
-    const storeId = establishmentId || getStoreId(req);
+    if (establishmentId && establishmentId !== uid) return res.status(403).json({error:'Loja inválida.'});
+    const storeId = uid;
     if (!storeId || !subscription?.endpoint) {
       return res.status(400).json({ error: 'Dados de inscrição push inválidos.' });
     }
@@ -5621,6 +5675,23 @@ export const api = onRequest({
   region: 'us-central1',
   cors: true,
   maxInstances: 10,
-  timeoutSeconds: 60,
+  timeoutSeconds: 180,
   memory: '512MiB'
 }, app);
+
+// Durable inbox: acknowledge Meta only after persisting; process independently of HTTP timeouts.
+export const instagramInbox = onDocumentCreated({ document: 'instagramEvents/{eventId}',
+  region: 'us-central1', timeoutSeconds: 240, memory: '512MiB', retry: true
+}, async event => {
+  await processInstagramEvent(db, event.params.eventId, processAiCustomerMessage, {
+    reserveCredit: reserveAiCredit, operatingHours: isEstablishmentOpenNow
+  });
+});
+
+export const instagramTokenRefresh = onSchedule({ schedule: 'every day 09:00', timeZone: 'America/Recife',
+  region: 'us-central1', timeoutSeconds: 240
+}, async () => { await refreshInstagramTokens(db); });
+
+export const inboxMessages = onDocumentCreated({document:'establishments/{storeId}/chats/{chatId}/messages/{messageId}', region:'us-central1', memory:'256MiB'}, async event => {
+  await syncInboxMessage(db,event.params.storeId,event.params.chatId,event.params.messageId,sendAlertPushNotification);
+});
