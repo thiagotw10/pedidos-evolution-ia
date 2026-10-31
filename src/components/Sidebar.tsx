@@ -50,6 +50,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badgeColor: 'bg-emerald-500 text-black font-bold animate-pulse'
     },
     ...(establishment?.segment === 'AUTOMOTIVE_PARTS' ? [
+      { id: 'garage', label: 'Garagem & Estoque', icon: Wrench, badge: null },
+      { id: 'internal', label: 'Consultas internas', icon: Wrench, badge: null },
       {
         id: 'radar',
         label: 'Radar de Leads',

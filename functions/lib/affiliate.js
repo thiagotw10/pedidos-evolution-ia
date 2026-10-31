@@ -241,7 +241,7 @@ function extractAffiliateComments(body) {
     return body.entry.flatMap((entry) => (Array.isArray(entry.changes) ? entry.changes : [])
         .filter((change) => change.field === 'comments' && change.value?.id && change.value?.media?.id && change.value?.from?.id && change.value?.text)
         .map((change) => ({ kind: 'affiliate_comment', accountId: String(entry.id), senderId: String(change.value.from.id),
-        mid: String(change.value.id), mediaId: String(change.value.media.id), text: String(change.value.text),
+        username: String(change.value.from.username || ''), mid: String(change.value.id), mediaId: String(change.value.media.id), text: String(change.value.text),
         timestamp: Number(entry.time) > 0 ? Number(entry.time) * 1000 : Date.now() })));
 }
 async function processAffiliateComment(db, eventId, graph) {

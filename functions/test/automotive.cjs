@@ -63,7 +63,7 @@ function setup(segment = 'AUTOMOTIVE_PARTS') {
     },
     async runTransaction(fn) { return fn({ get: ref => ref.get(), create: (ref, value) => docs.set(ref.key, value), set: (ref, value) => docs.set(ref.key, value), update: (ref, value) => docs.set(ref.key, { ...docs.get(ref.key), ...value }) }); }
   };
-  const app = { post: (p, f) => routes.post = f, use: (p, f) => routes.auth = f, get: () => {}, patch: (p, f) => routes.patch = f };
+  const app = { post: (p, f) => { if (p === '/api/public/automotive/:storeId/projects') routes.post = f; }, use: (p, f) => routes.auth = f, get: () => {}, patch: (p, f) => routes.patch = f };
   registerAutomotiveRoutes(app, db);
   async function call(handler, body, extras = {}) {
     const res = { code: 200, locals: { uid: 'other-store' }, status(c) { this.code = c; return this; }, json(value) { this.body = value; return this; } };

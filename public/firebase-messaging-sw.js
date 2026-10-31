@@ -38,7 +38,7 @@ self.addEventListener('push', (event) => {
                              title.includes('Lead') ||
                              title.includes('Atendimento');
 
-  const actionTitle = isChatNotification ? '💬 Abrir Conversa' : '👀 Ver Pedido';
+  const actionTitle = orderData.url?.includes('tab=internal') ? 'Responder consulta' : isChatNotification ? '💬 Abrir Conversa' : '👀 Ver Pedido';
   const targetUrl = orderData.url || '/?tab=orders';
 
   const options = {
@@ -46,7 +46,7 @@ self.addEventListener('push', (event) => {
     icon: '/icon-192.png',
     badge: '/icon-192.png',
     vibrate: [300, 150, 300, 150, 450],
-    tag: orderData.url?.includes('tab=inbox') ? `chat-${orderData.url}` : orderData.projectId ? `chat-${orderData.projectId}` : (orderData.orderId ? `order-${orderData.orderId}` : `iapedido-${Date.now()}`),
+    tag: orderData.url?.includes('tab=internal') ? `internal-${orderData.url}` : orderData.url?.includes('tab=inbox') ? `chat-${orderData.url}` : orderData.projectId ? `chat-${orderData.projectId}` : (orderData.orderId ? `order-${orderData.orderId}` : `iapedido-${Date.now()}`),
     renotify: true,
     requireInteraction: true, // Mantém a notificação visível até o lojista clicar
     data: {

@@ -26,7 +26,7 @@ service cloud.firestore {
         && collection != 'establishments'
         && collection != 'automotive_projects'
         && collection != 'automotive_rate_limits'
-        && !(collection in ['affiliateWorkspaces', 'instagramConnections', 'instagramAccounts', 'instagramOauthStates', 'instagramEvents', 'instagramLocks', 'instagramSystem']);
+        && !(collection in ['automotiveOperations', 'affiliateWorkspaces', 'instagramConnections', 'instagramAccounts', 'instagramOauthStates', 'instagramEvents', 'instagramLocks', 'instagramSystem']);
     }
   }
 }

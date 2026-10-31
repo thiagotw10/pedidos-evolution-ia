@@ -1004,6 +1004,17 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                 />
               )}
 
+              {segConfig.id === 'AUTOMOTIVE_PARTS' && <fieldset className="rounded-xl border border-emerald-500/20 bg-slate-950/50 p-4 space-y-3">
+                <legend className="px-2 text-sm font-semibold text-emerald-300">Ficha técnica da referência</legend>
+                <p className="text-xs text-slate-400">Preencha apenas dados confirmados deste projeto. Campos vazios permanecem desconhecidos para a IA.</p>
+                <div className="grid grid-cols-2 gap-3">
+                  {([{key:'brand',label:'Marca'}, {key:'model',label:'Modelo'}, {key:'generation',label:'Geração / chassi'}, {key:'engine',label:'Motorização'}, {key:'yearFrom',label:'Ano inicial'}, {key:'yearTo',label:'Ano final'}, {key:'material',label:'Material'}, {key:'configuration',label:'Configuração do escape'}] as const).map(({key,label})=><label key={key} className="text-xs text-slate-300">{label}<input disabled={editorBusy} value={editingProduct.automotiveSpecs?.[key] || ''} maxLength={key.startsWith('year')?4:150} inputMode={key.startsWith('year')?'numeric':'text'} onChange={e=>setEditingProduct({...editingProduct,automotiveSpecs:{...editingProduct.automotiveSpecs,[key]:e.target.value}})} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-white"/></label>)}
+                  <label className="text-xs text-slate-300">Situação do projeto<select disabled={editorBusy} value={editingProduct.automotiveSpecs?.status || 'completed'} onChange={e=>setEditingProduct({...editingProduct,automotiveSpecs:{...editingProduct.automotiveSpecs,status:e.target.value as 'completed'|'development'}})} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-white"><option value="completed">Concluído</option><option value="development">Em desenvolvimento</option></select></label>
+                  <label className="text-xs text-slate-300">Validação técnica<select disabled={editorBusy} value={editingProduct.automotiveSpecs?.validation || 'reference'} onChange={e=>setEditingProduct({...editingProduct,automotiveSpecs:{...editingProduct.automotiveSpecs,validation:e.target.value as 'reference'|'validated'}})} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-white"><option value="reference">Somente referência</option><option value="validated">Dados revisados pela equipe</option></select></label>
+                </div>
+                <p className="text-xs text-slate-500">A revisão desta ficha não garante compatibilidade com outro veículo.</p>
+              </fieldset>}
+
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
                   {segConfig.id === 'VEHICLES' 

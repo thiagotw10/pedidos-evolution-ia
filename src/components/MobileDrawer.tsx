@@ -68,6 +68,8 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
   const menuItems = [
     { id: 'orders', label: segConfig.ordersTitle, icon: OrdersIcon },
     ...(establishment?.segment === 'AUTOMOTIVE_PARTS' ? [
+      { id: 'garage', label: 'Garagem & Estoque', icon: Wrench, badge: null },
+      { id: 'internal', label: 'Consultas internas', icon: Wrench, badge: null },
       { id: 'radar', label: 'Radar de Leads', icon: Compass },
       { id: 'workshops', label: 'Oficinas Parceiras', icon: Wrench }
     ] : []),

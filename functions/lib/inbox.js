@@ -98,8 +98,11 @@ function registerInboxRoutes(app, db) {
                 return res.status(404).json({ error: 'Conversa não encontrada.' });
             if (action === 'project') {
                 const matches = await db.collection('automotive_projects').where('establishmentId', '==', storeId).where('phone', '==', chatId).get();
-                if (matches.docs.length)
-                    return res.json({ project: { id: matches.docs[0].id, ...matches.docs[0].data() } });
+                if (matches.docs.length) {
+                    const activeId = (await chat.get()).data()?.projectId;
+                    const selected = matches.docs.find(p => p.id === activeId) || [...matches.docs].sort((a, b) => String(b.data().updatedAt || '').localeCompare(String(a.data().updatedAt || '')))[0];
+                    return res.json({ project: { id: selected.id, ...selected.data() } });
+                }
                 const id = crypto_1.default.createHash('sha256').update(`inbox:${storeId}:${chatId}`).digest('hex');
                 const ref = db.collection('automotive_projects').doc(id);
                 await db.runTransaction(async (tx) => {
@@ -178,9 +181,11 @@ async function syncInboxMessage(db, storeId, chatId, messageId, notify) {
         const timestamp = m.timestamp || new Date().toISOString();
         const user = m.sender === 'user';
         const patch = { channel: inboxChannel(chatId), customerPhone: chatId };
+        if (user && m.surface === 'comment')
+            patch.unreadByHuman = timestamp > (current.humanReadAt || '');
         if (timestamp >= (current.lastMessageAt || ''))
             Object.assign(patch, { lastMessage: m.text || '[Mídia]', lastMessageAt: timestamp, lastSender: m.sender });
-        if (user && timestamp >= (current.lastInboundAt || ''))
+        if (user && m.surface !== 'comment' && timestamp >= (current.lastInboundAt || ''))
             Object.assign(patch, { lastInboundAt: timestamp, lastUserMessage: m.text || '[Mídia]', unreadByHuman: timestamp > (current.humanReadAt || '') });
         tx.set(chat, patch, { merge: true });
         tx.update(message, { inboxSynced: true });

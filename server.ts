@@ -1,8 +1,15 @@
+import {acquisitionAttribution} from './functions/src/instagramAcquisition';
+import {registerInternalConsultationRoutes,notifyInternalConsultation,deliverInternalFollowup} from './functions/src/internalConsultation';
+import { registerGarageRoutes } from './functions/src/garage';
+import { resolveAutomotiveOperations } from './functions/src/automotiveOperations';
+import { groundedInstagram, storeWebsite } from './functions/src/groundedInstagram';
+import { normalizeAutomotiveSpecs, referenceDetails } from './functions/src/automotiveCatalog';
+import { selectAutomotiveProfile, automotiveTurnInstructions } from './functions/src/automotiveConversation';
 import { affiliateDirectReply, AFFILIATE_SEGMENT } from './functions/src/affiliate';
 import {registerInboxRoutes} from './functions/src/inbox';
 import { registerInstagramWebhookRoutes } from './functions/src/instagramWebhook';
 import express from 'express';
-import { registerAutomotiveRoutes, saveAutomotiveContactAndSyncCrm, AutomotiveConversationContext } from './functions/src/automotive';
+import { registerAutomotiveRoutes, saveAutomotiveContactAndSyncCrm, extractAutomotiveContextFromText, AutomotiveConversationContext } from './functions/src/automotive';
 import { extractTrafficAttribution } from './functions/src/metaCapi';
 import { MAX_MODEL3D_BYTES, MODEL3D_STORAGE_BUCKET, Model3dValidationError, model3dStoragePath, model3dUpdate, validateGlb } from './functions/src/automotiveModel3d';
 import fs from 'fs';
@@ -621,29 +628,42 @@ async function processAiCustomerMessage(
   const estDoc = await db.collection('establishments').doc(establishmentId).get();
   const establishment = estDoc.data() || {};
 
-  const { cleanText, attribution } = extractTrafficAttribution(incomingText);
+  const { cleanText, attribution:explicitAttribution } = extractTrafficAttribution(incomingText);
+  const acquisition=channel==='instagram'?(await db.collection('establishments').doc(establishmentId).collection('chats').doc(customerPhone).get()).data()?.instagramAcquisition:null;
+  const attribution=explicitAttribution || (acquisition && Date.now()-Date.parse(acquisition.capturedAt)<30*86400000?acquisitionAttribution(acquisition):null);
   const textForAi = cleanText || incomingText;
 
   const safePhone = channel === 'instagram' ? customerPhone : customerPhone.replace(/\D/g, '') || customerPhone;
   const customerMemorySnap = await db.collection('establishments').doc(establishmentId).collection('customers').doc(safePhone).get().catch(() => null);
   const customerMemory = customerMemorySnap?.data() || {};
-  const savedAutoCtx: AutomotiveConversationContext = customerMemory.automotiveContext || {};
+  const automotiveSession = establishment.segment === 'AUTOMOTIVE_PARTS' ? selectAutomotiveProfile(textForAi, customerMemory, extractAutomotiveContextFromText(textForAi)) : null;
+  const savedAutoCtx: AutomotiveConversationContext = automotiveSession?.context || customerMemory.automotiveContext || {};
 
   // Fetch active products
   const productsSnap = await db.collection('establishments').doc(establishmentId).collection('products').where('available', '==', true).get();
-  const products = productsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const products: any[] = productsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
   // Fetch recent conversation history
   const chatRef = db.collection('establishments').doc(establishmentId).collection('chats').doc(customerPhone).collection('messages');
-  const historySnap = await chatRef.orderBy('timestamp', 'asc').limitToLast(15).get();
-  const history = historySnap.docs.map(d => d.data());
+  const historySnap = await chatRef.orderBy('timestamp', 'asc').limitToLast(automotiveSession ? 60 : 15).get();
+  const history = historySnap.docs.map(d => d.data()).filter(m=>!automotiveSession || (m.automotiveProfileId || 'legacy') === automotiveSession.active).slice(-15);
 
   // Save current incoming message to history
-  await chatRef.add({
+  const storedInbound = await chatRef.add({
     sender: 'user',
+    ...(automotiveSession ? {automotiveProfileId:automotiveSession.active} : {}),
     text: incomingText,
     timestamp: new Date().toISOString()
   });
+
+  if (automotiveSession && !mediaPart) {
+    const operational = await resolveAutomotiveOperations(db, establishmentId, customerPhone, automotiveSession.active, automotiveSession.context, textForAi);
+    if (operational) {
+      await saveAutomotiveContactAndSyncCrm({db,establishmentId,customerPhone,customerName:customerNameParam,incomingText:textForAi,replyText:operational.replyText,attribution});
+      await chatRef.add({sender:'assistant',origin:'ai',channel,automotiveProfileId:automotiveSession.active,text:operational.replyText,timestamp:new Date().toISOString(),operationKind:operational.kind});
+      return {replyText:operational.replyText};
+    }
+  }
 
   if (establishment.segment === AFFILIATE_SEGMENT) return affiliateDirectReply(db, establishmentId, customerPhone, textForAi, channel);
 
@@ -676,6 +696,16 @@ async function processAiCustomerMessage(
     : isElectronics
     ? `Você é o especialista técnico e atendente da loja "${establishment.name || 'Loja de Eletrônicos'}"`
     : `Você é o atendente de Inteligência Artificial do estabelecimento "${establishment.name || 'Estabelecimento'}"`;
+
+  if (isAutomotive && !mediaPart) {
+    const grounded = groundedInstagram(textForAi, products, establishment, establishmentId, customerMemory.automotiveCatalogs?.[automotiveSession!.active] || (automotiveSession!.active === 'legacy' ? customerMemory.instagramCatalog || {} : {}));
+    if (grounded) {
+      await saveAutomotiveContactAndSyncCrm({db,establishmentId,customerPhone,customerName:customerNameParam,incomingText:textForAi,replyText:grounded.replyText,catalog:products.map(p=>({id:p.id,name:p.name})),attribution});
+      await chatRef.add({sender:'assistant',automotiveProfileId:automotiveSession!.active,text:grounded.replyText,timestamp:new Date().toISOString(),media:grounded.mediaList,origin:'ai'});
+      await db.collection('establishments').doc(establishmentId).collection('customers').doc(safePhone).set({automotiveCatalogs:{[automotiveSession!.active]:grounded.memory}},{merge:true});
+      return {replyText:grounded.replyText,mediaList:grounded.mediaList};
+    }
+  }
 
   let systemInstruction = `
 ${roleDesc}.
@@ -710,7 +740,7 @@ COMO VOCÊ DEVE AGIR:
   `;
 
   if (isAutomotive) systemInstruction = `Você é o Consultor Técnico de Projetos de Performance & Escapamentos de "${establishment.name || 'Nossa Oficina'}".
-Seu papel é oferecer um atendimento de alto nível pelo WhatsApp: seja apaixonado por carros, consultivo, cordial e objetivo. Conduza a conversa de forma fluida e natural, fazendo no máximo 1 ou 2 perguntas por vez para não cansar o cliente.
+Seu papel é oferecer um atendimento de alto nível pelo WhatsApp: seja apaixonado por carros, consultivo, cordial e objetivo. Conduza a conversa de forma fluida e natural, fazendo no máximo uma pergunta útil por vez para não cansar o cliente.
 
 CONTEXTO JÁ SALVO DESTE CONTATO NO WHATSAPP (NUNCA repita perguntas sobre dados já preenchidos abaixo):
 - Nome do Cliente: ${savedAutoCtx.customerName || customerMemory.name || customerNameParam || 'Ainda não informado'}
@@ -731,6 +761,7 @@ ${JSON.stringify({
   references: products.map((p: any) => ({
     name: p.name,
     category: p.category,
+    automotiveSpecs: p.automotiveSpecs || null,
     description: p.description,
     hasPhotos: !!(p.imageUrl || (p.images && p.images.length > 0)),
     totalPhotos: (p.images && p.images.length) || (p.imageUrl ? 1 : 0),
@@ -741,9 +772,9 @@ ${establishment.aiPromptCustom ? `\nDIRETRIZES ADICIONAIS DA LOJA:\n${establishm
 
 COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
 1. ACOLHIMENTO E RECONHECIMENTO DE CONTEXTO:
-   - Se o cliente vier com mensagem do site (ex: "protocolo ... Veículo: ..."), reconheça imediatamente todos os dados enviados, elogie a máquina e confirme que a ficha já está integrada ao nosso CRM técnico.
-   - Elogie o veículo quando o cliente informar o modelo e crie conexão genuína de entusiasta automotivo.
-2. QUALIFICAÇÃO CONSULTIVA PROGRESSIVA (pergunte apenas o que ainda falta, 1 a 2 pontos por vez):
+   - Se o cliente vier com mensagem do site (ex: "protocolo ... Veículo: ..."), reconheça os dados enviados. Só confirme registro no CRM após confirmação da ferramenta.
+   - Reconheça o objetivo do cliente com naturalidade. Não faça elogios automáticos ao veículo.
+2. QUALIFICAÇÃO CONSULTIVA PROGRESSIVA (pergunte apenas o que ainda falta, um ponto por vez):
    - Veículo: Marca, modelo, ano e versão/motorização, além de perguntar se o carro está original ou já possui preparação (remap, downpipe, stage, intake).
    - Objetivo do Projeto: O que ele busca no sistema de escapamento (ex: catback, downpipe, sistema valvulado com difusor para alternar entre ronco esportivo encorpado e conforto sem ressonância/drone na estrada, Inox 304, Titânio, ponteiras esportivas).
    - Logística & Contato: Nome do cliente e se prefere *Atendimento local* (instalação/avaliação na oficina) ou *Envio nacional* (solicitando o *CEP* para cotação de frete).
@@ -757,6 +788,11 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
    - Não invente preços, estoque, ganhos exatos de potência, homologação ou prazos. Explique que compatibilidade final, valores e frete são validados sob medida pelos especialistas da loja.
    - Use formatação limpa de WhatsApp: negrito com um asterisco (*texto*) e listas com '• '.`;
 
+  const consultarOperacaoOficinaTool = {
+    name:'consultar_operacao_oficina',
+    description:'Consulta real de CEP, coleta de endereço, estoque de kits e disponibilidade da oficina. Use para perguntas de entrega, CEP, estoque ou agendamento, inclusive áudios. Nunca presuma que um CEP foi validado ou uma reserva foi confirmada sem o resultado desta ferramenta.',
+    parameters:{type:'object',properties:{textoCliente:{type:'string',description:'Transcrição fiel do pedido ou resposta do cliente. Não acrescente dados, confirmação ou intenção que ele não informou.'}},required:['textoCliente']}
+  };
   const registrarInteresseProjetoTool = {
     name: 'registrar_interesse_projeto',
     description: 'Salva o contexto da conversa no WhatsApp e registra/atualiza o lead e projeto do cliente no CRM de Performance & Escapamentos da loja. Chame sempre que o cliente informar dados do veículo, objetivo do projeto, modificações, nome, CEP ou interesse em orçamento.',
@@ -874,8 +910,10 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
       parts: [{ text: textForAi }, ...(mediaPart ? [{ inlineData: mediaPart }] : [])]
     });
 
+      if (isAutomotive) systemInstruction += '\n' + automotiveTurnInstructions(textForAi, savedAutoCtx, automotiveSession?.switched);
+      if (isAutomotive) systemInstruction += '\nCONSULTAS OPERACIONAIS: Use consultar_operacao_oficina para CEP, estoque e agenda. Só o retorno confirmado da operação comprova endereço, material livre ou reserva. Catálogo de projetos não é estoque. Jamais confirme vaga, cancelamento, alteração de reserva ou CEP por conhecimento do modelo. Para consentimento final de reserva ou endereço coletado por áudio, peça SIM por texto.';
     const activeTools = isAutomotive
-      ? [registrarInteresseProjetoTool, enviarCardapioComFotosTool, enviarFotoProdutoTool, enviarLocalizacaoLojaTool]
+      ? [registrarInteresseProjetoTool, consultarOperacaoOficinaTool, enviarCardapioComFotosTool, enviarFotoProdutoTool, enviarLocalizacaoLojaTool]
       : [registrarPedidoTool, enviarCardapioComFotosTool, enviarFotoProdutoTool, enviarLocalizacaoLojaTool];
 
     const response = await genai.models.generateContent({
@@ -889,6 +927,7 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
     });
 
     let replyText = response.text || '';
+    let operationalReply: string | undefined;
     let createdOrder: any = null;
     let automotiveToolArgs: Partial<AutomotiveConversationContext> | undefined = undefined;
     let forceRegisterAutomotive = false;
@@ -899,6 +938,14 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
     const functionCalls = response.functionCalls;
     if (functionCalls && functionCalls.length > 0) {
       for (const call of functionCalls) {
+        if (call.name === 'consultar_operacao_oficina' && isAutomotive) {
+          const operationalText=String(call.args?.textoCliente || textForAi).slice(0,3000);
+          const selected=selectAutomotiveProfile(operationalText,customerMemory,automotiveToolArgs || {});
+          const result=await resolveAutomotiveOperations(db,establishmentId,customerPhone,selected.active,selected.context,operationalText,undefined,false);
+          operationalReply=result?.replyText || 'Qual consulta você quer fazer: endereço de entrega, estoque de um kit ou instalação?';
+          replyText=operationalReply;
+        }
+
         if (call.name === 'registrar_interesse_projeto') {
           automotiveToolArgs = { ...(automotiveToolArgs || {}), ...(call.args as any) };
           forceRegisterAutomotive = true;
@@ -1040,8 +1087,13 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
         toolArgs: automotiveToolArgs,
         catalog: products.map((p: any) => ({ id: p.id, name: p.name })),
         forceRegisterProject: forceRegisterAutomotive,
+        sourceMediaType: mediaPart?.mimeType.startsWith('audio/') ? 'audio' : mediaPart?.mimeType.startsWith('image/') ? 'image' : undefined,
         attribution
       });
+      if (automotiveSession && autoSync.activeProfileId) {
+        automotiveSession.active=autoSync.activeProfileId;
+        await chatRef.doc(storedInbound.id).set({automotiveProfileId:automotiveSession.active},{merge:true});
+      }
       const ctx = autoSync.context;
       if (autoSync.project) {
         createdOrder = autoSync.project;
@@ -1094,8 +1146,10 @@ COMO CONDUZIR A EXPERIÊNCIA DO CLIENTE:
     const finalTs = new Date().toISOString();
 
     // Save assistant reply to chat history
+    if (operationalReply) replyText=operationalReply;
     await chatRef.add({
       sender: 'assistant',
+      ...(automotiveSession ? {automotiveProfileId:automotiveSession.active} : {}),
       text: replyText,
       timestamp: finalTs,
       orderId: createdOrder ? createdOrder.id : null,
@@ -1138,6 +1192,8 @@ async function startServer() {
   registerInstagramWebhookRoutes(app, db, processAiCustomerMessage, { inlineWorker: true });
   registerAutomotiveRoutes(app, db);
 registerInboxRoutes(app, db);
+registerGarageRoutes(app, db);
+registerInternalConsultationRoutes(app, db);
 
   // Helper to resolve establishmentId in multi-tenant requests
   function getStoreId(req: express.Request): string {
@@ -1822,6 +1878,10 @@ registerInboxRoutes(app, db);
       const storeId = getStoreId(req);
       const product = { ...req.body };
       const productId = product.id || `prod_${Date.now()}`;
+      if (Object.prototype.hasOwnProperty.call(product, 'automotiveSpecs')) {
+        try { product.automotiveSpecs = normalizeAutomotiveSpecs(product.automotiveSpecs); }
+        catch (e: any) { return res.status(400).json({error:e.message}); }
+      }
       if (Object.prototype.hasOwnProperty.call(product, 'model3d')) {
         let uid: string;
         try { uid = (await admin.auth().verifyIdToken((req.headers.authorization || '').replace(/^Bearer /, ''))).uid; }

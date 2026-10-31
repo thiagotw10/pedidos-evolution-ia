@@ -13,6 +13,7 @@ exports.extractAutomotiveContextFromText = extractAutomotiveContextFromText;
 exports.buildAutomotiveSummaryText = buildAutomotiveSummaryText;
 exports.saveAutomotiveContactAndSyncCrm = saveAutomotiveContactAndSyncCrm;
 exports.registerAutomotiveRoutes = registerAutomotiveRoutes;
+const automotiveConversation_1 = require("./automotiveConversation");
 const chatMedia_1 = require("./chatMedia");
 const inbox_1 = require("./inbox");
 const instagramWebhook_1 = require("./instagramWebhook");
@@ -485,7 +486,7 @@ function extractAutomotiveContextFromText(text, existing, catalog) {
         }
     }
     // 6. Extract Modifications
-    if (!extracted.modifications) {
+    if (!extracted.modifications && /\b(ja tenho|ja tem|ja fiz|ja usa|ja possui|esta com|ta com|atualmente|uso|rodo com|carro original|todo original|100% original|esta original)\b|^original[.!]?$/i.test((0, automotiveConversation_1.normalizeAuto)(raw))) {
         const modKeywords = raw.match(/\b(stage\s*[123]|remap\w*|downpipe|catback|intake|filtro\s*esportivo|turbina\s*\w+|100%\s*original|todo\s*original|carro\s*original|original|stock)\b/gi);
         if (modKeywords && modKeywords.length > 0) {
             extracted.modifications = Array.from(new Set(modKeywords.map(m => m.trim()))).join(', ');
@@ -506,7 +507,7 @@ function extractAutomotiveContextFromText(text, existing, catalog) {
     }
     // 9. Extract Objective / Exhaust interest keywords
     const objectiveKeywords = /\b(escapamento|downpipe|catback|axle\s*back|full\s*exhaust|valvulado|v[aá]lvula|difusor|inox|tit[aâ]nio|ponteira|ronco|pops\s*and\s*bangs|pops|barulho|som\s*esportivo|or[cç]amento|projeto|coletor|abafador|midpipe|x-pipe|h-pipe)\b/i;
-    if (!extracted.objective && objectiveKeywords.test(raw)) {
+    if (!extracted.objective && objectiveKeywords.test(raw) && (!/\b(ja tenho|ja tem|ja fiz|atualmente|uso|rodo com)\b/.test((0, automotiveConversation_1.normalizeAuto)(raw)) || /\b(quero|busco|gostaria|pretendo|objetivo)\b/.test((0, automotiveConversation_1.normalizeAuto)(raw)))) {
         hasAutomotiveInterest = true;
         // Keep a concise description of what the user said when they talked about the objective
         if (raw.length <= 240 && !raw.startsWith('[LOCALIZAÇÃO')) {
@@ -560,7 +561,8 @@ function buildAutomotiveSummaryText(ctx) {
     return parts.join(' · ') || 'Contato inicial via WhatsApp';
 }
 async function saveAutomotiveContactAndSyncCrm(params) {
-    const { db, establishmentId, customerPhone, customerName, incomingText, replyText, toolArgs, catalog = [], forceRegisterProject = false, attribution = null } = params;
+    const { db, establishmentId, customerPhone, customerName, incomingText, replyText, toolArgs: initialToolArgs, catalog = [], forceRegisterProject = false, attribution = null } = params;
+    let toolArgs = initialToolArgs;
     const isInstagram = String(customerPhone || '').startsWith('ig_') || String(customerPhone || '').startsWith('instagram_');
     const cleanPhone = isInstagram ? customerPhone : (String(customerPhone || '').replace(/\D/g, '') || customerPhone);
     const phoneVariants = isInstagram ? [customerPhone] : normalizeBrPhoneVariants(cleanPhone);
@@ -573,11 +575,27 @@ async function saveAutomotiveContactAndSyncCrm(params) {
     ]);
     const existingChat = chatSnap?.data() || {};
     const existingCustomer = customerSnap?.data() || {};
-    const prevCtx = {
+    const storedCtx = {
         ...(existingCustomer.automotiveContext || {}),
         ...(existingChat.automotiveContext || {})
     };
-    const heuristic = extractAutomotiveContextFromText(incomingText, prevCtx, catalog);
+    const rawHeuristic = extractAutomotiveContextFromText(incomingText, undefined, catalog);
+    const session = (0, automotiveConversation_1.selectAutomotiveProfile)(incomingText, {
+        ...existingCustomer, ...existingChat, automotiveContext: storedCtx,
+        automotiveProfiles: { ...(existingCustomer.automotiveProfiles || {}), ...(existingChat.automotiveProfiles || {}) }
+    }, params.sourceMediaType === 'audio' ? { ...toolArgs, ...rawHeuristic } : rawHeuristic);
+    const prevCtx = session.context;
+    const heuristic = { ...rawHeuristic };
+    // Browsing another reference must not overwrite the client's car or turn a product into an owned setup.
+    if (session.intent.exploring || (params.sourceMediaType === 'image' && !session.intent.ownsVehicle) || (['human', 'technical'].includes(session.intent.primary) && !session.intent.ownsVehicle)) {
+        for (const key of ['brand', 'model', 'year', 'version', 'modifications', 'objective'])
+            delete heuristic[key];
+        if (toolArgs) {
+            toolArgs = { ...toolArgs };
+            for (const key of ['brand', 'model', 'year', 'version', 'modifications', 'objective'])
+                delete toolArgs[key];
+        }
+    }
     const pickNonEmpty = (...values) => {
         for (const v of values) {
             const trimmed = String(v || '').trim();
@@ -631,7 +649,7 @@ async function saveAutomotiveContactAndSyncCrm(params) {
         phone: cleanPhone,
         brand: pickNonEmpty(toolArgs?.brand, heuristic.brand, prevCtx.brand).slice(0, 100),
         model: pickNonEmpty(toolArgs?.model, heuristic.model, prevCtx.model).slice(0, 100),
-        year: pickNonEmpty(toolArgs?.year, heuristic.year, prevCtx.year).slice(0, 20),
+        year: [toolArgs?.year, heuristic.year, prevCtx.year].find(y => /^(19|20)\d{2}$/.test(String(y || ''))) || '',
         version: pickNonEmpty(toolArgs?.version, heuristic.version, prevCtx.version).slice(0, 100),
         modifications: pickNonEmpty(toolArgs?.modifications, heuristic.modifications, prevCtx.modifications).slice(0, 600),
         objective: pickNonEmpty(toolArgs?.objective, heuristic.objective, prevCtx.objective).slice(0, 600),
@@ -685,7 +703,9 @@ async function saveAutomotiveContactAndSyncCrm(params) {
                     matchedDoc = doc;
                     break;
                 }
-                const docPhone = String(d.phone || '').replace(/\D/g, '');
+                if (session.active !== 'legacy')
+                    continue;
+                const docPhone = /^(ig_|instagram_)/.test(String(d.phone || '')) ? String(d.phone) : String(d.phone || '').replace(/\D/g, '');
                 if (docPhone && phoneVariants.includes(docPhone)) {
                     matchedDoc = doc;
                     break;
@@ -746,7 +766,7 @@ async function saveAutomotiveContactAndSyncCrm(params) {
                 syncedProject = { id: matchedDoc.id, ...existingData, ...updatedFields };
             }
             else {
-                const newId = crypto_1.default.createHash('sha256').update(`${establishmentId}:${isInstagram ? 'instagram' : 'whatsapp'}:${cleanPhone}`).digest('hex');
+                const newId = crypto_1.default.createHash('sha256').update(`${establishmentId}:${isInstagram ? 'instagram' : 'whatsapp'}:${cleanPhone}${session.active === 'legacy' ? '' : ':' + session.active}`).digest('hex');
                 const newRef = db.collection('automotive_projects').doc(newId);
                 const newProjectData = {
                     id: newId,
@@ -768,7 +788,7 @@ async function saveAutomotiveContactAndSyncCrm(params) {
                     references: mergedReferences,
                     recommendedPartnerWorkshop: mergedCtx.recommendedPartnerWorkshop || '',
                     status: computedStage,
-                    source: attribution?.trafficSource ? 'paid_traffic' : isInstagram ? 'instagram_ai' : 'whatsapp_ai',
+                    source: attribution && ['META_ADS', 'GOOGLE_ADS', 'TIKTOK_ADS'].includes(attribution.trafficSource) ? 'paid_traffic' : isInstagram ? 'instagram_ai' : 'whatsapp_ai',
                     trafficSource: attribution?.trafficSource || 'ORGANIC',
                     campaignName: attribution?.campaignName || (isInstagram ? 'Instagram Direct' : 'Contato Direto WhatsApp'),
                     adName: attribution?.adName || '',
@@ -797,7 +817,7 @@ async function saveAutomotiveContactAndSyncCrm(params) {
                 }
             }
             // Disparar evento Lead via Meta Conversions API (CAPI) se qualificado ou novo lead de tráfego
-            if ((isNewProject && (attribution?.trafficSource === 'META_ADS' || Boolean(attribution))) || justQualified) {
+            if (!isInstagram && ((isNewProject && Boolean(attribution && ['META_ADS', 'GOOGLE_ADS', 'TIKTOK_ADS'].includes(attribution.trafficSource))) || justQualified)) {
                 try {
                     const estSnap = await db.collection('establishments').doc(establishmentId).get();
                     const estData = estSnap.data() || {};
@@ -837,6 +857,8 @@ async function saveAutomotiveContactAndSyncCrm(params) {
             interactionCount: mergedCtx.interactionCount,
             projectId: mergedCtx.projectId || null,
             automotiveContext: mergedCtx,
+            activeAutomotiveProfile: session.active,
+            automotiveProfiles: { ...session.profiles, [session.active]: mergedCtx },
             leadScore: {
                 temperature: hasCompleteSpecs ? 'HOT' : (mergedCtx.leadTemperature || 'WARM'),
                 readyToVisit: mergedCtx.delivery === 'Atendimento local',
@@ -850,6 +872,8 @@ async function saveAutomotiveContactAndSyncCrm(params) {
             segment: 'AUTOMOTIVE_PARTS',
             projectId: mergedCtx.projectId || null,
             automotiveContext: mergedCtx,
+            activeAutomotiveProfile: session.active,
+            automotiveProfiles: { ...session.profiles, [session.active]: mergedCtx },
             lastInteractionAt: nowIso,
             interactionCount: mergedCtx.interactionCount,
             updatedAt: nowIso
@@ -859,7 +883,8 @@ async function saveAutomotiveContactAndSyncCrm(params) {
         context: mergedCtx,
         project: syncedProject,
         isNewProject,
-        justQualified
+        justQualified,
+        activeProfileId: session.active
     };
 }
 function registerAutomotiveRoutes(app, db) {
@@ -1142,10 +1167,11 @@ function registerAutomotiveRoutes(app, db) {
             // Salva no histórico de mensagens do chat
             const variants = isInstagramContact ? [targetPhone] : normalizeBrPhoneVariants(targetPhone);
             for (const cand of variants) {
+                const profileId = (await db.collection('establishments').doc(storeId).collection('chats').doc(cand).get()).data()?.activeAutomotiveProfile || 'legacy';
                 await db.collection('establishments').doc(storeId).collection('chats').doc(cand).collection('messages').add({
                     sender: 'assistant',
                     author: 'Pedro (Proposta Oficial)',
-                    origin: 'human', deliveryStatus: 'sent',
+                    origin: 'human', deliveryStatus: 'sent', automotiveProfileId: profileId,
                     text: proposalText.trim(),
                     timestamp: new Date().toISOString()
                 });
@@ -1242,10 +1268,11 @@ function registerAutomotiveRoutes(app, db) {
             if (!variants.includes(targetPhone))
                 variants.push(targetPhone);
             for (const cand of variants) {
+                const profileId = (await db.collection('establishments').doc(storeId).collection('chats').doc(cand).get()).data()?.activeAutomotiveProfile || 'legacy';
                 await db.collection('establishments').doc(storeId).collection('chats').doc(cand).collection('messages').add({
                     sender: 'assistant',
                     author: authorName,
-                    origin: 'human', deliveryStatus: 'sent',
+                    origin: 'human', deliveryStatus: 'sent', automotiveProfileId: profileId,
                     text: messageText,
                     timestamp: nowIso
                 });
@@ -1428,12 +1455,13 @@ Retorne ESTRITAMENTE um objeto JSON no formato:
             if (!variants.includes(targetPhone))
                 variants.push(targetPhone);
             for (const cand of variants) {
+                const profileId = (await db.collection('establishments').doc(storeId).collection('chats').doc(cand).get()).data()?.activeAutomotiveProfile || 'legacy';
                 await db.collection('establishments').doc(storeId).collection('chats').doc(cand).collection('messages').add({
                     sender: 'assistant',
                     author: authorLabel,
                     text: textNote,
                     audioUrl: audioDataUri,
-                    origin: 'human', deliveryStatus: 'sent',
+                    origin: 'human', deliveryStatus: 'sent', automotiveProfileId: profileId,
                     timestamp: nowIso
                 });
                 await db.collection('establishments').doc(storeId).collection('chats').doc(cand).set({
@@ -1537,6 +1565,7 @@ Retorne ESTRITAMENTE um objeto JSON no formato:
             if (!variants.includes(targetPhone))
                 variants.push(targetPhone);
             for (const cand of variants) {
+                const profileId = (await db.collection('establishments').doc(storeId).collection('chats').doc(cand).get()).data()?.activeAutomotiveProfile || 'legacy';
                 await db.collection('establishments').doc(storeId).collection('chats').doc(cand).collection('messages').add({
                     sender: 'assistant',
                     author: authorLabel,
@@ -1544,7 +1573,7 @@ Retorne ESTRITAMENTE um objeto JSON no formato:
                     mediaUrl: type === 'image' ? mediaUrlOrBase64 : null,
                     audioUrl: type === 'audio' ? mediaUrlOrBase64 : null,
                     media: [{ url: mediaUrlOrBase64, type }],
-                    origin: 'human', deliveryStatus: 'sent',
+                    origin: 'human', deliveryStatus: 'sent', automotiveProfileId: profileId,
                     timestamp: nowIso
                 });
                 await db.collection('establishments').doc(storeId).collection('chats').doc(cand).set({

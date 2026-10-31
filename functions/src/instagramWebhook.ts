@@ -1,3 +1,4 @@
+import {registerAcquisitionRoutes,processAutomotiveComment,reviewAutomotiveComment,probeCommentPermission,captureInstagramReferral,applyInstagramReferral} from './instagramAcquisition';
 import { AFFILIATE_SEGMENT, registerAffiliateRoutes, extractAffiliateComments, processAffiliateComment, affiliateDirectReply } from './affiliate';
 import { Express, Request, Response } from 'express';
 import * as admin from 'firebase-admin';
@@ -48,7 +49,15 @@ export function extractInstagramMessages(body: any): any[] {
       && (item.message.text || item.message.attachments?.length))
     .map((item: any) => ({ accountId: String(item.recipient.id), senderId: String(item.sender.id),
       mid: String(item.message.mid), timestamp: Number(item.timestamp) > 0 ? Number(item.timestamp) * (Number(item.timestamp) < 1e12 ? 1000 : 1) : Date.now(),
-      text: String(item.message.text || ''), attachments: item.message.attachments || [] })));
+      text: String(item.message.text || ''), attachments: item.message.attachments || [],
+      ...((item.referral || item.message.referral)?.source==='ADS' && /^\d{5,40}$/.test(String((item.referral || item.message.referral)?.ad_id || ''))?{referral:{source:'ADS',adId:String((item.referral || item.message.referral).ad_id)}}:{}) })));
+}
+
+export function extractInstagramReferrals(body:any):any[]{
+ if(body?.object!=='instagram'||!Array.isArray(body.entry))return [];
+ return body.entry.flatMap((entry:any)=>[...(Array.isArray(entry.messaging)?entry.messaging:[]),...(Array.isArray(entry.changes)?entry.changes.filter((c:any)=>c.field==='messaging_referral').map((c:any)=>c.value):[])]
+  .filter((item:any)=>!item.message && item.sender?.id && item.recipient?.id && item.referral?.source==='ADS' && /^\d{5,40}$/.test(String(item.referral.ad_id || '')) && Number(item.timestamp)>0)
+  .map((item:any)=>({kind:'instagram_referral',accountId:String(item.recipient.id),senderId:String(item.sender.id),mid:`referral:${item.sender.id}:${item.referral.ad_id}:${item.timestamp}`,timestamp:Number(item.timestamp)*(Number(item.timestamp)<1e12?1000:1),referral:{source:'ADS',adId:String(item.referral.ad_id)}})));
 }
 
 class InstagramApiError extends Error {
@@ -74,11 +83,12 @@ async function tokenRequest(url: string, options?: RequestInit): Promise<any> {
 }
 
 // This collection is server-only. Tokens never live on the public establishment document.
-async function saveConnection(db: admin.firestore.Firestore, storeId: string, token: string, expiresIn: number) {
+async function saveConnection(db: admin.firestore.Firestore, storeId: string, token: string, expiresIn: number, permissions:any=[]) {
   const profile = await graph('me?fields=user_id,username', token);
+  const grantedPermissions=(Array.isArray(permissions)?permissions:typeof permissions==='string'?permissions.split(','):[]).filter((v:any)=>typeof v==='string').map((v:string)=>v.trim());
   const accountId = String(profile.user_id || '');
   if (!/^\d+$/.test(accountId)) throw new Error('A Meta não retornou o identificador da conta profissional.');
-  await db.runTransaction(async tx => {
+  const previousSettings=await db.runTransaction(async tx => {
     const mapping = db.collection('instagramAccounts').doc(accountId);
     const current = await tx.get(mapping);
     const previous = await tx.get(connectionRef(db, storeId));
@@ -87,24 +97,26 @@ async function saveConnection(db: admin.firestore.Firestore, storeId: string, to
     if (oldId && oldId !== accountId) tx.delete(db.collection('instagramAccounts').doc(oldId));
     tx.set(mapping, { storeId });
     tx.set(connectionRef(db, storeId), { accountId, username: profile.username || '', accessToken: token,
-      connected: false, enabled: false, connectedAt: now(), refreshedAt: now(),
+      connected: false, enabled: false, grantedPermissions, connectedAt: now(), refreshedAt: now(),
       expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(), lastError: null });
+    return {enabled:oldId===accountId && previous.data()?.enabled===true,respectSchedule:oldId===accountId?previous.data()?.respectSchedule!==false:true};
   });
-  const affiliate = (await db.collection('establishments').doc(storeId).get()).data()?.segment === AFFILIATE_SEGMENT;
-  let affiliatePermissions = false;
-  if (affiliate) {
-    const permissions = await graph('me/permissions', token);
-    const granted = (permissions.data || []).filter((p: any) => p.status === 'granted').map((p: any) => p.permission);
-    affiliatePermissions = ['instagram_business_content_publish','instagram_business_manage_comments'].every(p => granted.includes(p));
+  const segment = (await db.collection('establishments').doc(storeId).get()).data()?.segment;
+  const affiliate=segment===AFFILIATE_SEGMENT;
+  let affiliatePermissions = false,commentsPermission=false;
+  if (affiliate || segment==='AUTOMOTIVE_PARTS') {
+    commentsPermission=await probeCommentPermission({accountId,accessToken:token,grantedPermissions},graph);
+    affiliatePermissions = affiliate && commentsPermission && grantedPermissions.includes('instagram_business_content_publish');
   }
-  await graph('me/subscribed_apps', token, 'POST', { subscribed_fields: affiliatePermissions ? 'messages,comments' : 'messages' });
-  await connectionRef(db, storeId).update({ affiliatePermissions });
-  await connectionRef(db, storeId).update({ connected: true });
+  await graph('me/subscribed_apps', token, 'POST', { subscribed_fields: segment==='AUTOMOTIVE_PARTS'?(commentsPermission?'messages,comments,messaging_referral':'messages,messaging_referral'):commentsPermission?'messages,comments':'messages' });
+  await connectionRef(db, storeId).update({ affiliatePermissions,commentsPermission });
+  await connectionRef(db, storeId).update({ connected: true,...previousSettings });
 }
 
 export function registerInstagramWebhookRoutes(app: Express, db: admin.firestore.Firestore,
   processAi: ProcessAiMessageFn, deps: Dependencies = {}) {
   registerAffiliateRoutes(app, db, graph);
+  registerAcquisitionRoutes(app,db,graph);
   const owned = (handler: (req: Request, res: Response, storeId: string) => Promise<any>) => async (req: Request, res: Response) => {
     let uid: string;
     try { uid = (await admin.auth().verifyIdToken((req.headers.authorization || '').replace(/^Bearer /, ''))).uid; }
@@ -128,7 +140,7 @@ export function registerInstagramWebhookRoutes(app: Express, db: admin.firestore
     return res.json({ configured: !!(c.appId && c.secret && c.verifyToken),
       missing: [!c.appId && 'INSTAGRAM_APP_ID', !c.secret && 'INSTAGRAM_APP_SECRET', !c.verifyToken && 'INSTAGRAM_VERIFY_TOKEN'].filter(Boolean),
       respectSchedule: data.respectSchedule !== false, storeOpen: deps.operatingHours ? deps.operatingHours(store).isOpen : true,
-      affiliatePermissions: data.affiliatePermissions === true, connected: !!data.connected, enabled: !!data.enabled, username: data.username || null,
+      commentsPermission:data.commentsPermission===true,affiliatePermissions: data.affiliatePermissions === true, connected: !!data.connected, enabled: !!data.enabled, username: data.username || null,
       accountId: data.accountId || null, expiresAt: data.expiresAt || null, lastError: data.lastError || null,
       lastInboundAt: data.lastInboundAt || null, lastOutboundAt: data.lastOutboundAt || null,
       webhookVerifiedAt: webhook?.verifiedAt || null,
@@ -141,9 +153,11 @@ export function registerInstagramWebhookRoutes(app: Express, db: admin.firestore
     if (!c.appId || !c.secret || !c.verifyToken) return res.status(503).json({ error: 'Configure as credenciais do aplicativo Instagram no servidor primeiro.' });
     const state = crypto.randomBytes(32).toString('hex');
     await db.collection('instagramOauthStates').doc(hash(state)).set({ storeId, expiresAt: Date.now() + 10 * 60 * 1000 });
-    const affiliate = (await db.collection('establishments').doc(storeId).get()).data()?.segment === AFFILIATE_SEGMENT;
+    const segment=(await db.collection('establishments').doc(storeId).get()).data()?.segment;
+    const affiliate=segment===AFFILIATE_SEGMENT;
+    const automotive=segment==='AUTOMOTIVE_PARTS';
     const query = new URLSearchParams({ client_id: c.appId, redirect_uri: `${c.origin}/api/instagram/callback`,
-      response_type: 'code', scope: 'instagram_business_basic,instagram_business_manage_messages' + (affiliate ? ',instagram_business_content_publish,instagram_business_manage_comments' : ''),
+      response_type: 'code', scope: 'instagram_business_basic,instagram_business_manage_messages' + (affiliate ? ',instagram_business_content_publish,instagram_business_manage_comments' : automotive ? ',instagram_business_manage_comments' : ''),
       enable_fb_login: '0', force_authentication: '1', state });
     return res.json({ url: `https://www.instagram.com/oauth/authorize?${query}` });
   }));
@@ -168,7 +182,7 @@ export function registerInstagramWebhookRoutes(app: Express, db: admin.firestore
       });
       const long = await tokenRequest(`https://graph.instagram.com/access_token?${new URLSearchParams({
         grant_type: 'ig_exchange_token', client_secret: c.secret, access_token: short.access_token })}`);
-      await saveConnection(db, storeId, long.access_token, Number(long.expires_in || 5184000));
+      await saveConnection(db, storeId, long.access_token, Number(long.expires_in || 5184000),short.permissions || []);
       return res.redirect(`${c.origin}/?instagram=connected`);
     } catch {
       return res.redirect(`${config().origin}/?instagram=error`);
@@ -213,10 +227,14 @@ export function registerInstagramWebhookRoutes(app: Express, db: admin.firestore
     if (!Buffer.isBuffer(raw) || !validInstagramSignature(raw, String(req.headers['x-hub-signature-256'] || ''), config().secret)) return res.sendStatus(401);
     try {
       const ids: string[] = [];
-      for (const message of [...extractInstagramMessages(req.body), ...extractAffiliateComments(req.body)]) {
+      for (const message of [...extractInstagramMessages(req.body), ...extractAffiliateComments(req.body),...extractInstagramReferrals(req.body)]) {
         const mapping = (await db.collection('instagramAccounts').doc(message.accountId).get()).data();
         if (!mapping?.storeId) continue;
-        if (message.kind === 'affiliate_comment' && (await db.collection('establishments').doc(mapping.storeId).get()).data()?.segment !== AFFILIATE_SEGMENT) continue;
+        if (message.kind === 'affiliate_comment') {
+          const segment=(await db.collection('establishments').doc(mapping.storeId).get()).data()?.segment;
+          if(segment==='AUTOMOTIVE_PARTS')message.kind='automotive_comment';
+          else if(segment!==AFFILIATE_SEGMENT)continue;
+        }
         const id = hash(`${message.accountId}:${message.mid}`);
         try {
           await db.collection(EVENTS).doc(id).create({ ...message, storeId: mapping.storeId,
@@ -305,6 +323,9 @@ export async function processInstagramEvent(db: admin.firestore.Firestore, event
   const ref = db.collection(EVENTS).doc(eventId);
   const event = (await ref.get()).data();
   if (!event || ['sent', 'ignored', 'failed'].includes(event.status)) return;
+  if(event.kind==='automotive_comment_review')return reviewAutomotiveComment(db,eventId,graph,deps);
+  if(event.kind==='instagram_referral')return captureInstagramReferral(db,eventId);
+  if(event.kind==='automotive_comment')return processAutomotiveComment(db,eventId,graph,deps);
   if (event.kind === 'affiliate_comment') return processAffiliateComment(db, eventId, graph);
   const chatKey = `ig_${event.senderId}`;
   const chat = db.collection('establishments').doc(event.storeId).collection('chats').doc(chatKey);
@@ -341,8 +362,11 @@ export async function processInstagramEvent(db: admin.firestore.Firestore, event
     const existing = (await chat.get()).data() || {};
     const paused = existing.aiPaused && (!existing.aiPausedUntil || new Date(existing.aiPausedUntil).getTime() > Date.now());
     const outsideHours = c.respectSchedule !== false && deps.operatingHours && !deps.operatingHours(store).isOpen;
+    const savedReferral=(await db.collection('automotiveOperations').doc(event.storeId).collection('instagramReferrals').doc(chatKey).get()).data();
+    const referral=event.referral?.source==='ADS'?{...event.referral,timestamp:event.timestamp}:savedReferral?.accountId===event.accountId && Date.now()-Number(savedReferral.timestamp)<7*86400000?savedReferral:null;
+    if(store.segment==='AUTOMOTIVE_PARTS'&&referral)await applyInstagramReferral(db,event.storeId,chatKey,referral);
     await chat.set({ channel: 'instagram', customerPhone: chatKey, customerName: existing.customerName || 'Cliente Instagram',
-      leadSource: 'Instagram Direct', instagramSenderId: event.senderId, instagramAccountId: event.accountId, lastInboundAt: new Date(event.timestamp).toISOString(), unreadByHuman: true }, { merge: true });
+      leadSource: referral&&store.segment==='AUTOMOTIVE_PARTS'?'Anúncio Instagram':existing.leadSource || 'Instagram Direct', instagramSenderId: event.senderId, instagramAccountId: event.accountId, lastInboundAt: new Date(event.timestamp).toISOString(), unreadByHuman: true }, { merge: true });
     let plan: any[] = event.plan;
     if (!plan) {
       const text = event.text || `[${event.attachments[0]?.type || 'Mídia'} recebida pelo Instagram]`;

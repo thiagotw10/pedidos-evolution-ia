@@ -39,11 +39,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.INSTAGRAM_TEXT_MAX_BYTES = void 0;
 exports.validInstagramSignature = validInstagramSignature;
 exports.extractInstagramMessages = extractInstagramMessages;
+exports.extractInstagramReferrals = extractInstagramReferrals;
 exports.registerInstagramWebhookRoutes = registerInstagramWebhookRoutes;
 exports.instagramTextParts = instagramTextParts;
 exports.processInstagramEvent = processInstagramEvent;
 exports.refreshInstagramTokens = refreshInstagramTokens;
 exports.sendInstagramDirect = sendInstagramDirect;
+const instagramAcquisition_1 = require("./instagramAcquisition");
 const affiliate_1 = require("./affiliate");
 const admin = __importStar(require("firebase-admin"));
 const crypto_1 = __importDefault(require("crypto"));
@@ -76,7 +78,15 @@ function extractInstagramMessages(body) {
         && (item.message.text || item.message.attachments?.length))
         .map((item) => ({ accountId: String(item.recipient.id), senderId: String(item.sender.id),
         mid: String(item.message.mid), timestamp: Number(item.timestamp) > 0 ? Number(item.timestamp) * (Number(item.timestamp) < 1e12 ? 1000 : 1) : Date.now(),
-        text: String(item.message.text || ''), attachments: item.message.attachments || [] })));
+        text: String(item.message.text || ''), attachments: item.message.attachments || [],
+        ...((item.referral || item.message.referral)?.source === 'ADS' && /^\d{5,40}$/.test(String((item.referral || item.message.referral)?.ad_id || '')) ? { referral: { source: 'ADS', adId: String((item.referral || item.message.referral).ad_id) } } : {}) })));
+}
+function extractInstagramReferrals(body) {
+    if (body?.object !== 'instagram' || !Array.isArray(body.entry))
+        return [];
+    return body.entry.flatMap((entry) => [...(Array.isArray(entry.messaging) ? entry.messaging : []), ...(Array.isArray(entry.changes) ? entry.changes.filter((c) => c.field === 'messaging_referral').map((c) => c.value) : [])]
+        .filter((item) => !item.message && item.sender?.id && item.recipient?.id && item.referral?.source === 'ADS' && /^\d{5,40}$/.test(String(item.referral.ad_id || '')) && Number(item.timestamp) > 0)
+        .map((item) => ({ kind: 'instagram_referral', accountId: String(item.recipient.id), senderId: String(item.sender.id), mid: `referral:${item.sender.id}:${item.referral.ad_id}:${item.timestamp}`, timestamp: Number(item.timestamp) * (Number(item.timestamp) < 1e12 ? 1000 : 1), referral: { source: 'ADS', adId: String(item.referral.ad_id) } })));
 }
 class InstagramApiError extends Error {
     constructor(code, retryable) {
@@ -105,12 +115,13 @@ async function tokenRequest(url, options) {
     return data;
 }
 // This collection is server-only. Tokens never live on the public establishment document.
-async function saveConnection(db, storeId, token, expiresIn) {
+async function saveConnection(db, storeId, token, expiresIn, permissions = []) {
     const profile = await graph('me?fields=user_id,username', token);
+    const grantedPermissions = (Array.isArray(permissions) ? permissions : typeof permissions === 'string' ? permissions.split(',') : []).filter((v) => typeof v === 'string').map((v) => v.trim());
     const accountId = String(profile.user_id || '');
     if (!/^\d+$/.test(accountId))
         throw new Error('A Meta não retornou o identificador da conta profissional.');
-    await db.runTransaction(async (tx) => {
+    const previousSettings = await db.runTransaction(async (tx) => {
         const mapping = db.collection('instagramAccounts').doc(accountId);
         const current = await tx.get(mapping);
         const previous = await tx.get(connectionRef(db, storeId));
@@ -121,22 +132,24 @@ async function saveConnection(db, storeId, token, expiresIn) {
             tx.delete(db.collection('instagramAccounts').doc(oldId));
         tx.set(mapping, { storeId });
         tx.set(connectionRef(db, storeId), { accountId, username: profile.username || '', accessToken: token,
-            connected: false, enabled: false, connectedAt: now(), refreshedAt: now(),
+            connected: false, enabled: false, grantedPermissions, connectedAt: now(), refreshedAt: now(),
             expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(), lastError: null });
+        return { enabled: oldId === accountId && previous.data()?.enabled === true, respectSchedule: oldId === accountId ? previous.data()?.respectSchedule !== false : true };
     });
-    const affiliate = (await db.collection('establishments').doc(storeId).get()).data()?.segment === affiliate_1.AFFILIATE_SEGMENT;
-    let affiliatePermissions = false;
-    if (affiliate) {
-        const permissions = await graph('me/permissions', token);
-        const granted = (permissions.data || []).filter((p) => p.status === 'granted').map((p) => p.permission);
-        affiliatePermissions = ['instagram_business_content_publish', 'instagram_business_manage_comments'].every(p => granted.includes(p));
+    const segment = (await db.collection('establishments').doc(storeId).get()).data()?.segment;
+    const affiliate = segment === affiliate_1.AFFILIATE_SEGMENT;
+    let affiliatePermissions = false, commentsPermission = false;
+    if (affiliate || segment === 'AUTOMOTIVE_PARTS') {
+        commentsPermission = await (0, instagramAcquisition_1.probeCommentPermission)({ accountId, accessToken: token, grantedPermissions }, graph);
+        affiliatePermissions = affiliate && commentsPermission && grantedPermissions.includes('instagram_business_content_publish');
     }
-    await graph('me/subscribed_apps', token, 'POST', { subscribed_fields: affiliatePermissions ? 'messages,comments' : 'messages' });
-    await connectionRef(db, storeId).update({ affiliatePermissions });
-    await connectionRef(db, storeId).update({ connected: true });
+    await graph('me/subscribed_apps', token, 'POST', { subscribed_fields: segment === 'AUTOMOTIVE_PARTS' ? (commentsPermission ? 'messages,comments,messaging_referral' : 'messages,messaging_referral') : commentsPermission ? 'messages,comments' : 'messages' });
+    await connectionRef(db, storeId).update({ affiliatePermissions, commentsPermission });
+    await connectionRef(db, storeId).update({ connected: true, ...previousSettings });
 }
 function registerInstagramWebhookRoutes(app, db, processAi, deps = {}) {
     (0, affiliate_1.registerAffiliateRoutes)(app, db, graph);
+    (0, instagramAcquisition_1.registerAcquisitionRoutes)(app, db, graph);
     const owned = (handler) => async (req, res) => {
         let uid;
         try {
@@ -166,7 +179,7 @@ function registerInstagramWebhookRoutes(app, db, processAi, deps = {}) {
         return res.json({ configured: !!(c.appId && c.secret && c.verifyToken),
             missing: [!c.appId && 'INSTAGRAM_APP_ID', !c.secret && 'INSTAGRAM_APP_SECRET', !c.verifyToken && 'INSTAGRAM_VERIFY_TOKEN'].filter(Boolean),
             respectSchedule: data.respectSchedule !== false, storeOpen: deps.operatingHours ? deps.operatingHours(store).isOpen : true,
-            affiliatePermissions: data.affiliatePermissions === true, connected: !!data.connected, enabled: !!data.enabled, username: data.username || null,
+            commentsPermission: data.commentsPermission === true, affiliatePermissions: data.affiliatePermissions === true, connected: !!data.connected, enabled: !!data.enabled, username: data.username || null,
             accountId: data.accountId || null, expiresAt: data.expiresAt || null, lastError: data.lastError || null,
             lastInboundAt: data.lastInboundAt || null, lastOutboundAt: data.lastOutboundAt || null,
             webhookVerifiedAt: webhook?.verifiedAt || null,
@@ -179,9 +192,11 @@ function registerInstagramWebhookRoutes(app, db, processAi, deps = {}) {
             return res.status(503).json({ error: 'Configure as credenciais do aplicativo Instagram no servidor primeiro.' });
         const state = crypto_1.default.randomBytes(32).toString('hex');
         await db.collection('instagramOauthStates').doc(hash(state)).set({ storeId, expiresAt: Date.now() + 10 * 60 * 1000 });
-        const affiliate = (await db.collection('establishments').doc(storeId).get()).data()?.segment === affiliate_1.AFFILIATE_SEGMENT;
+        const segment = (await db.collection('establishments').doc(storeId).get()).data()?.segment;
+        const affiliate = segment === affiliate_1.AFFILIATE_SEGMENT;
+        const automotive = segment === 'AUTOMOTIVE_PARTS';
         const query = new URLSearchParams({ client_id: c.appId, redirect_uri: `${c.origin}/api/instagram/callback`,
-            response_type: 'code', scope: 'instagram_business_basic,instagram_business_manage_messages' + (affiliate ? ',instagram_business_content_publish,instagram_business_manage_comments' : ''),
+            response_type: 'code', scope: 'instagram_business_basic,instagram_business_manage_messages' + (affiliate ? ',instagram_business_content_publish,instagram_business_manage_comments' : automotive ? ',instagram_business_manage_comments' : ''),
             enable_fb_login: '0', force_authentication: '1', state });
         return res.json({ url: `https://www.instagram.com/oauth/authorize?${query}` });
     }));
@@ -209,7 +224,7 @@ function registerInstagramWebhookRoutes(app, db, processAi, deps = {}) {
             const long = await tokenRequest(`https://graph.instagram.com/access_token?${new URLSearchParams({
                 grant_type: 'ig_exchange_token', client_secret: c.secret, access_token: short.access_token
             })}`);
-            await saveConnection(db, storeId, long.access_token, Number(long.expires_in || 5184000));
+            await saveConnection(db, storeId, long.access_token, Number(long.expires_in || 5184000), short.permissions || []);
             return res.redirect(`${c.origin}/?instagram=connected`);
         }
         catch {
@@ -262,12 +277,17 @@ function registerInstagramWebhookRoutes(app, db, processAi, deps = {}) {
             return res.sendStatus(401);
         try {
             const ids = [];
-            for (const message of [...extractInstagramMessages(req.body), ...(0, affiliate_1.extractAffiliateComments)(req.body)]) {
+            for (const message of [...extractInstagramMessages(req.body), ...(0, affiliate_1.extractAffiliateComments)(req.body), ...extractInstagramReferrals(req.body)]) {
                 const mapping = (await db.collection('instagramAccounts').doc(message.accountId).get()).data();
                 if (!mapping?.storeId)
                     continue;
-                if (message.kind === 'affiliate_comment' && (await db.collection('establishments').doc(mapping.storeId).get()).data()?.segment !== affiliate_1.AFFILIATE_SEGMENT)
-                    continue;
+                if (message.kind === 'affiliate_comment') {
+                    const segment = (await db.collection('establishments').doc(mapping.storeId).get()).data()?.segment;
+                    if (segment === 'AUTOMOTIVE_PARTS')
+                        message.kind = 'automotive_comment';
+                    else if (segment !== affiliate_1.AFFILIATE_SEGMENT)
+                        continue;
+                }
                 const id = hash(`${message.accountId}:${message.mid}`);
                 try {
                     await db.collection(EVENTS).doc(id).create({ ...message, storeId: mapping.storeId,
@@ -374,6 +394,12 @@ async function processInstagramEvent(db, eventId, processAi, deps = {}) {
     const event = (await ref.get()).data();
     if (!event || ['sent', 'ignored', 'failed'].includes(event.status))
         return;
+    if (event.kind === 'automotive_comment_review')
+        return (0, instagramAcquisition_1.reviewAutomotiveComment)(db, eventId, graph, deps);
+    if (event.kind === 'instagram_referral')
+        return (0, instagramAcquisition_1.captureInstagramReferral)(db, eventId);
+    if (event.kind === 'automotive_comment')
+        return (0, instagramAcquisition_1.processAutomotiveComment)(db, eventId, graph, deps);
     if (event.kind === 'affiliate_comment')
         return (0, affiliate_1.processAffiliateComment)(db, eventId, graph);
     const chatKey = `ig_${event.senderId}`;
@@ -415,8 +441,12 @@ async function processInstagramEvent(db, eventId, processAi, deps = {}) {
         const existing = (await chat.get()).data() || {};
         const paused = existing.aiPaused && (!existing.aiPausedUntil || new Date(existing.aiPausedUntil).getTime() > Date.now());
         const outsideHours = c.respectSchedule !== false && deps.operatingHours && !deps.operatingHours(store).isOpen;
+        const savedReferral = (await db.collection('automotiveOperations').doc(event.storeId).collection('instagramReferrals').doc(chatKey).get()).data();
+        const referral = event.referral?.source === 'ADS' ? { ...event.referral, timestamp: event.timestamp } : savedReferral?.accountId === event.accountId && Date.now() - Number(savedReferral.timestamp) < 7 * 86400000 ? savedReferral : null;
+        if (store.segment === 'AUTOMOTIVE_PARTS' && referral)
+            await (0, instagramAcquisition_1.applyInstagramReferral)(db, event.storeId, chatKey, referral);
         await chat.set({ channel: 'instagram', customerPhone: chatKey, customerName: existing.customerName || 'Cliente Instagram',
-            leadSource: 'Instagram Direct', instagramSenderId: event.senderId, instagramAccountId: event.accountId, lastInboundAt: new Date(event.timestamp).toISOString(), unreadByHuman: true }, { merge: true });
+            leadSource: referral && store.segment === 'AUTOMOTIVE_PARTS' ? 'Anúncio Instagram' : existing.leadSource || 'Instagram Direct', instagramSenderId: event.senderId, instagramAccountId: event.accountId, lastInboundAt: new Date(event.timestamp).toISOString(), unreadByHuman: true }, { merge: true });
         let plan = event.plan;
         if (!plan) {
             const text = event.text || `[${event.attachments[0]?.type || 'Mídia'} recebida pelo Instagram]`;

@@ -80,3 +80,9 @@ test('opening a conversation reuses the existing CRM record and creates one only
  assert.equal(response.body.project.phone,'ig_456');assert.equal(response.body.project.aiPaused,true);assert.equal(response.body.project.source,'instagram_ai');
  response=responseFor('store');await r.action({params:{chatId:'ig_456',action:'project'},body:{}},response);assert.equal(response.body.project.id,id);
 });
+
+test('opening a multi-vehicle conversation selects the active CRM project',async()=>{
+ const db=fakeDb({[base+'ig_123']:{projectId:'second'},'automotive_projects/first':{establishmentId:'store',phone:'ig_123',model:'Jetta'},'automotive_projects/second':{establishmentId:'store',phone:'ig_123',model:'BMW'}});
+ const r=routes(db),res=response('store');await r.action({params:{chatId:'ig_123',action:'project'},body:{}},res);
+ assert.equal(res.code,200);assert.equal(res.body.project.id,'second');assert.equal(res.body.project.model,'BMW');
+});

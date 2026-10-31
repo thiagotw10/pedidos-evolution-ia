@@ -1,3 +1,5 @@
+import {InternalConsultationsView} from './components/InternalConsultationsView';
+import { GarageView } from './components/GarageView';
 import { AffiliateWorkspace } from './components/AffiliateWorkspace';
 import React, { useState, useEffect, useRef } from 'react';
 import { 
@@ -476,6 +478,8 @@ export default function App() {
           <main className="flex-1 pb-24 md:pb-16 min-w-0 w-full overflow-x-hidden">
             {establishment?.segment === 'AFFILIATES' && ['orders','products'].includes(currentTab) && <AffiliateWorkspace establishmentId={storeId} view={currentTab === 'products' ? 'products' : 'posts'} onOpenInstagram={() => setCurrentTab('instagram')} />}
             {currentTab === 'orders' && establishment?.segment === 'AUTOMOTIVE_PARTS' && <AutomotiveProjects />}
+            {currentTab === 'internal' && establishment?.segment === 'AUTOMOTIVE_PARTS' && <InternalConsultationsView establishmentId={storeId} />}
+            {currentTab === 'garage' && establishment?.segment === 'AUTOMOTIVE_PARTS' && <GarageView establishmentId={storeId} />}
             {currentTab === 'inbox' && <InboxView />}
             {currentTab === 'orders' && !['AUTOMOTIVE_PARTS','AFFILIATES'].includes(establishment?.segment || '') && (
               <OrdersView
@@ -554,7 +558,7 @@ export default function App() {
               />
             )}
 
-            {currentTab === 'instagram' && <InstagramView establishmentId={storeId} affiliate={establishment?.segment === 'AFFILIATES'} />}
+            {currentTab === 'instagram' && <InstagramView establishmentId={storeId} automotive={establishment?.segment === 'AUTOMOTIVE_PARTS'} affiliate={establishment?.segment === 'AFFILIATES'} />}
 
             {currentTab === 'whatsapp' && establishment?.segment !== 'AFFILIATES' && (
               <WhatsAppView

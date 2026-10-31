@@ -1,16 +1,17 @@
+import {InstagramAcquisitionView} from './InstagramAcquisitionView';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Instagram, RefreshCw, ExternalLink, CheckCircle2, AlertCircle, Copy } from 'lucide-react';
 import { auth } from '../lib/firebase';
 
 type Status = {
-  affiliatePermissions?: boolean; respectSchedule: boolean; storeOpen: boolean;
+  commentsPermission?:boolean;affiliatePermissions?: boolean; respectSchedule: boolean; storeOpen: boolean;
   configured: boolean; missing: string[]; connected: boolean; enabled: boolean;
   username: string | null; accountId: string | null; expiresAt: string | null;
   lastError: string | null; lastInboundAt: string | null; lastOutboundAt: string | null;
   webhookVerifiedAt: string | null; webhookUrl: string; redirectUri: string; verifyToken: string;
 };
 
-export function InstagramView({ establishmentId, affiliate = false }: { establishmentId: string; affiliate?: boolean }) {
+export function InstagramView({ establishmentId, affiliate = false, automotive=false }: { establishmentId: string; affiliate?: boolean; automotive?:boolean }) {
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState(false);
   const [respectSchedule, setRespectSchedule] = useState(true);
@@ -86,7 +87,8 @@ export function InstagramView({ establishmentId, affiliate = false }: { establis
           <div><p className="text-slate-500">Autorização válida até</p><p className="text-slate-200 mt-1">{date(status.expiresAt)}</p></div>
         </div>}
       </section>
-      {!affiliate && <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+      {automotive&&<InstagramAcquisitionView establishmentId={establishmentId} onReconnect={connect}/>}
+      {!affiliate && !automotive && <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
         <h2 className="font-bold text-white">Trocar o atendimento do ManyChat</h2>
         <ol className="list-decimal pl-5 space-y-3 text-slate-300 text-sm">
           <li>Conecte sua conta acima. A autorização não ativa o chatbot automaticamente.</li>
@@ -105,7 +107,7 @@ export function InstagramView({ establishmentId, affiliate = false }: { establis
             <p className="text-slate-400 mb-1">{label}</p><div className="flex gap-2 items-center"><code className="min-w-0 break-all flex-1 bg-slate-950 p-3 rounded-lg">{value || 'Configure no servidor'}</code>
               {value && <button onClick={() => copy(value)} disabled={busy} aria-label={`Copiar ${label}`} className="p-2"><Copy size={17} /></button>}</div>
           </div>)}
-          <p>Assine o campo <code>messages</code> no webhook do Instagram.</p>
+          <p>Assine os campos <code>messages</code>{(automotive||affiliate)&&<> e <code>comments</code></>} no webhook do Instagram.</p>
           <p className="flex gap-2 items-center">{status.webhookVerifiedAt && <CheckCircle2 size={16} className="text-emerald-400" />}Webhook verificado: {date(status.webhookVerifiedAt)}</p>
         </div>
       </details>
