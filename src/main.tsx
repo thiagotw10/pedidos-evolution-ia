@@ -2,6 +2,8 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
+import './crm-theme.css';
+import './public-pages.css';
 import { registerPwaServiceWorker } from './utils/pwaNotifications';
 
 // Inicializar Service Worker do PWA para Cache e Notificações em Segundo Plano

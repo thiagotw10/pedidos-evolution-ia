@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword,
@@ -37,6 +37,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
   onBackToHome,
   referralCode
 }) => {
+  useEffect(()=>{window.scrollTo(0,0);},[]);
   const [isRegister, setIsRegister] = useState(initialMode === 'register');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -246,13 +247,14 @@ export const AuthView: React.FC<AuthViewProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center px-4 py-12 relative overflow-hidden">
-      {/* Decorative Background Glows */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-10 left-1/4 w-72 h-72 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
-
+    <div className="crm-auth">
+      <aside className="auth-brand-panel"><button type="button" className="public-brand" onClick={onBackToHome}><span><Store size={22}/></span>iaPedido</button>
+        <div className="auth-brand-copy"><span>Mais tempo para o seu negócio</span><h2>Seu atendimento.<br/>Sua equipe.<br/>Tudo conectado.</h2><p>Organize as conversas, apresente seu catálogo e acompanhe cada oportunidade no mesmo lugar.</p>
+          <div className="auth-benefits"><span><CheckCircle2 size={18}/>WhatsApp e Instagram no mesmo painel</span><span><CheckCircle2 size={18}/>Catálogo e informações do seu negócio</span><span><CheckCircle2 size={18}/>Sua equipe assume quando precisar</span></div>
+        </div><p className="auth-brand-footer">Um espaço para cuidar de quem fala com a sua empresa.</p>
+      </aside>
       {/* Main Container */}
-      <div className="w-full max-w-md relative z-10">
+      <div className="auth-form-wrap w-full max-w-md relative z-10">
         
         {/* Back to Home Button */}
         {onBackToHome && (
@@ -266,28 +268,16 @@ export const AuthView: React.FC<AuthViewProps> = ({
           </button>
         )}
 
-        {/* Brand Header */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-400 p-0.5 shadow-lg shadow-emerald-500/20 mb-4">
-            <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center">
-              <Bot className="w-8 h-8 text-emerald-400" />
-            </div>
-          </div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">
-            ia<span className="text-emerald-400">Pedido</span>
-          </h1>
-          <p className="text-sm text-slate-400 mt-1">
-            Plataforma de Atendimento e Vendas no WhatsApp para qualquer segmento
-          </p>
-        </div>
+        <header className="auth-intro"><span>{isRegister?'Seu próximo passo começa aqui':'Bom ter você de volta'}</span><h1>{isRegister?'Crie seu espaço.':'Entre no seu espaço.'}</h1><p>{isRegister?'Cadastre sua empresa e organize o atendimento.':'Acesse suas conversas, projetos e oportunidades.'}</p></header>
 
         {/* Card */}
-        <div className="bg-slate-900/80 backdrop-blur-xl border border-slate-800 rounded-3xl p-8 shadow-2xl shadow-black/50">
+        <div className="auth-form-card bg-slate-900/80 backdrop-blur-xl border border-slate-800 rounded-3xl p-8 shadow-2xl shadow-black/50">
           
           {/* Tab Selector */}
-          <div className="flex bg-slate-950/60 p-1 rounded-xl border border-slate-800 mb-6">
+          <div className="auth-mode-switch flex bg-slate-950/60 p-1 rounded-xl border border-slate-800 mb-6">
             <button
               type="button"
+              aria-pressed={!isRegister}
               onClick={() => { setIsRegister(false); setErrorMsg(''); setSuccessMsg(''); }}
               className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${
                 !isRegister 
@@ -299,6 +289,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
             </button>
             <button
               type="button"
+              aria-pressed={isRegister}
               onClick={() => { setIsRegister(true); setErrorMsg(''); setSuccessMsg(''); }}
               className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${
                 isRegister 
@@ -306,20 +297,20 @@ export const AuthView: React.FC<AuthViewProps> = ({
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              Novo Estabelecimento
+              Criar conta
             </button>
           </div>
 
           {/* Feedback Messages */}
           {errorMsg && (
-            <div className="mb-4 p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-start gap-2.5 text-rose-400 text-xs leading-relaxed animate-shake">
+            <div role="alert" className="mb-4 p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-start gap-2.5 text-rose-400 text-xs leading-relaxed animate-shake">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{errorMsg}</span>
             </div>
           )}
 
           {successMsg && (
-            <div className="mb-4 p-3.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-start gap-2.5 text-emerald-400 text-xs leading-relaxed">
+            <div role="status" className="mb-4 p-3.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-start gap-2.5 text-emerald-400 text-xs leading-relaxed">
               <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{successMsg}</span>
             </div>
@@ -331,15 +322,15 @@ export const AuthView: React.FC<AuthViewProps> = ({
             {isRegister && (
               <>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-                    Nome do Estabelecimento *
+                  <label htmlFor="auth-name" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                    Nome da empresa *
                   </label>
                   <div className="relative">
                     <Store className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
+                    <input id="auth-name"
                       type="text"
                       required
-                      placeholder="Ex: Pizzaria Bella Itália, Burger & Cia"
+                      placeholder="Como se chama o seu negócio?"
                       value={storeName}
                       onChange={(e) => setStoreName(e.target.value)}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
@@ -347,12 +338,12 @@ export const AuthView: React.FC<AuthViewProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="auth-register-fields grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                    <label htmlFor="auth-segment" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
                       Segmento
                     </label>
-                    <select
+                    <select id="auth-segment"
                       value={segment}
                       onChange={(e) => setSegment(e.target.value)}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors"
@@ -366,12 +357,12 @@ export const AuthView: React.FC<AuthViewProps> = ({
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-                      WhatsApp Loja
+                    <label htmlFor="auth-phone" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                      WhatsApp da empresa
                     </label>
                     <div className="relative">
                       <Phone className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                      <input
+                      <input id="auth-phone"
                         type="text"
                         placeholder="5511999999999"
                         value={storePhone}
@@ -385,13 +376,14 @@ export const AuthView: React.FC<AuthViewProps> = ({
             )}
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+              <label htmlFor="auth-email" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
                 E-mail de Acesso
               </label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
+                <input id="auth-email"
                   type="email"
+                  autoComplete="email"
                   required
                       placeholder="seu@email.com"
                   value={email}
@@ -403,7 +395,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
 
             <div>
               <div className="flex justify-between items-center mb-1.5">
-                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                <label htmlFor="auth-password" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
                   Senha
                 </label>
                 {!isRegister && (
@@ -418,8 +410,9 @@ export const AuthView: React.FC<AuthViewProps> = ({
               </div>
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
+                <input id="auth-password"
                   type="password"
+                  autoComplete={isRegister?'new-password':'current-password'}
                   required
                   placeholder="••••••••"
                   value={password}
@@ -438,7 +431,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               ) : (
                 <>
-                  <span>{isRegister ? 'Criar Meu Estabelecimento' : 'Entrar no Painel'}</span>
+                  <span>{isRegister ? 'Criar minha conta' : 'Entrar no Painel'}</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}

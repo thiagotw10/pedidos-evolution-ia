@@ -1,3 +1,4 @@
+import {ModalFrame} from './ModalFrame';
 import React, { useState } from 'react';
 import { 
   CheckCircle2, 
@@ -480,7 +481,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
       {/* Reject Modal */}
       {rejectModalOrder && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
+        <ModalFrame label="Recusar pedido" onClose={()=>setRejectModalOrder(null)}>
           <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-5 sm:p-6 space-y-4 shadow-2xl">
             <div className="flex items-center gap-3 text-rose-400">
               <AlertCircle className="w-6 h-6 shrink-0" />
@@ -516,7 +517,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </ModalFrame>
       )}
 
       {/* Dispatch to Motoboy Modal */}

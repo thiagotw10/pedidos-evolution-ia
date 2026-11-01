@@ -301,7 +301,7 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
   return (
     <div className="p-3 sm:p-6 md:p-8 max-w-7xl mx-auto space-y-4 sm:space-y-6">
       {/* Header Info */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 sm:gap-4">
         <div>
           <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2.5">
             Simulador de Atendimento WhatsApp
@@ -399,7 +399,7 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
 
         {/* Right Column: WhatsApp Phone Interface */}
         <div className="lg:col-span-2">
-          <div className="max-w-xl mx-auto bg-slate-950 rounded-3xl border border-slate-800 shadow-2xl overflow-hidden flex flex-col h-[640px]">
+          <div className="crm-simulator-chat max-w-xl mx-auto bg-slate-950 rounded-3xl border border-slate-800 shadow-2xl overflow-hidden flex flex-col h-[640px]">
             {/* WhatsApp App Header */}
             <div className="bg-slate-900 px-5 py-3.5 border-b border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-3">

@@ -70,7 +70,7 @@ export const PwaInstallBanner: React.FC<PwaInstallBannerProps> = ({
   };
 
   return (
-    <div className="relative mx-3 sm:mx-6 md:mx-8 mt-3 sm:mt-4 p-3.5 sm:p-4 rounded-2xl bg-gradient-to-br from-emerald-950/80 via-slate-900 to-slate-900 border border-emerald-500/30 shadow-xl backdrop-blur-md animate-in fade-in slide-in-from-top-3 duration-300">
+    <div className="crm-install-banner relative mx-3 sm:mx-6 md:mx-8 mt-3 sm:mt-4 p-3.5 sm:p-4 rounded-2xl bg-gradient-to-br from-emerald-950/80 via-slate-900 to-slate-900 border border-emerald-500/30 shadow-xl backdrop-blur-md animate-in fade-in slide-in-from-top-3 duration-300">
       
       {/* Top row: Icon + Title + Close Button */}
       <div className="flex items-start justify-between gap-3">
@@ -81,14 +81,14 @@ export const PwaInstallBanner: React.FC<PwaInstallBannerProps> = ({
           <div>
             <div className="flex items-center gap-1.5 flex-wrap">
               <h4 className="text-xs sm:text-sm font-black text-white">
-                Instale o App iaPedido no Celular
+                Seu CRM na tela inicial
               </h4>
               <span className="px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 text-[9px] font-black uppercase tracking-wider border border-emerald-500/30">
                 PWA
               </span>
             </div>
             <p className="text-[11px] text-slate-400 leading-snug mt-0.5">
-              Receba pedidos com som na tela de bloqueio mesmo com o app fechado.
+              Instale o aplicativo e ative os alertas de novas mensagens.
             </p>
           </div>
         </div>
@@ -109,7 +109,7 @@ export const PwaInstallBanner: React.FC<PwaInstallBannerProps> = ({
           className="w-full sm:w-auto flex-1 sm:flex-initial py-2.5 px-4 rounded-xl text-xs font-black bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 transition cursor-pointer flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 active:scale-[0.99]"
         >
           <Download className="w-4 h-4" />
-          <span>Baixar / Adicionar à Tela de Início</span>
+          <span>Instalar aplicativo</span>
         </button>
 
         {!isGranted && (
@@ -124,7 +124,7 @@ export const PwaInstallBanner: React.FC<PwaInstallBannerProps> = ({
             ) : (
               <Volume2 className="w-3.5 h-3.5" />
             )}
-            <span>Ativar Som de Pedido</span>
+            <span>Ativar alertas</span>
           </button>
         )}
       </div>

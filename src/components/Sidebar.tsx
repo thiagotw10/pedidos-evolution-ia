@@ -42,6 +42,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const OrdersIcon = getSegmentOrdersIcon(establishment?.segment);
 
   const menuItems = [
+    {id: 'home', label: 'Início', icon: Home, badge: null},
     {
       id: 'orders',
       label: segConfig.ordersTitle,
@@ -120,7 +121,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <aside className="hidden md:flex w-72 bg-slate-900/90 border-r border-slate-800/80 flex-col h-screen select-none backdrop-blur-md flex-shrink-0">
+    <aside className="crm-sidebar hidden md:flex w-72 bg-slate-900/90 border-r border-slate-800/80 flex-col h-screen select-none backdrop-blur-md flex-shrink-0">
       {/* Brand Header */}
       <div className="h-24 px-6 border-b border-slate-800/60 flex items-center">
         <div className="flex items-center gap-3">
@@ -141,7 +142,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="px-3 pb-3 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
           Menu Principal
         </div>
-        {menuItems.filter(item => (segConfig.id !== 'AUTOMOTIVE_PARTS' || !['finance', 'campaigns'].includes(item.id)) && (segConfig.id !== 'AFFILIATES' || ['orders','products','inbox','instagram','billing','settings'].includes(item.id))).map((item) => {
+        {menuItems.filter(item => (segConfig.id !== 'AUTOMOTIVE_PARTS' || !['finance', 'campaigns'].includes(item.id)) && (segConfig.id !== 'AFFILIATES' || ['home','orders','products','inbox','instagram','billing','settings'].includes(item.id))).map((item) => {
           const Icon = item.icon;
           const isActive = currentTab === item.id;
           return (
@@ -149,6 +150,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               key={item.id}
               onClick={() => setCurrentTab(item.id)}
               title={item.label}
+              aria-label={item.label}
+              aria-current={isActive ? 'page' : undefined}
               className={`w-full h-12 flex items-center justify-between gap-2 border border-transparent px-3 py-3 text-left rounded-xl font-medium text-sm transition-all duration-200 cursor-pointer ${
                 isActive
                   ? 'bg-gradient-to-r from-emerald-500/20 to-teal-500/10 text-emerald-300 border-emerald-500/30 shadow-md shadow-emerald-950/40'

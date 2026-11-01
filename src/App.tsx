@@ -1,3 +1,4 @@
+import {CrmHome} from './components/CrmHome';
 import {InternalConsultationsView} from './components/InternalConsultationsView';
 import { GarageView } from './components/GarageView';
 import { AffiliateWorkspace } from './components/AffiliateWorkspace';
@@ -61,7 +62,7 @@ export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const publicStoreId = window.location.pathname.match(/^\/loja\/([^/]+)/)?.[1] || new URLSearchParams(window.location.search).get('loja');
 
-  const [currentTab, setCurrentTab] = useState<string>(new URLSearchParams(window.location.search).has('instagram') ? 'instagram' : (new URLSearchParams(window.location.search).get('tab') || 'orders'));
+  const [currentTab, setCurrentTab] = useState<string>(new URLSearchParams(window.location.search).has('instagram') ? 'instagram' : (new URLSearchParams(window.location.search).get('tab') || (window.matchMedia('(max-width: 767px)').matches ? 'home' : 'orders')));
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [establishment, setEstablishment] = useState<Establishment | null>(null);
@@ -112,6 +113,14 @@ export default function App() {
   }, []);
 
   const isAuthenticated = !!currentUser || !!sessionUser || demoMode;
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', currentTab);
+    if (currentTab !== 'inbox') url.searchParams.delete('chat');
+    window.history.replaceState(window.history.state, '', url);
+    document.querySelector('.crm-scroll')?.scrollTo({top: 0});
+  }, [currentTab, isAuthenticated]);
   const storeId = currentUser?.uid || sessionUser?.uid || (demoMode ? 'default_store' : 'default_store');
 
   // Play browser chime using Web Audio API (no external file needed)
@@ -443,7 +452,7 @@ export default function App() {
       userEmail={currentUser?.email || sessionUser?.email || (demoMode ? 'demo@burgercia.com.br' : null)}
       onSignOut={handleSignOut}
     >
-      <div className="flex h-screen w-screen overflow-hidden bg-slate-950 font-sans text-slate-100">
+      <div className="crm-shell flex h-screen w-screen overflow-hidden bg-slate-950 font-sans text-slate-100">
         {/* Sidebar Navigation */}
         <Sidebar
           currentTab={currentTab}
@@ -454,8 +463,9 @@ export default function App() {
         />
 
         {/* Main Content Area */}
-        <div className="flex-1 flex flex-col h-screen min-w-0 w-full overflow-x-hidden overflow-y-auto">
+        <div className="crm-scroll flex-1 flex flex-col h-screen min-w-0 w-full overflow-x-hidden overflow-y-auto">
           <Header
+            currentTab={currentTab}
             establishment={establishment}
             soundEnabled={soundEnabled}
             setSoundEnabled={setSoundEnabled}
@@ -475,7 +485,8 @@ export default function App() {
             deferredPrompt={deferredPrompt}
           />
 
-          <main className="flex-1 pb-24 md:pb-16 min-w-0 w-full overflow-x-hidden">
+          <main data-crm-tab={currentTab} className="crm-main flex-1 pb-24 md:pb-16 min-w-0 w-full overflow-x-hidden">
+            {currentTab === 'home' && <CrmHome establishment={establishment} productCount={products.length} onNavigate={setCurrentTab} />}
             {establishment?.segment === 'AFFILIATES' && ['orders','products'].includes(currentTab) && <AffiliateWorkspace establishmentId={storeId} view={currentTab === 'products' ? 'products' : 'posts'} onOpenInstagram={() => setCurrentTab('instagram')} />}
             {currentTab === 'orders' && establishment?.segment === 'AUTOMOTIVE_PARTS' && <AutomotiveProjects />}
             {currentTab === 'internal' && establishment?.segment === 'AUTOMOTIVE_PARTS' && <InternalConsultationsView establishmentId={storeId} />}

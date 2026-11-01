@@ -1,3 +1,4 @@
+import {ModalFrame} from './ModalFrame';
 import React, { useState, useRef } from 'react';
 import { visibleForSegment } from '../../functions/src/catalogPolicy';
 import { 
@@ -434,7 +435,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
   return (
     <div className="p-3.5 sm:p-6 md:p-8 space-y-4 sm:space-y-6 max-w-7xl mx-auto w-full min-w-0 overflow-x-hidden">
       {/* Top Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 sm:gap-4">
         <div>
           <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2 sm:gap-3 flex-wrap">
             {segConfig.catalogTitle} para a IA
@@ -447,7 +448,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
           </p>
         </div>
 
-        <div className="flex flex-wrap sm:flex-nowrap items-stretch sm:items-center gap-2 sm:gap-2.5 w-full sm:w-auto">
+        <div className="crm-catalog-actions flex flex-wrap items-stretch sm:items-center gap-2 sm:gap-2.5 w-full sm:w-auto">
           {automotive && (
             <>
               <button
@@ -576,10 +577,10 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
 
       {/* Lightbox / Media Viewer Modal */}
       {previewMedia && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/90 backdrop-blur-md">
+        <ModalFrame label="Mídias do catálogo" onClose={()=>setPreviewMedia(null)}>
           <div className="relative w-full max-w-3xl bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
             {/* Header */}
-            <div className="p-4 border-b border-slate-800 flex items-center justify-between gap-3 bg-slate-950/60">
+            <div className="crm-gallery-header p-4 border-b border-slate-800 flex items-center justify-between gap-3 bg-slate-950/60">
               <div className="min-w-0">
                 <h3 className="text-sm sm:text-base font-bold text-white truncate">
                   {previewMedia.product.name}
@@ -590,7 +591,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
               </div>
 
               {/* Tabs (Fotos vs Vídeo) */}
-              <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800">
+              <div className="crm-gallery-tabs flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800">
                 {previewMedia.product.images && previewMedia.product.images.length > 0 && (
                   <button
                     onClick={() => setPreviewMedia(prev => prev ? { ...prev, activeTab: 'photos' } : null)}
@@ -619,6 +620,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                 )}
                 <button
                   onClick={() => setPreviewMedia(null)}
+                  aria-label="Fechar mídias do catálogo"
                   className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 ml-1 transition cursor-pointer"
                 >
                   <X className="w-4 h-4" />
@@ -627,7 +629,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
             </div>
 
             {/* Content Body */}
-            <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center justify-center bg-black/40 min-h-[300px]">
+            <div className="crm-gallery-stage flex-1 overflow-y-auto p-4 flex flex-col items-center justify-center bg-black/40 min-h-[300px]">
               {previewMedia.activeTab === 'video' && previewMedia.product.videoUrl ? (
                 <div className="w-full flex flex-col items-center gap-3">
                   <div className="w-full rounded-xl overflow-hidden border border-slate-800 bg-black aspect-video max-h-[500px]">
@@ -722,13 +724,13 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
               )}
             </div>
           </div>
-        </div>
+        </ModalFrame>
       )}
 
       {/* Modal Adicionar / Editar Projeto */}
       {isModalOpen && editingProduct && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
-          <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl my-8">
+        <ModalFrame label="Cadastro de referência" onClose={handleCloseEditModal}>
+          <div className="crm-product-editor relative w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl my-8">
             <div className="flex items-center justify-between p-4 sm:p-6 border-b border-slate-800/80">
               <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
                 {editingProduct.id ? 'Editar' : 'Novo(a)'} {segConfig.itemNoun}
@@ -1067,39 +1069,18 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
               {saveError && <p role="alert" className="rounded-xl border border-rose-400/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">{saveError}</p>}
             </form>
           </div>
-        </div>
+        </ModalFrame>
       )}
 
       {/* Modal Importar do Instagram */}
       {isInstagramModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/85 backdrop-blur-md overflow-y-auto">
-          <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl my-8 flex flex-col max-h-[90vh]">
-            {/* Modal Header */}
-            <div className="p-5 sm:p-6 border-b border-slate-800 flex items-center justify-between gap-3 bg-gradient-to-r from-slate-950/80 via-slate-900 to-slate-950/80">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600 flex items-center justify-center shadow-lg shadow-rose-500/20">
-                  <Instagram className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
-                    Importar Projeto do Instagram
-                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                      IA Gemini
-                    </span>
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    Extraia automaticamente carrossel de fotos, vídeo de ronco e especificações técnicas.
-                  </p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setIsInstagramModalOpen(false)}
-                className="w-8 h-8 rounded-xl bg-slate-800/60 hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center transition cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
+        <ModalFrame label="Importar do Instagram" onClose={()=>setIsInstagramModalOpen(false)}>
+          <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl my-8 flex flex-col max-h-[90dvh]">
+            <div className="crm-import-header p-5 sm:p-6 border-b border-slate-800">
+              <div className="crm-import-icon"><Instagram size={22}/></div>
+              <div className="crm-import-heading"><h3 className="text-base sm:text-lg font-semibold text-white">Importar do Instagram</h3><span className="crm-badge bg-rose-500/20 text-rose-300 rounded-full px-2 py-0.5 text-[10px] font-semibold">IA Gemini</span></div>
+              <button type="button" onClick={()=>setIsInstagramModalOpen(false)} aria-label="Fechar importação do Instagram" className="crm-import-close"><X size={20}/></button>
+              <p className="crm-import-description text-xs text-slate-400">Extraia fotos, vídeos de ronco e informações técnicas de uma publicação.</p>
             </div>
 
             {/* Modal Body */}
@@ -1136,7 +1117,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                   </button>
                 </div>
 
-                <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
+                <div className="crm-import-hint flex items-center justify-between text-[11px] text-slate-500 pt-1">
                   <span>Dica: Funciona com carrossel de até 10 fotos e vídeos com som de ronco.</span>
                   <a
                     href="https://www.instagram.com/flowgarage.escapamentos/"
@@ -1319,7 +1300,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
               </div>
             )}
           </div>
-        </div>
+        </ModalFrame>
       )}
 
       {/* Estúdio de Vídeo IA & Influencer Automotivo */}

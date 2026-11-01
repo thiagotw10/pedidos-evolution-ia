@@ -33,7 +33,7 @@ export function ConversationDialog({label, onClose, children}: {
         if(event.shiftKey&&(document.activeElement===first||document.activeElement===frame.current)){event.preventDefault();last?.focus();}
         else if(!event.shiftKey&&(document.activeElement===last||document.activeElement===frame.current)){event.preventDefault();first.focus();}
       }}
-      className="w-full h-full min-h-0 min-w-0 md:max-w-5xl md:h-[94dvh] bg-[#0b141a] md:rounded-2xl shadow-2xl flex flex-col overflow-hidden border-0 md:border md:border-[#222e35] relative outline-none">
+      className="crm-conversation w-full h-full min-h-0 min-w-0 md:max-w-5xl md:h-[94dvh] bg-[#0b141a] md:rounded-2xl shadow-2xl flex flex-col overflow-hidden border-0 md:border md:border-[#222e35] relative outline-none">
       {children}
     </div>
   </div>,document.body);

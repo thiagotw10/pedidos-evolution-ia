@@ -1,3 +1,4 @@
+import {ModalFrame} from './ModalFrame';
 import React, { useState, useEffect } from 'react';
 import {
   X,
@@ -126,8 +127,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-      <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 shadow-2xl my-auto">
+    <ModalFrame label="Assinatura e plano" onClose={onClose}>
+      <div className="crm-subscription-panel relative w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 shadow-2xl my-auto">
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -147,6 +148,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
           </div>
         </div>
 
+        <div className="crm-subscription-body">
         {/* Status Card */}
         <div className="mb-5 p-4 rounded-2xl bg-slate-950/80 border border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -319,7 +321,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
             Fechar
           </button>
         </div>
+        </div>
       </div>
-    </div>
+    </ModalFrame>
   );
 };

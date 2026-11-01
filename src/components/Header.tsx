@@ -3,6 +3,7 @@ import { Volume2, VolumeX, Smartphone, Instagram, Store, Clock, LogOut, User, Me
 import { Establishment } from '../types';
 
 interface HeaderProps {
+  currentTab?: string;
   establishment: Establishment | null;
   soundEnabled: boolean;
   setSoundEnabled: (val: boolean) => void;
@@ -17,6 +18,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   establishment,
+  currentTab,
   soundEnabled,
   setSoundEnabled,
   onOpenWhatsApp,
@@ -27,8 +29,14 @@ export const Header: React.FC<HeaderProps> = ({
   userEmail,
   onSignOut
 }) => {
-  return (
-    <header className="h-16 sm:h-[72px] bg-slate-900/90 border-b border-slate-800/80 px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-3 sm:gap-4 backdrop-blur-xl sticky top-0 z-30 pt-[max(0rem,env(safe-area-inset-top))] min-w-0 w-full">
+  const titles: Record<string,string> = {home: 'Meu negócio', orders: establishment?.segment === 'AUTOMOTIVE_PARTS' ? 'Projetos' : 'Pedidos', inbox: 'Conversas', garage: 'Garagem', products: 'Catálogo', internal: 'Equipe', radar: 'Oportunidades', workshops: 'Oficinas parceiras', traffic: 'Tráfego', finance: 'Financeiro', billing: 'Plano e créditos', campaigns: 'Campanhas', simulator: 'Simulador', instagram: 'Instagram', whatsapp: 'WhatsApp', settings: 'Configurações'};
+  return (<>
+    <header className="crm-mobile-header md:hidden sticky top-0 z-30 flex items-center justify-between gap-3">
+      <div className="min-w-0"><button onClick={onOpenSettings} className="crm-company truncate max-w-full">{establishment?.name || 'Meu negócio'}</button>
+        <h1>{titles[currentTab || 'orders'] || 'Meu negócio'}</h1></div>
+      <button type="button" onClick={onOpenMenu} aria-label="Abrir menu" className="crm-header-action"><Menu size={22}/></button>
+    </header>
+    <header className="crm-desktop-header hidden md:flex shrink-0 h-16 sm:h-[72px] bg-slate-900/90 border-b border-slate-800/80 px-4 sm:px-6 lg:px-8 items-center justify-between gap-3 sm:gap-4 backdrop-blur-xl sticky top-0 z-30 pt-[max(0rem,env(safe-area-inset-top))] min-w-0 w-full">
       {/* Store Info */}
       <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0 flex-1 sm:flex-initial">
         <button 
@@ -127,5 +135,5 @@ export const Header: React.FC<HeaderProps> = ({
         )}
       </div>
     </header>
-  );
+  </>);
 };

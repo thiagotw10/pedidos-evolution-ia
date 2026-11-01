@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useEffect, useRef} from 'react';
 import { 
   X, 
   ShoppingBag, 
@@ -58,6 +58,23 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
   userEmail,
   onSignOut
 }) => {
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isOpen) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const panel = panelRef.current;
+    panel?.querySelector<HTMLButtonElement>('button')?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+      if (event.key !== 'Tab' || !panel) return;
+      const buttons = Array.from(panel.querySelectorAll<HTMLElement>('button:not([disabled])')).filter(el => el.getClientRects().length > 0);
+      const first = buttons[0], last = buttons[buttons.length - 1];
+      if (event.shiftKey && document.activeElement === first) {event.preventDefault(); last?.focus();}
+      else if (!event.shiftKey && document.activeElement === last) {event.preventDefault(); first?.focus();}
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {document.removeEventListener('keydown', onKey); previous?.focus();};
+  }, [isOpen, onClose]);
   if (!isOpen) return null;
 
   const subStatus = getSubscriptionStatus(establishment);
@@ -66,6 +83,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
   const OrdersIcon = getSegmentOrdersIcon(establishment?.segment);
 
   const menuItems = [
+    {id: 'home', label: 'Início', icon: Home},
     { id: 'orders', label: segConfig.ordersTitle, icon: OrdersIcon },
     ...(establishment?.segment === 'AUTOMOTIVE_PARTS' ? [
       { id: 'garage', label: 'Garagem & Estoque', icon: Wrench, badge: null },
@@ -91,7 +109,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
   };
 
   return (
-    <div className="md:hidden fixed inset-0 z-50 flex">
+    <div className="crm-more-sheet md:hidden fixed inset-0 z-50 flex">
       {/* Backdrop */}
       <div 
         onClick={onClose}
@@ -99,13 +117,13 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
       />
 
       {/* Drawer Content */}
-      <div className="relative ml-auto w-4/5 max-w-sm h-full bg-slate-900 border-l border-slate-800 shadow-2xl flex flex-col p-5 overflow-y-auto animate-in slide-in-from-right duration-300">
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-label="Menu do CRM" className="crm-more-panel relative ml-auto w-4/5 max-w-sm h-full bg-slate-900 border-l border-slate-800 shadow-2xl flex flex-col p-5 overflow-y-auto animate-in slide-in-from-right duration-300">
         
         {/* Top Header */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-800">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white shadow-md shadow-emerald-950/50">
-              <Bot className="w-5 h-5" />
+              <Store className="w-5 h-5" />
             </div>
             <div>
               <h2 className="font-extrabold text-base text-white">ia<span className="text-emerald-400">Pedido</span></h2>
@@ -117,6 +135,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
 
           <button
             onClick={onClose}
+            aria-label="Fechar menu"
             className="p-2 rounded-xl bg-slate-800/80 text-slate-400 hover:text-white cursor-pointer"
           >
             <X className="w-4 h-4" />
@@ -176,11 +195,11 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
               <Download className="w-4 h-4 text-emerald-400" />
               <div className="text-left">
                 <p className="text-xs font-black text-white">Instalar App no Celular</p>
-                <p className="text-[10px] text-emerald-400/80">Baixar como aplicativo PWA</p>
+                <p className="text-[10px] text-emerald-400/80">Acesso rápido pela tela inicial</p>
               </div>
             </div>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950">
-              BAIXAR
+              Instalar
             </span>
           </button>
         )}
@@ -188,9 +207,9 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
         {/* Navigation Links */}
         <nav className="flex-1 space-y-1">
           <p className="px-2 text-[10px] font-bold tracking-wider text-slate-500 uppercase mb-2">
-            Módulos do Sistema
+            Seu negócio
           </p>
-          {menuItems.filter(item => (establishment?.segment !== 'AUTOMOTIVE_PARTS' || !['finance', 'campaigns'].includes(item.id)) && (segConfig.id !== 'AFFILIATES' || ['orders','products','inbox','instagram','billing','settings'].includes(item.id))).map(item => {
+          {menuItems.filter(item => (establishment?.segment !== 'AUTOMOTIVE_PARTS' || !['finance', 'campaigns'].includes(item.id)) && (segConfig.id !== 'AFFILIATES' || ['home','orders','products','inbox','instagram','billing','settings'].includes(item.id))).map(item => {
             const Icon = item.icon;
             const isActive = currentTab === item.id;
             return (

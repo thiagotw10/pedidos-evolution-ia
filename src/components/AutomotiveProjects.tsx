@@ -1,5 +1,5 @@
+import {ModalFrame} from './ModalFrame';
 import {ConversationDialog} from './ConversationDialog';
-import {createPortal} from 'react-dom';
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import {
   MessageSquare,
@@ -371,7 +371,7 @@ export function AutomotiveProjects({conversationContactId, onConversationClose}:
   const [filter, setFilter] = useState('Todos');
   const [sourceFilter, setSourceFilter] = useState<'ALL' | 'WHATSAPP' | 'INSTAGRAM' | 'SITE'>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
-  const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban');
+  const [viewMode, setViewMode] = useState<'kanban' | 'list'>(() => window.matchMedia('(max-width: 767px)').matches ? 'list' : 'kanban');
 
   // Mobile modal tab switcher ('chat' | 'specs')
   const [mobileModalTab, setMobileModalTab] = useState<'chat' | 'specs'>('chat');
@@ -408,8 +408,6 @@ export function AutomotiveProjects({conversationContactId, onConversationClose}:
 
   // Image upload & Lightbox state (Pedro)
   const imageInputRef = useRef<HTMLInputElement | null>(null);
-  const mediaPreviewRef=useRef<HTMLDivElement>(null);
-  const proposalPreviewRef=useRef<HTMLDivElement>(null);
   const [imagePreview, setImagePreview] = useState<{ url: string; base64: string; name: string; type:'image'|'video'|'audio' } | null>(null);
   const [imageCaption, setImageCaption] = useState('');
   const [sendingImage, setSendingImage] = useState(false);
@@ -437,8 +435,6 @@ export function AutomotiveProjects({conversationContactId, onConversationClose}:
   const [proposalDraft, setProposalDraft] = useState('');
   const [sendingProposal, setSendingProposal] = useState(false);
 
-  useEffect(()=>{if(imagePreview)mediaPreviewRef.current?.focus({preventScroll:true});},[imagePreview]);
-  useEffect(()=>{if(proposalModalOpen)proposalPreviewRef.current?.focus({preventScroll:true});},[proposalModalOpen]);
 
   async function request(path = '', method = 'GET', body?: unknown) {
     const token = await auth.currentUser?.getIdToken();
@@ -1180,20 +1176,20 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
   }
 
   return (
-    <section className="max-w-7xl mx-auto p-3.5 sm:p-8 text-slate-100 space-y-5 sm:space-y-6 w-full min-w-0 overflow-x-hidden">
+    <section className="crm-projects max-w-7xl mx-auto p-3.5 sm:p-8 text-slate-100 space-y-5 sm:space-y-6 w-full min-w-0 overflow-x-hidden">
       {!conversationContactId&&<>
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <p className="text-orange-400 text-xs uppercase tracking-widest font-semibold flex items-center gap-1.5">
             <Wrench className="w-3.5 h-3.5" />
-            CRM & Pipeline Performance Automotiva
+            Atendimento e vendas
           </p>
           <h1 className="text-2xl sm:text-3xl font-extrabold mt-1 text-white flex items-center gap-2">
             Projetos & Orçamentos
           </h1>
           <p className="text-slate-400 text-xs sm:text-sm mt-1 max-w-2xl">
-            Gestão completa de leads de tráfego pago (Meta Ads) e vitrine pública. Assuma conversas a qualquer momento (Human Takeover) e dispare propostas no WhatsApp.
+            Acompanhe os projetos, converse com os clientes e envie orçamentos.
           </p>
         </div>
 
@@ -1210,7 +1206,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
               }`}
             >
               <Columns className="w-3.5 h-3.5" />
-              <span>Funil / Kanban</span>
+              <span>Funil</span>
             </button>
             <button
               type="button"
@@ -1222,7 +1218,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
               }`}
             >
               <List className="w-3.5 h-3.5" />
-              <span>Lista Detalhada</span>
+              <span>Lista</span>
             </button>
           </div>
 
@@ -1238,7 +1234,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
       </div>
 
       {/* KPI Summary Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+      <div className="crm-project-stats grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
         <div className="rounded-2xl border border-white/10 bg-slate-900/90 p-4">
           <span className="text-[11px] uppercase tracking-wider text-slate-400">Total no Pipeline</span>
           <p className="text-2xl font-black text-white mt-1">{stats.total}</p>
@@ -1260,10 +1256,10 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
         </div>
         <div className="rounded-2xl border border-amber-500/25 bg-slate-900/90 p-4">
           <span className="text-[11px] uppercase tracking-wider text-amber-300 flex items-center gap-1">
-            <Pause className="w-3 h-3" /> Takeover Humano
+            <Pause className="w-3 h-3" /> Com a equipe
           </span>
           <p className="text-2xl font-black text-amber-300 mt-1">{stats.pausedAiCount}</p>
-          <span className="text-[11px] text-slate-400">IA pausada (Pedro atendendo)</span>
+          <span className="text-[11px] text-slate-400">Atendimento com a equipe</span>
         </div>
         <div className="rounded-2xl border border-cyan-500/25 bg-slate-900/90 p-4 col-span-2 lg:col-span-1">
           <span className="text-[11px] uppercase tracking-wider text-cyan-300 flex items-center gap-1">
@@ -1305,12 +1301,12 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
             type="text"
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
-            placeholder="Buscar por cliente, telefone, carro (ex: Porsche, BMW M3, Gol Turbo), campanha ou protocolo..."
+            aria-label="Buscar projeto" placeholder="Buscar cliente, veículo ou projeto"
             className="w-full bg-slate-900 border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-orange-400"
           />
         </div>
 
-        <div className="flex items-center gap-1.5 bg-slate-900 border border-white/10 p-1 rounded-xl text-xs">
+        <div className="crm-source-filters flex items-center gap-1.5 bg-slate-900 border border-white/10 p-1 rounded-xl text-xs">
           <button
             type="button"
             onClick={() => setSourceFilter('ALL')}
@@ -1318,7 +1314,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
               sourceFilter === 'ALL' ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white'
             }`}
           >
-            Todas Origens
+            Todos
           </button>
           <button
             type="button"
@@ -1330,11 +1326,11 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
             }`}
           >
             <MessageSquare className="w-3 h-3" />
-            WhatsApp IA
+            WhatsApp
           </button>
           <button type="button" onClick={() => setSourceFilter('INSTAGRAM')}
             className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 transition cursor-pointer ${sourceFilter === 'INSTAGRAM' ? 'bg-pink-500/20 text-pink-300' : 'text-slate-400 hover:text-white'}`}>
-            <Instagram className="w-3 h-3" /> Instagram IA
+            <Instagram className="w-3 h-3" /> Instagram
           </button>
           <button
             type="button"
@@ -1346,7 +1342,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
             }`}
           >
             <Globe className="w-3 h-3" />
-            Vitrine Site
+            Site
           </button>
         </div>
       </div>
@@ -1611,7 +1607,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                   <p className="text-slate-300 text-sm mt-1 flex items-center gap-2">
                     <User className="w-3.5 h-3.5 text-slate-400" />
                     <span>{p.customerName || 'Cliente'}</span>
-                    {p.phone && <span className="text-slate-500 font-mono text-xs">· +{p.phone}</span>}
+                    {p.phone && !/^(ig_|instagram_)/.test(p.phone) && <span className="text-slate-500 font-mono text-xs">· +{p.phone}</span>}
                   </p>
 
                   <p className="mt-3 text-sm text-slate-200 line-clamp-2">{p.objective}</p>
@@ -1833,7 +1829,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
               onTouchMove={()=>{followLatestRef.current=false;}}
               onScroll={e=>{const el=e.currentTarget;if(el.scrollHeight-el.scrollTop-el.clientHeight<80)followLatestRef.current=true;}}
               onLoadCapture={()=>{if(followLatestRef.current){const el=conversationScrollRef.current;if(el)el.scrollTop=el.scrollHeight;}}}
-              className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain p-3 sm:p-4 space-y-2.5 relative flex flex-col scrollbar-thin"
+              className="crm-message-history min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain p-3 sm:p-4 space-y-2.5 relative flex flex-col scrollbar-thin"
               style={{
                 backgroundColor: '#0b141a',
                 backgroundImage: 'radial-gradient(rgba(255, 255, 255, 0.035) 1.5px, transparent 1.5px)',
@@ -2427,12 +2423,13 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
       )}
 
       {/* WhatsApp Image Attachment Preview Modal with Caption before Sending */}
-      {imagePreview && createPortal(
-        <div ref={mediaPreviewRef} role="dialog" aria-modal="true" aria-label="Enviar mídia" tabIndex={-1} onKeyDown={e=>{if(e.key==='Escape')setImagePreview(null);}} className="fixed inset-0 z-60 bg-black/90 backdrop-blur-md flex flex-col justify-between p-4 sm:p-6 animate-in fade-in duration-200">
+      {imagePreview && (
+        <ModalFrame label="Enviar mídia" media onClose={()=>{if(!sendingImage)setImagePreview(null);}}><div className="crm-media-compose flex flex-col h-full w-full">
           <div className="flex items-center justify-between text-white">
             <button
               type="button"
               onClick={() => setImagePreview(null)}
+              aria-label="Fechar prévia da mídia"
               className="p-2 text-white/80 hover:text-white rounded-full bg-white/10 cursor-pointer"
             >
               <X className="w-6 h-6" />
@@ -2441,7 +2438,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
             <div className="w-8" />
           </div>
 
-          <div className="flex-1 flex items-center justify-center my-4 overflow-hidden">
+          <div className="crm-media-stage min-h-0 flex-1 flex items-center justify-center my-4 overflow-hidden">
             {imagePreview.type==='video'?<video controls playsInline src={imagePreview.base64} className="max-h-[60dvh] max-w-full rounded-xl"/>:imagePreview.type==='audio'?<audio controls src={imagePreview.base64}/>:<img src={imagePreview.base64} alt="Preview" className="max-h-[60dvh] max-w-full rounded-2xl object-contain shadow-2xl"/>}
           </div>
 
@@ -2469,30 +2466,21 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
               <Send className="w-5 h-5 ml-0.5" />
             </button>
           </div>
-        </div>, document.body
+        </div></ModalFrame>
       )}
 
       {/* Fullscreen Image Lightbox Modal */}
-      {expandedImage && createPortal(
-        <div
-          onClick={() => setExpandedImage(null)}
-          className="fixed inset-0 z-70 bg-black/95 backdrop-blur-md flex items-center justify-center p-4 cursor-pointer animate-in fade-in duration-150"
-        >
-          <button
-            type="button"
-            onClick={() => setExpandedImage(null)}
-            className="absolute top-4 right-4 p-2.5 text-white/80 hover:text-white rounded-full bg-white/10 cursor-pointer"
-          >
-            <X className="w-6 h-6" />
-          </button>
-          <img src={expandedImage} alt="Imagem ampliada" className="max-h-[90vh] max-w-full rounded-xl object-contain shadow-2xl" />
-        </div>, document.body
-      )}
+      {expandedImage && <ModalFrame label="Imagem ampliada" media onClose={()=>setExpandedImage(null)}>
+        <div className="crm-lightbox-panel">
+          <button type="button" aria-label="Fechar imagem ampliada" onClick={()=>setExpandedImage(null)} className="crm-lightbox-close"><X size={24}/></button>
+          <img src={expandedImage} alt="Imagem ampliada" className="max-w-full object-contain" />
+        </div>
+      </ModalFrame>}
 
       {/* PROPOSAL PREVIEW & DISPATCH MODAL */}
-      {proposalModalOpen && selected && createPortal(
-        <div ref={proposalPreviewRef} role="dialog" aria-modal="true" aria-label="Prévia da proposta" tabIndex={-1} onKeyDown={e=>{if(e.key==='Escape')setProposalModalOpen(false);}} className="fixed inset-0 z-60 bg-black/90 backdrop-blur-md flex justify-center items-center p-4">
-          <div className="bg-slate-900 border border-cyan-500/40 rounded-3xl p-4 sm:p-6 max-w-2xl w-full max-h-[92dvh] overflow-y-auto space-y-4 shadow-2xl">
+      {proposalModalOpen && selected && (
+        <ModalFrame label="Prévia da proposta" onClose={()=>{if(!sendingProposal)setProposalModalOpen(false);}}>
+          <div className="crm-proposal-panel bg-slate-900 border border-cyan-500/40 rounded-3xl p-4 sm:p-6 max-w-2xl w-full max-h-[92dvh] overflow-y-auto space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <div>
                 <h3 className="font-extrabold text-lg text-white flex items-center gap-2">
@@ -2506,6 +2494,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
               <button
                 disabled={sendingProposal}
                 onClick={() => setProposalModalOpen(false)}
+                aria-label="Fechar prévia da proposta"
                 className="text-slate-400 hover:text-white"
               >
                 <X className="w-5 h-5" />
@@ -2578,7 +2567,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
               </button>
             </div>
           </div>
-        </div>, document.body
+        </ModalFrame>
       )}
     </section>
   );

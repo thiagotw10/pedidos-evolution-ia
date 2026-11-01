@@ -1,3 +1,4 @@
+import {ModalFrame} from './ModalFrame';
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, 
@@ -276,8 +277,8 @@ export const CarVideoStudioModal: React.FC<CarVideoStudioModalProps> = ({
   const previewImage = product?.imageUrl || (product?.images && product.images[0]) || 'https://images.unsplash.com/photo-1552519507-da3b142c6e3d?auto=format&fit=crop&w=800&q=80';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fadeIn">
-      <div className="relative w-full max-w-5xl bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+    <ModalFrame label="Estúdio de vídeo" onClose={onClose}>
+      <div className="crm-video-studio relative w-full max-w-5xl bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92dvh]">
         
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950/60">
@@ -299,6 +300,7 @@ export const CarVideoStudioModal: React.FC<CarVideoStudioModalProps> = ({
           </div>
           <button
             onClick={onClose}
+            aria-label="Fechar estúdio de vídeo"
             className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -722,6 +724,6 @@ export const CarVideoStudioModal: React.FC<CarVideoStudioModalProps> = ({
         </div>
 
       </div>
-    </div>
+    </ModalFrame>
   );
 };

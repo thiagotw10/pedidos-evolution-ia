@@ -1,3 +1,4 @@
+import {ModalFrame} from './ModalFrame';
 import React, { useState, useEffect } from 'react';
 import {
   Wrench,
@@ -578,8 +579,8 @@ export const AutomotivePartnerWorkshops: React.FC<AutomotivePartnerWorkshopsProp
 
       {/* Modal for Creating / Editing Partner Workshop */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95">
+        <ModalFrame label="Cadastro de oficina parceira" onClose={()=>setIsModalOpen(false)}>
+          <div className="crm-workshop-editor bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-2xl max-h-[90dvh] overflow-y-auto p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
@@ -596,6 +597,7 @@ export const AutomotivePartnerWorkshops: React.FC<AutomotivePartnerWorkshopsProp
               </div>
               <button
                 onClick={() => setIsModalOpen(false)}
+                aria-label="Fechar cadastro da oficina"
                 className="text-slate-400 hover:text-white text-lg font-bold p-1"
               >
                 ✕
@@ -803,7 +805,7 @@ export const AutomotivePartnerWorkshops: React.FC<AutomotivePartnerWorkshopsProp
               </div>
             </form>
           </div>
-        </div>
+        </ModalFrame>
       )}
     </div>
   );

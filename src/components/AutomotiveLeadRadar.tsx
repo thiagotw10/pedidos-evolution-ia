@@ -288,11 +288,11 @@ export const AutomotiveLeadRadar: React.FC<AutomotiveLeadRadarProps> = ({
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-cyan-500 to-emerald-400 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-cyan-500/20">
+            <div className="w-10 h-10 shrink-0 rounded-2xl bg-gradient-to-tr from-cyan-500 to-emerald-400 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-cyan-500/20">
               <Compass className="w-5 h-5 animate-spin-slow" />
             </div>
             <div>
-              <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2">
+              <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight flex flex-wrap items-center gap-2">
                 Radar de Leads & Prospecção Automotiva
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
                   Dual-Engine: Maps + Instagram
@@ -485,7 +485,7 @@ export const AutomotiveLeadRadar: React.FC<AutomotiveLeadRadarProps> = ({
       </div>
 
       {/* Leads Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {filteredLeads.map((lead) => {
           const isCopied = copiedPitchId === lead.id;
           const isImported = lead.status === 'imported';
@@ -497,16 +497,16 @@ export const AutomotiveLeadRadar: React.FC<AutomotiveLeadRadarProps> = ({
             >
               {/* Top Row: Avatar, Identity, Score Badge */}
               <div>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
                     <img
                       src={lead.avatarUrl}
                       alt={lead.title}
-                      className="w-12 h-12 rounded-2xl object-cover border border-slate-700/80 shadow-md"
+                      className="w-12 h-12 shrink-0 rounded-2xl object-cover border border-slate-700/80 shadow-md"
                     />
                     <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-bold text-sm sm:text-base text-white">{lead.title}</h3>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="min-w-0 break-words font-bold text-sm sm:text-base text-white">{lead.title}</h3>
                         {lead.source === 'instagram' ? (
                           <span className="p-1 rounded-lg bg-pink-500/10 text-pink-400 border border-pink-500/20" title="Origem: Instagram">
                             <Instagram className="w-3 h-3" />
@@ -592,7 +592,7 @@ export const AutomotiveLeadRadar: React.FC<AutomotiveLeadRadarProps> = ({
               </div>
 
               {/* Action Buttons Footer */}
-              <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
+              <div className="crm-lead-actions pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   {lead.whatsapp && (
                     <button

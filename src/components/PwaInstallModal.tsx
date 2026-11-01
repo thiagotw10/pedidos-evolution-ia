@@ -1,3 +1,4 @@
+import {ModalFrame} from './ModalFrame';
 import React, { useState } from 'react';
 import { 
   Download, 
@@ -85,8 +86,8 @@ export const PwaInstallModal: React.FC<PwaInstallModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
+    <ModalFrame label="Instalar aplicativo" onClose={onClose}>
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[92dvh]">
         {/* Header */}
         <div className="p-5 sm:p-6 border-b border-slate-800 bg-slate-950/60 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -110,6 +111,7 @@ export const PwaInstallModal: React.FC<PwaInstallModalProps> = ({
 
           <button
             onClick={onClose}
+            aria-label="Fechar janela"
             className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition cursor-pointer shrink-0 ml-2"
           >
             <X className="w-4 h-4" />
@@ -288,6 +290,6 @@ export const PwaInstallModal: React.FC<PwaInstallModalProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </ModalFrame>
   );
 };
