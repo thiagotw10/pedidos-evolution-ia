@@ -1,3 +1,4 @@
+import {Preloader} from './Loading';
 import React, { useEffect, useState } from 'react';
 import {
   CheckCircle2,
@@ -308,7 +309,7 @@ export const BillingView: React.FC<{
                 >
                   {loadingPlanPix && isSelected ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <Preloader compact className="w-4 h-4" />
                       <span>Gerando PIX...</span>
                     </>
                   ) : (
@@ -442,7 +443,7 @@ export const BillingView: React.FC<{
                 disabled={loading}
                 className="rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 px-6 py-3.5 font-bold text-white flex items-center justify-center gap-2 cursor-pointer"
               >
-                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <QrCode className="w-5 h-5" />}
+                {loading ? <Preloader compact className="w-5 h-5" /> : <QrCode className="w-5 h-5" />}
                 <span>Gerar PIX de R$ {amount}</span>
               </button>
             </div>

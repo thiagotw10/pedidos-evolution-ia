@@ -1,3 +1,4 @@
+import {resolveLeadLocation,saveLeadLocation} from './instagramLeadGeo';
 import {openInternalConsultation} from './internalConsultation';
 import * as admin from 'firebase-admin';
 import crypto from 'crypto';
@@ -56,6 +57,7 @@ export async function resolveAutomotiveOperations(db:admin.firestore.Firestore,s
     };
     if(shipping.stage==='confirmCep') {
       if(!affirmative(input))return response('Pode confirmar o endereço encontrado ou enviar o CEP correto?','shipping');
+      try{await saveLeadLocation(db,storeId,contactId,resolveLeadLocation({country:'BR',city:address.city,state:address.state},'postal_confirmed'));}catch{/* A municipality absent from the geographic base stays unmapped. */}
       address.phone=phoneOf(contactId) || '';
       if(ctx.customerName && ctx.customerName.trim().includes(' ') && !/^(cliente|visitante)/i.test(ctx.customerName))address.recipient=String(ctx.customerName);
       return advance();

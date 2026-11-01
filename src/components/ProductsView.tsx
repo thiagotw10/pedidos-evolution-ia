@@ -1,3 +1,4 @@
+import {SkeletonScreen, Preloader} from './Loading';
 import {ModalFrame} from './ModalFrame';
 import React, { useState, useRef } from 'react';
 import { visibleForSegment } from '../../functions/src/catalogPolicy';
@@ -532,10 +533,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
 
       {/* Grid of Product Cards */}
       {loading ? (
-        <div className="text-center py-16 text-slate-500 space-y-3">
-          <Loader2 className="w-8 h-8 animate-spin mx-auto text-emerald-400" />
-          <p>Carregando {segConfig.catalogTitle.toLowerCase()}...</p>
-        </div>
+        <SkeletonScreen label="Carregando catálogo…" />
       ) : filteredProducts.length === 0 ? (
         <div className="text-center py-16 border border-slate-800/80 rounded-2xl bg-slate-900/30">
           <CatalogIcon className="w-12 h-12 text-slate-600 mx-auto mb-3" />
@@ -821,7 +819,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                   >
                     {uploadingGallery ? (
                       <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <Preloader compact className="w-3.5 h-3.5" />
                         <span>Enviando...</span>
                       </>
                     ) : (
@@ -928,7 +926,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                     >
                       {uploadingVideo ? (
                         <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <Preloader compact className="w-3.5 h-3.5" />
                           <span>Enviando...</span>
                         </>
                       ) : (
@@ -978,7 +976,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                   >
                     {uploadingVideo ? (
                       <div className="flex flex-col items-center gap-2 text-rose-400">
-                        <Loader2 className="w-6 h-6 animate-spin" />
+                        <Preloader compact className="w-6 h-6" />
                         <span className="text-xs font-semibold">Enviando vídeo para a nuvem...</span>
                       </div>
                     ) : (
@@ -1105,7 +1103,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                   >
                     {parsingInstagram ? (
                       <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <Preloader compact className="w-4 h-4" />
                         <span>Analisando...</span>
                       </>
                     ) : (
@@ -1286,7 +1284,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                   >
                     {importingToCatalog ? (
                       <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <Preloader compact className="w-4 h-4" />
                         <span>Salvando na nuvem...</span>
                       </>
                     ) : (

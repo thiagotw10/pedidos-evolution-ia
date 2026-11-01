@@ -1,0 +1,47 @@
+/* Shared loading language: neutral surfaces, subtle movement, real async state only. */
+.ui-loading-sr{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
+.ui-preloader{display:inline-flex;align-items:center;justify-content:center;gap:10px;color:inherit;font-size:13px;line-height:1.5;max-width:100%;vertical-align:middle}
+.ui-preloader--compact{gap:0}
+.ui-spinner{display:inline-block;flex:none;width:20px;height:20px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;opacity:.75;animation:ui-spin .8s linear infinite}
+.ui-preloader--compact .ui-spinner{width:1em;height:1em}
+.ui-splash{position:fixed;inset:0;z-index:100;background:#141414;color:#fff;display:grid;place-items:center;min-height:100dvh;font-family:Arial,Helvetica,sans-serif;padding:24px}
+.ui-splash-content{width:min(100%,300px);text-align:center}
+.ui-splash-brand{display:flex;justify-content:center;align-items:center;gap:12px}
+.ui-splash-brand>span{display:grid;place-items:center;width:54px;height:54px;border-radius:18px;background:#303030}
+.ui-splash-brand strong{font-size:32px;letter-spacing:-1.5px;font-weight:700}
+.ui-splash-content>p{font-size:13px;color:#aaa;margin:24px 0 32px}
+.ui-splash-track{height:3px;width:120px;overflow:hidden;border-radius:99px;background:#353535;margin:auto}
+.ui-splash-track>span{display:block;width:45%;height:100%;border-radius:inherit;background:#fff;animation:ui-loading-track 1.5s ease-in-out infinite}
+.ui-loading-screen{min-width:0;width:100%;padding:8px 0;color:#666}
+.ui-skeleton-layout{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;min-width:0}
+.ui-skeleton{display:block;position:relative;isolation:isolate;overflow:hidden;background:#eaeaea;border-radius:8px;max-width:100%}
+.ui-skeleton:after{content:'';position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,rgba(255,255,255,.65),transparent);animation:ui-shimmer 1.8s ease-in-out infinite}
+.ui-skeleton-card{min-width:0;padding:20px;border:1px solid #e9e9e9;border-radius:24px;background:#f7f7f7;display:flex;flex-direction:column;gap:16px}
+.ui-skeleton-image{height:140px;border-radius:16px;margin-bottom:8px}
+.ui-skeleton-line{height:12px;width:100%;flex:none}
+.ui-skeleton-line--short{width:45%}.ui-skeleton-line--medium{width:72%}
+.ui-skeleton-pill{height:38px;width:110px;border-radius:99px;margin-top:12px}
+.ui-loading-screen--list .ui-skeleton-layout,.ui-loading-screen--conversation .ui-skeleton-layout{grid-template-columns:minmax(0,1fr);gap:0}
+.ui-skeleton-row{display:flex;align-items:center;gap:14px;min-width:0;padding:20px;border-bottom:1px solid #eee}
+.ui-skeleton-avatar{width:42px;height:42px;border-radius:50%;flex:none}.ui-skeleton-copy{display:grid;gap:12px;flex:1;min-width:0}
+.ui-loading-screen--conversation{padding:20px;min-height:260px}
+.ui-loading-screen--conversation .ui-skeleton-layout{gap:24px}
+.ui-skeleton-bubble{background:#f0f0f0;border-radius:18px 18px 18px 4px;padding:18px;display:grid;gap:12px;width:70%;max-width:360px}
+.ui-skeleton-bubble--out{justify-self:end;border-radius:18px 18px 4px 18px;background:#e6e6e6}
+.ui-loading-screen--dashboard .ui-skeleton-card{min-height:150px}
+.ui-page-loading{padding:24px 32px;min-width:0}.ui-page-loading>.ui-preloader{margin:8px 0 28px}
+/* Existing action spinners inherit the button's readable foreground, including light and dark dialogs. */
+:where(.crm-shell,.crm-auth,.crm-dialog) svg.animate-spin{color:inherit;animation-duration:.8s}
+:where(.crm-shell,.crm-auth) button:has(svg.animate-spin){cursor:progress}
+@keyframes ui-spin{to{transform:rotate(360deg)}}
+@keyframes ui-shimmer{to{transform:translateX(100%)}}
+@keyframes ui-loading-track{0%{transform:translateX(-110%)}50%{transform:translateX(125%)}100%{transform:translateX(350%)}}
+@media(max-width:1023px){.ui-skeleton-layout{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:599px){.ui-skeleton-layout{grid-template-columns:minmax(0,1fr);gap:14px}.ui-skeleton-card{padding:18px;border-radius:20px}.ui-page-loading{padding:20px 16px}.ui-skeleton-image{height:120px}}
+@media(prefers-reduced-motion:reduce){.ui-skeleton:after{display:none}.ui-spinner,.ui-splash-track>span{animation:none}.ui-splash-track>span{transform:translateX(60%)}:where(.crm-shell,.crm-auth,.crm-dialog) .animate-spin{animation:none!important}}
+.ui-skeleton-number{display:inline-block;width:64px;height:32px;vertical-align:middle}
+.ui-preloader.w-3\.5,.ui-preloader.w-4,.ui-preloader.w-5,.ui-preloader.w-6,.ui-preloader.w-8{font-size:inherit}
+/* Utilities set display:grid, so retain the native hidden contract explicitly. */
+.crm-project-stats[hidden]{display:none!important}
+.ui-loading-retry{margin-top:16px;border:0;border-radius:99px;padding:12px 20px;background:#141414;color:#fff;font-size:13px;cursor:pointer}
+@media(min-width:1024px){.ui-loading-screen--dashboard .ui-skeleton-layout{grid-template-columns:repeat(var(--ui-skeleton-columns,3),minmax(0,1fr))}}

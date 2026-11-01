@@ -1,0 +1,33 @@
+import React,{useEffect,useState} from 'react';
+import {Instagram,ArrowUpRight,Plus,Image as ImageIcon,Heart,MessageCircle,ChevronRight,Clock3} from 'lucide-react';
+import {auth} from '../lib/firebase';
+import './home-instagram.css';
+export type InstagramHomeData={connected:boolean;accountId:string;username:string;enabled:boolean;expired:boolean;insightsPermission:boolean;syncedAt:string|null;since:string|null;until:string|null;views:number|null;reach:number|null;likes:number|null;comments:number|null;sampleSize:number;media:Array<{id:string;caption:string;type:string;thumbnail:string;likes:number|null;comments:number|null}>};
+const number=(v:number|null|undefined)=>v==null?'—':new Intl.NumberFormat('pt-BR',{notation:v>=10000?'compact':'standard',maximumFractionDigits:1}).format(v);
+function updatedAt(value:string|null){if(!value||!Number.isFinite(Date.parse(value)))return 'Métricas ainda não consultadas';return `Atualizado em ${new Date(value).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}`;}
+export function HomeInstagramSummary({establishmentId,conversations,onNavigate,client}:{establishmentId:string;conversations:Record<string,{total:number;unread:number}>|null;onNavigate:(tab:string)=>void;client?:()=>Promise<InstagramHomeData>}){
+ const [data,setData]=useState<InstagramHomeData|null>(null),[failed,setFailed]=useState(false),[hiddenImages,setHiddenImages]=useState<string[]>([]);
+ useEffect(()=>{
+  let active=true,inflight=false;setData(null);setFailed(false);setHiddenImages([]);
+  const load=async()=>{if(inflight)return;inflight=true;try{let result:InstagramHomeData;if(client)result=await client();else{const token=await auth.currentUser?.getIdToken();if(!token)return;const res=await fetch(`/api/instagram/studio/summary?establishmentId=${encodeURIComponent(establishmentId)}`,{headers:{Authorization:`Bearer ${token}`}});if(!res.ok)throw Error();result=await res.json();}if(active){setData(result);setFailed(false);}}catch{if(active)setFailed(true);}finally{inflight=false;}};
+  load();const timer=setInterval(()=>{if(document.visibilityState==='visible')load();},60000);const focus=()=>{if(document.visibilityState==='visible')load();};document.addEventListener('visibilitychange',focus);
+  return()=>{active=false;clearInterval(timer);document.removeEventListener('visibilitychange',focus);};
+ },[establishmentId,client]);
+ if(!data?.connected)return null;
+ const open=(section='results')=>{const url=new URL(location.href);url.searchParams.set('tab','instagram');url.searchParams.set('instagramSection',section);url.searchParams.delete('instagram');url.searchParams.delete('chat');history.replaceState(history.state,'',url);onNavigate('instagram');};
+ const chats=conversations===null?null:conversations[data.accountId]||{total:0,unread:0};
+ const status=data.expired?'Renovar conexão':data.enabled?'IA atendendo':'IA pausada';
+ const stale=failed||!!data.syncedAt&&Date.now()-Date.parse(data.syncedAt)>86400000;
+ return <section className="crm-instagram-summary" aria-label="Resumo do Instagram">
+  <header className="crm-ig-header"><div className="crm-ig-identity"><span className="crm-ig-icon"><Instagram size={22} strokeWidth={1.7}/></span><div><span className="crm-ig-eyebrow">Seu Instagram</span><h2>@{data.username||'Conta conectada'}</h2></div></div><span className="crm-ig-status" data-active={data.enabled&&!data.expired}><i/>{status}</span><button className="crm-ig-all" onClick={()=>open()}>Ver resultados <ArrowUpRight size={17}/></button></header>
+  <div className="crm-ig-content"><div className="crm-ig-overview">
+   <div className="crm-ig-metrics"><button onClick={()=>open()}><span>Visualizações</span><strong>{number(data.views)}</strong><small>Últimos 28 dias</small></button><button onClick={()=>open()}><span>Contas alcançadas</span><strong>{number(data.reach)}</strong><small>Últimos 28 dias</small></button><button onClick={()=>onNavigate('inbox')}><span>Conversas</span><strong>{number(chats?.total)}</strong><small>Nesta conta</small></button><button onClick={()=>onNavigate('inbox')}><span>Não lidas</span><strong>{number(chats?.unread)}</strong><small>Para acompanhar</small></button></div>
+   <div className="crm-ig-sync"><Clock3 size={12}/><span>{failed?'Exibindo o último resumo disponível.':updatedAt(data.syncedAt)}{stale&&!failed?' · Consulte os dados mais recentes':''}</span></div>
+   <button className="crm-ig-note crm-ig-lead-map" onClick={()=>open('reach')}>De onde vêm seus interessados<ArrowUpRight size={15}/></button>
+   {data.expired?<button className="crm-ig-note" onClick={()=>open('content')}>Renove a conexão para continuar usando o Instagram.<ChevronRight size={16}/></button>:!data.insightsPermission?<button className="crm-ig-note" onClick={()=>open()}>Autorize as métricas para liberar alcance e visualizações.<ChevronRight size={16}/></button>:!data.syncedAt?<button className="crm-ig-note" onClick={()=>open()}>Consulte as primeiras métricas na central do Instagram.<ChevronRight size={16}/></button>:null}
+  </div><div className="crm-ig-posts"><div className="crm-ig-posts-heading"><h3>Publicações recentes</h3><button onClick={()=>open('compose')} aria-label="Criar publicação no Instagram"><Plus size={17}/></button></div>
+   {data.media.length?<><div className="crm-ig-post-list">{data.media.map(post=><button className="crm-ig-post" key={post.id} onClick={()=>open()}><span className="crm-ig-thumbnail">{post.thumbnail&&!hiddenImages.includes(post.id)?<img src={post.thumbnail} alt="" loading="lazy" referrerPolicy="no-referrer" onError={()=>setHiddenImages(ids=>ids.includes(post.id)?ids:[...ids,post.id])}/>:<ImageIcon size={20} strokeWidth={1.5}/>}</span><span className="crm-ig-post-copy"><strong>{post.caption||'Publicação sem legenda'}</strong><small>{post.type==='REELS'?'Reel':post.type==='CAROUSEL_ALBUM'?'Carrossel':'Publicação'}<span><Heart size={11}/>{number(post.likes)}<MessageCircle size={11}/>{number(post.comments)}</span></small></span><ChevronRight size={15}/></button>)}</div><p className="crm-ig-engagement"><Heart size={12}/>{number(data.likes)} curtidas<span>·</span><MessageCircle size={12}/>{number(data.comments)} comentários<small>Dados disponíveis em {data.sampleSize} publicações</small></p></>:<div className="crm-ig-empty"><ImageIcon size={24} strokeWidth={1.5}/><p>Seu conteúdo e os resultados dele, juntos por aqui.</p><button onClick={()=>open()}>Conhecer a central <ArrowUpRight size={14}/></button></div>}
+  </div></div>
+  <button className="crm-ig-mobile-link" onClick={()=>open()}>Abrir central do Instagram<ArrowUpRight size={17}/></button>
+ </section>;
+}

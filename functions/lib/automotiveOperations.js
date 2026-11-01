@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.operationDay = operationDay;
 exports.isOperationsRequest = isOperationsRequest;
 exports.resolveAutomotiveOperations = resolveAutomotiveOperations;
+const instagramLeadGeo_1 = require("./instagramLeadGeo");
 const internalConsultation_1 = require("./internalConsultation");
 const crypto_1 = __importDefault(require("crypto"));
 const automotiveConversation_1 = require("./automotiveConversation");
@@ -90,6 +91,10 @@ async function resolveAutomotiveOperations(db, storeId, contactId, profile, ctx,
         if (shipping.stage === 'confirmCep') {
             if (!affirmative(input))
                 return response('Pode confirmar o endereço encontrado ou enviar o CEP correto?', 'shipping');
+            try {
+                await (0, instagramLeadGeo_1.saveLeadLocation)(db, storeId, contactId, (0, instagramLeadGeo_1.resolveLeadLocation)({ country: 'BR', city: address.city, state: address.state }, 'postal_confirmed'));
+            }
+            catch { /* A municipality absent from the geographic base stays unmapped. */ }
             address.phone = phoneOf(contactId) || '';
             if (ctx.customerName && ctx.customerName.trim().includes(' ') && !/^(cliente|visitante)/i.test(ctx.customerName))
                 address.recipient = String(ctx.customerName);

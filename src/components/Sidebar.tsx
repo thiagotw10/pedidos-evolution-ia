@@ -1,26 +1,8 @@
 import React from 'react';
-import { 
-  ShoppingBag, 
-  UtensilsCrossed, 
-  MessageSquareCode, 
-  Smartphone,
-  Instagram,
-  Settings, 
-  Sparkles,
-  Bot,
-  Megaphone,
-  TrendingUp,
-  Car,
-  Home,
-  Shirt,
-  Package,
-  CreditCard,
-  Target,
-  Compass,
-  Wrench
-} from 'lucide-react';
+import {getCrmNavigation} from '../utils/crmNavigation';
+import {Bot,Sparkles} from 'lucide-react';
 import { Establishment } from '../types';
-import { getSegmentConfig, getSegmentCatalogIcon, getSegmentOrdersIcon } from '../utils/segments';
+import { getSegmentConfig } from '../utils/segments';
 
 interface SidebarProps {
   currentTab: string;
@@ -38,87 +20,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   establishment
 }) => {
   const segConfig = getSegmentConfig(establishment?.segment);
-  const CatalogIcon = getSegmentCatalogIcon(establishment?.segment);
-  const OrdersIcon = getSegmentOrdersIcon(establishment?.segment);
 
-  const menuItems = [
-    {id: 'home', label: 'Início', icon: Home, badge: null},
-    {
-      id: 'orders',
-      label: segConfig.ordersTitle,
-      icon: OrdersIcon,
-      badge: pendingOrdersCount > 0 ? pendingOrdersCount : null,
-      badgeColor: 'bg-emerald-500 text-black font-bold animate-pulse'
-    },
-    ...(establishment?.segment === 'AUTOMOTIVE_PARTS' ? [
-      { id: 'garage', label: 'Garagem & Estoque', icon: Wrench, badge: null },
-      { id: 'internal', label: 'Consultas internas', icon: Wrench, badge: null },
-      {
-        id: 'radar',
-        label: 'Radar de Leads',
-        icon: Compass,
-        badge: null,
-        badgeColor: 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
-      },
-      {
-        id: 'workshops',
-        label: 'Oficinas Parceiras',
-        icon: Wrench,
-        badge: null,
-        badgeColor: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-      }
-    ] : []),
-    {
-      id: 'traffic',
-      label: 'Tráfego & Comissão',
-      icon: Target,
-      badge: null,
-      badgeColor: 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
-    },
-    {
-      id: 'finance',
-      label: 'Painel Financeiro',
-      icon: TrendingUp,
-      badge: null
-    },
-    { id: 'billing', label: 'Planos & Créditos IA', icon: CreditCard, badge: null },
-    {
-      id: 'products',
-      label: segConfig.catalogTitle,
-      icon: CatalogIcon,
-      badge: null
-    },
-    {
-      id: 'campaigns',
-      label: 'Disparos & Campanhas',
-      icon: Megaphone,
-      badge: null
-    },
-    {
-      id: 'simulator',
-      label: 'Simulador da IA',
-      icon: MessageSquareCode,
-      badge: 'Testar',
-      badgeColor: 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-    },
-    {
-      id: 'whatsapp',
-      label: 'Conexão WhatsApp',
-      icon: Smartphone,
-      badge: isWhatsAppConnected ? 'Online' : 'Offline',
-      badgeColor: isWhatsAppConnected 
-        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
-        : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-    },
-    { id: 'inbox', label: 'Conversas', icon: MessageSquareCode, badge: null },
-    { id: 'instagram', label: 'Conexão Instagram', icon: Instagram, badge: null },
-    {
-      id: 'settings',
-      label: 'Configurações & IA',
-      icon: Settings,
-      badge: null
-    }
-  ];
+  const groups = getCrmNavigation(establishment);
 
   return (
     <aside className="crm-sidebar hidden md:flex w-72 bg-slate-900/90 border-r border-slate-800/80 flex-col h-screen select-none backdrop-blur-md flex-shrink-0">
@@ -139,10 +42,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-5 space-y-1.5 overflow-y-auto">
-        <div className="px-3 pb-3 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
-          Menu Principal
-        </div>
-        {menuItems.filter(item => (segConfig.id !== 'AUTOMOTIVE_PARTS' || !['finance', 'campaigns'].includes(item.id)) && (segConfig.id !== 'AFFILIATES' || ['home','orders','products','inbox','instagram','billing','settings'].includes(item.id))).map((item) => {
+        {groups.map(group=><section key={group.id} className="crm-nav-group" aria-label={group.label}>
+          <h2 className="crm-nav-group-label">{group.label}</h2>
+          {group.items.map(item => {
+          const badge = item.id==='orders'&&pendingOrdersCount>0?pendingOrdersCount:item.id==='whatsapp'?(isWhatsAppConnected?'Online':'Offline'):null;
           const Icon = item.icon;
           const isActive = currentTab === item.id;
           return (
@@ -162,14 +65,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <Icon className={`w-5 h-5 shrink-0 transition-colors ${isActive ? 'text-emerald-400' : 'text-slate-400'}`} />
                 <span className="truncate leading-5">{item.label}</span>
               </div>
-              {item.badge && (
-                <span className={`shrink-0 whitespace-nowrap text-[10px] px-1.5 py-0.5 rounded-full ${item.badgeColor || 'bg-slate-800 text-slate-300'}`}>
-                  {item.badge}
+              {badge && (
+                <span className={`shrink-0 whitespace-nowrap text-[10px] px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-300`}>
+                  {badge}
                 </span>
               )}
             </button>
           );
-        })}
+        })}</section>)}
       </nav>
 
       {/* System Status Footer */}

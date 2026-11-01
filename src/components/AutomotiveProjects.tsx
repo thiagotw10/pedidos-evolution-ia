@@ -1,3 +1,4 @@
+import {SkeletonScreen, Preloader} from './Loading';
 import {ModalFrame} from './ModalFrame';
 import {ConversationDialog} from './ConversationDialog';
 import React, { useEffect, useState, useMemo, useRef } from 'react';
@@ -368,6 +369,7 @@ export function AutomotiveProjects({conversationContactId, onConversationClose}:
   const [error, setError] = useState('');
   const [actionSuccess, setActionSuccess] = useState('');
   const [busy, setBusy] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(!conversationContactId);
   const [filter, setFilter] = useState('Todos');
   const [sourceFilter, setSourceFilter] = useState<'ALL' | 'WHATSAPP' | 'INSTAGRAM' | 'SITE'>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
@@ -462,6 +464,7 @@ export function AutomotiveProjects({conversationContactId, onConversationClose}:
       setError((e as Error).message);
     } finally {
       setBusy(false);
+      setInitialLoading(false);
     }
   }
 
@@ -1233,8 +1236,9 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
         </div>
       </div>
 
+      {initialLoading&&<SkeletonScreen variant="dashboard" label="Carregando projetos e orçamentos…" count={5}/>}
       {/* KPI Summary Cards */}
-      <div className="crm-project-stats grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+      <div hidden={initialLoading} className="crm-project-stats grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
         <div className="rounded-2xl border border-white/10 bg-slate-900/90 p-4">
           <span className="text-[11px] uppercase tracking-wider text-slate-400">Total no Pipeline</span>
           <p className="text-2xl font-black text-white mt-1">{stats.total}</p>
@@ -1348,7 +1352,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
       </div>
 
       {/* Stage Filter Pills for List View */}
-      {viewMode === 'list' && (
+      {!initialLoading && viewMode === 'list' && (
         <div className="flex overflow-x-auto gap-2 py-1 scrollbar-thin">
           {['Todos', ...stages].map(s => (
             <button
@@ -1365,7 +1369,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
       )}
 
       {/* KANBAN PIPELINE VIEW */}
-      {viewMode === 'kanban' && (
+      {!initialLoading && viewMode === 'kanban' && (
         <div className="overflow-x-auto pb-4 pt-1">
           <div className="flex gap-4 min-w-[1280px]">
             {kanbanStages.map(stageName => {
@@ -1526,7 +1530,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
       )}
 
       {/* LIST DETAILED VIEW */}
-      {viewMode === 'list' && (
+      {!initialLoading && viewMode === 'list' && (
         <div className="grid md:grid-cols-2 gap-4">
           {filteredProjects.map(p => {
             const isInstagramLead = String(p.phone || '').startsWith('ig_');
@@ -1643,7 +1647,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
         </div>
       )}
 
-      {!busy && !filteredProjects.length && (
+      {!initialLoading && !busy && !filteredProjects.length && (
         <div className="p-12 border border-dashed border-white/10 rounded-2xl text-slate-400 text-center space-y-2">
           <Car className="w-8 h-8 text-slate-600 mx-auto" />
           <p className="text-sm font-semibold text-slate-300">Nenhum projeto encontrado para o filtro aplicado</p>
@@ -1654,7 +1658,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
       )}
 
       </>}
-      {conversationContactId&&!selected&&<ConversationDialog label="Abrir atendimento" onClose={closeConversation}><div className="p-5 text-slate-300"><button onClick={closeConversation} className="mb-4">← Voltar às conversas</button><p role={error?'alert':'status'}>{error||'Carregando atendimento…'}</p></div></ConversationDialog>}
+      {conversationContactId&&!selected&&<ConversationDialog label="Abrir atendimento" onClose={closeConversation}><div className="p-5 text-slate-300"><button onClick={closeConversation} className="mb-4">← Voltar às conversas</button>{error?<p role="alert">{error}</p>:<SkeletonScreen variant="conversation" label="Carregando atendimento…"/>}</div></ConversationDialog>}
       {/* 100% WhatsApp Authentic Experience & Slide-over Drawer */}
       {selected && (
         <ConversationDialog label={isInstagramProject(selected) ? 'Instagram Chat' : 'WhatsApp Chat'} onClose={closeConversation}>
@@ -1865,9 +1869,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
               {conversationMessages.length>=historyLimit&&<button type="button" onClick={()=>{followLatestRef.current=false;setHistoryLimit(v=>v+60);}} className="text-xs text-emerald-300 p-3 mx-auto">Carregar mensagens anteriores</button>}
               {/* Conversation Messages */}
               {loadingConversation ? (
-                <div className="text-center py-16 text-[#8696a0] text-xs animate-pulse">
-                  {isInstagramProject(selected) ? 'Carregando conversa do Instagram...' : 'Carregando conversa do WhatsApp...'}
-                </div>
+                <SkeletonScreen variant="conversation" label={isInstagramProject(selected)?'Carregando conversa do Instagram…':'Carregando conversa do WhatsApp…'} count={4}/>
               ) : conversationMessages.length > 0 ? (
                 conversationMessages.filter(msg=>msg.deliveryStatus!=='cancelled').map(msg => {
                   const isCustomer = msg.sender === 'user';

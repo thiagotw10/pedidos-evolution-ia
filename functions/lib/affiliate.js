@@ -254,13 +254,17 @@ async function processAffiliateComment(db, eventId, graph) {
     const c = cSnap.data(), p = posts.docs[0]?.data();
     if (storeSnap.data()?.segment !== exports.AFFILIATE_SEGMENT || !c?.connected || !c.affiliatePermissions || new Date(c.expiresAt).getTime() <= Date.now() || c.accountId !== event.accountId || event.senderId === c.accountId ||
         !p?.automationEnabled || p.status !== 'published' || p.accountId !== c.accountId || Date.now() - event.timestamp > 7 * 86400000 || !matchesAffiliateKeyword(event.text, p.keywords || [])) {
-        await eventRef.update({ status: 'ignored' });
+        await eventRef.update({ status: 'ignored', reason: storeSnap.data()?.segment !== exports.AFFILIATE_SEGMENT ? 'inactive' : event.senderId === c?.accountId ? 'own_comment' : !c?.connected || !c.affiliatePermissions ? 'inactive' : new Date(c.expiresAt).getTime() <= Date.now() ? 'authorization_expired' : !p?.automationEnabled || p.status !== 'published' ? 'legacy_post_inactive' : !matchesAffiliateKeyword(event.text, p.keywords || []) ? 'keyword_not_matched' : 'inactive' });
+        return;
+    }
+    if (/\b(?:nao (?:me )?(?:mande|envie|chame)|nao quero (?:receber )?(?:mensagens?|contato|direct))\b/.test(normalize(event.text))) {
+        await eventRef.update({ status: 'ignored', reason: 'contact_refused' });
         return;
     }
     const product = (await workspace(db, event.storeId).collection('products').doc(p.productId).get()).data();
     const chat = storeRef.collection('chats').doc(`ig_${event.senderId}`);
     if (!product?.active || (await chat.get()).data()?.aiPaused) {
-        await eventRef.update({ status: 'ignored' });
+        await eventRef.update({ status: 'ignored', reason: !product?.active ? 'product_unavailable' : 'human_takeover' });
         return;
     }
     const reply = `Aqui está o link de ${product.name}:\n${affiliateUrl(product.affiliateUrl, true)}\n\nÉ um link de afiliado: podemos receber comissão. Confira preço e disponibilidade na Shopee.`;

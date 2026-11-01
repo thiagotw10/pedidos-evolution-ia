@@ -1,35 +1,8 @@
 import React, {useEffect, useRef} from 'react';
-import { 
-  X, 
-  ShoppingBag, 
-  TrendingUp, 
-  UtensilsCrossed, 
-  Megaphone, 
-  MessageSquareCode, 
-  Smartphone,
-  Instagram,
-  Settings, 
-  Sparkles, 
-  LogOut, 
-  Volume2, 
-  VolumeX, 
-  Bell, 
-  Bot,
-  Store,
-  Clock,
-  Download,
-  Car,
-  Home,
-  Shirt,
-  Package,
-  CreditCard,
-  Target,
-  Compass,
-  Wrench
-} from 'lucide-react';
+import {getCrmNavigation} from '../utils/crmNavigation';
+import {X,LogOut,Volume2,VolumeX,Sparkles,Store,Download} from 'lucide-react';
 import { Establishment } from '../types';
 import { getSubscriptionStatus } from '../utils/subscription';
-import { getSegmentConfig, getSegmentCatalogIcon, getSegmentOrdersIcon } from '../utils/segments';
 
 interface MobileDrawerProps {
   isOpen: boolean;
@@ -78,30 +51,8 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
   if (!isOpen) return null;
 
   const subStatus = getSubscriptionStatus(establishment);
-  const segConfig = getSegmentConfig(establishment?.segment);
-  const CatalogIcon = getSegmentCatalogIcon(establishment?.segment);
-  const OrdersIcon = getSegmentOrdersIcon(establishment?.segment);
 
-  const menuItems = [
-    {id: 'home', label: 'Início', icon: Home},
-    { id: 'orders', label: segConfig.ordersTitle, icon: OrdersIcon },
-    ...(establishment?.segment === 'AUTOMOTIVE_PARTS' ? [
-      { id: 'garage', label: 'Garagem & Estoque', icon: Wrench, badge: null },
-      { id: 'internal', label: 'Consultas internas', icon: Wrench, badge: null },
-      { id: 'radar', label: 'Radar de Leads', icon: Compass },
-      { id: 'workshops', label: 'Oficinas Parceiras', icon: Wrench }
-    ] : []),
-    { id: 'traffic', label: 'Tráfego & Comissão', icon: Target },
-    { id: 'finance', label: 'Painel Financeiro', icon: TrendingUp },
-    { id: 'billing', label: 'Planos & Créditos IA', icon: CreditCard },
-    { id: 'products', label: segConfig.catalogTitle, icon: CatalogIcon },
-    { id: 'campaigns', label: 'Disparos & Campanhas', icon: Megaphone },
-    { id: 'simulator', label: 'Simulador da IA', icon: MessageSquareCode, badge: 'Testar' },
-    { id: 'whatsapp', label: 'Conexão WhatsApp', icon: Smartphone },
-    { id: 'inbox', label: 'Conversas', icon: MessageSquareCode, badge: null },
-    { id: 'instagram', label: 'Conexão Instagram', icon: Instagram },
-    { id: 'settings', label: 'Configurações & IA', icon: Settings },
-  ];
+  const groups = getCrmNavigation(establishment);
 
   const handleSelectTab = (tabId: string) => {
     setCurrentTab(tabId);
@@ -206,10 +157,9 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
 
         {/* Navigation Links */}
         <nav className="flex-1 space-y-1">
-          <p className="px-2 text-[10px] font-bold tracking-wider text-slate-500 uppercase mb-2">
-            Seu negócio
-          </p>
-          {menuItems.filter(item => (establishment?.segment !== 'AUTOMOTIVE_PARTS' || !['finance', 'campaigns'].includes(item.id)) && (segConfig.id !== 'AFFILIATES' || ['home','orders','products','inbox','instagram','billing','settings'].includes(item.id))).map(item => {
+          {groups.map(group=><section key={group.id} className="crm-nav-group" aria-label={group.label}>
+            <h2 className="crm-nav-group-label">{group.label}</h2>
+            {group.items.map(item => {
             const Icon = item.icon;
             const isActive = currentTab === item.id;
             return (
@@ -217,6 +167,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
                 key={item.id}
                 onClick={() => handleSelectTab(item.id)}
                 title={item.label}
+                aria-current={isActive ? 'page' : undefined}
                 className={`w-full h-11 flex items-center justify-between gap-2 border border-transparent px-3.5 py-2.5 text-left rounded-xl text-xs font-semibold transition cursor-pointer ${
                   isActive
                     ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30 font-bold'
@@ -227,14 +178,10 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
                   <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-emerald-400' : 'text-slate-400'}`} />
                   <span className="truncate leading-5">{item.label}</span>
                 </div>
-                {item.badge && (
-                  <span className="shrink-0 whitespace-nowrap text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">
-                    {item.badge}
-                  </span>
-                )}
+
               </button>
             );
-          })}
+          })}</section>)}
         </nav>
 
         {/* Footer / User Session */}

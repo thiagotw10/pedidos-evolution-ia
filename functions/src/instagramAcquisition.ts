@@ -1,3 +1,5 @@
+import {BUSINESS_SEGMENTS,ACQUISITION_GOALS,segmentPlaybooks,campaignTrigger,matchesCommentKeyword,refusesCommentContact,draftBusinessComment,productSnapshot,publicAcknowledgement,commentDiagnostic,nextBusinessQuestion} from './instagramBusinessPolicy';
+import {visibleForSegment} from './catalogPolicy';
 import {Express,Request,Response} from 'express';
 import * as admin from 'firebase-admin';
 import crypto from 'crypto';
@@ -9,7 +11,7 @@ const now=()=>new Date().toISOString();
 const clean=(v:any,n=500)=>String(v || '').trim().slice(0,n);
 const hash=(v:string)=>crypto.createHash('sha256').update(v).digest('hex');
 export const acquisitionRef=(db:admin.firestore.Firestore,id:string)=>operationsRef(db,id).collection('instagram').doc('acquisition');
-export const defaultAcquisition=()=>({enabled:false,publicReplies:true,allPosts:true,keywords:[] as string[],hourlyLimit:30,campaigns:[] as any[]});
+export const defaultAcquisition=()=>({enabled:false,publicReplies:true,allPosts:true,keywords:[] as string[],hourlyLimit:30,campaigns:[] as any[],triggerMode:'intent'});
 export function acquisitionAttribution(source:any):TrafficAttribution|null{
  if(!source)return null;
  return {trafficSource:source.paid===true?'META_ADS':'ORGANIC',campaignName:clean(source.campaignName || 'Comentário Instagram',120),adName:clean(source.adId || source.mediaId,100),utmSource:'instagram',utmMedium:source.paid===true?'paid_social':'social',utmContent:clean(source.mediaId,100)};
@@ -24,7 +26,7 @@ export async function applyInstagramReferral(db:admin.firestore.Firestore,storeI
 export async function captureInstagramReferral(db:admin.firestore.Firestore,id:string){
  const ref=db.collection('instagramEvents').doc(id),event=(await ref.get()).data();if(!event||['sent','ignored'].includes(event.status))return;
  const c=(await db.collection('instagramConnections').doc(event.storeId).get()).data(),store=(await db.collection('establishments').doc(event.storeId).get()).data();
- if(!c?.connected || c.accountId!==event.accountId || store?.segment!=='AUTOMOTIVE_PARTS' || event.senderId===c.accountId || !/^\d{5,40}$/.test(event.referral?.adId || '') || !Number.isFinite(event.timestamp) || Date.now()-event.timestamp>7*86400000 || event.timestamp>Date.now()+300000){await ref.update({status:'ignored',reason:'invalid_referral'});return;}
+ if(!c?.connected || c.accountId!==event.accountId || !BUSINESS_SEGMENTS.includes(store?.segment) || event.senderId===c.accountId || !/^\d{5,40}$/.test(event.referral?.adId || '') || !Number.isFinite(event.timestamp) || Date.now()-event.timestamp>7*86400000 || event.timestamp>Date.now()+300000){await ref.update({status:'ignored',reason:'invalid_referral'});return;}
  const contact=`ig_${event.senderId}`,pending=operationsRef(db,event.storeId).collection('instagramReferrals').doc(contact),source={accountId:event.accountId,adId:event.referral.adId,timestamp:event.timestamp};
  await db.runTransaction(async tx=>{const old=(await tx.get(pending)).data();if(!old||old.timestamp<=event.timestamp)tx.set(pending,source);});
  // A click/reference alone does not create a chat, notify staff, open the DM window or send anything.
@@ -37,9 +39,12 @@ export function normalizeAcquisition(value:any){
  const keywords=Array.isArray(value.keywords)?value.keywords.map((k:any)=>clean(k,40).toLowerCase()).filter(Boolean):[];
  if(keywords.length>30)throw new Error('Use até 30 palavras-chave.');
  if(!Array.isArray(value.campaigns)||value.campaigns.length>60)throw new Error('Use até 60 publicações vinculadas.');
- const campaigns=value.campaigns.map((p:any)=>{if(!/^\d{5,40}$/.test(p.mediaId)||typeof p.enabled!=='boolean'||typeof p.paid!=='boolean')throw new Error('Publicação inválida.');return {mediaId:p.mediaId,title:clean(p.title,120),campaignName:clean(p.campaignName,120),summary:clean(p.summary,700),paid:p.paid,enabled:p.enabled};});
+ const triggerMode=value.triggerMode||'intent';if(!['intent','keyword'].includes(triggerMode))throw new Error('Gatilho inválido.');
+ const campaigns=value.campaigns.map((p:any)=>{if(!/^\d{5,40}$/.test(p.mediaId)||typeof p.enabled!=='boolean'||typeof p.paid!=='boolean')throw new Error('Publicação inválida.');const goal=p.goal||'default';if(!ACQUISITION_GOALS.includes(goal))throw new Error('Objetivo inválido.');const productId=clean(p.productId,100);if(productId&&!/^[\w-]{1,100}$/.test(productId))throw new Error('Produto inválido.');const postMode=p.triggerMode||'inherit';if(!['inherit','intent','keyword'].includes(postMode))throw new Error('Gatilho da publicação inválido.');const postKeys=Array.isArray(p.keywords)?p.keywords.map((k:any)=>clean(k,40).toLowerCase()).filter(Boolean):[];if(postKeys.length>30)throw new Error('Use até 30 palavras-chave por publicação.');return {goal,productId,triggerMode:postMode==='inherit'?'':postMode,keywords:postKeys,mediaId:p.mediaId,title:clean(p.title,120),campaignName:clean(p.campaignName,120),summary:clean(p.summary,700),paid:p.paid,enabled:p.enabled};});
  if(new Set(campaigns.map((p:any)=>p.mediaId)).size!==campaigns.length)throw new Error('Não repita uma publicação.');
- return {enabled:value.enabled,publicReplies:value.publicReplies,allPosts:value.allPosts,hourlyLimit:value.hourlyLimit,keywords,campaigns};
+ if(triggerMode==='keyword'&&value.allPosts&&!keywords.length)throw new Error('Informe palavras-chave para as publicações sem configuração própria.');
+ if(campaigns.some((p:any)=>(p.triggerMode||triggerMode)==='keyword'&&!(p.keywords.length||keywords.length)))throw new Error('Informe palavras-chave nas publicações com esse gatilho.');
+ return {triggerMode,enabled:value.enabled,publicReplies:value.publicReplies,allPosts:value.allPosts,hourlyLimit:value.hourlyLimit,keywords,campaigns};
 }
 export async function probeCommentPermission(c:any,_graph:Graph):Promise<boolean>{
  // Reading a public comment is NOT proof of manage_comments authorization.
@@ -56,15 +61,25 @@ export async function verifyCommentPermission(db:admin.firestore.Firestore,id:st
 export function registerAcquisitionRoutes(app:Express,db:admin.firestore.Firestore,graph:Graph){
  const owned=(fn:(req:Request,res:Response,id:string)=>Promise<any>)=>async(req:Request,res:Response)=>{
   let uid:string;try{uid=(await admin.auth().verifyIdToken((req.headers.authorization || '').replace(/^Bearer /,''))).uid;}catch{return res.status(401).json({error:'Entre novamente na plataforma.'});}
-  const id=String(req.query.establishmentId || '');if(!id||uid!==id)return res.status(403).json({error:'Acesso restrito à conta da oficina.'});
-  if((await db.collection('establishments').doc(id).get()).data()?.segment!=='AUTOMOTIVE_PARTS')return res.status(403).json({error:'Recurso exclusivo do nicho automotivo.'});
+  const id=String(req.query.establishmentId || '');if(!id||uid!==id)return res.status(403).json({error:'Acesso restrito ao responsável pela empresa.'});
+  if(!BUSINESS_SEGMENTS.includes((await db.collection('establishments').doc(id).get()).data()?.segment||''))return res.status(403).json({error:'Cadastre o segmento da empresa antes de configurar a captação.'});
   try{return await fn(req,res,id);}catch(e:any){return res.status(400).json({error:e.message?.startsWith('Instagram API:')?'A Meta recusou o acesso. Verifique a autorização de comentários.':e.message || 'Não foi possível concluir.'});}
  };
  app.get('/api/instagram/acquisition',owned(async(_req,res,id)=>{
-  const config=(await acquisitionRef(db,id).get()).data() || defaultAcquisition();
-  const snap=await operationsRef(db,id).collection('instagramLeads').orderBy('updatedAt','desc').limit(50).get();
+  const store=(await db.collection('establishments').doc(id).get()).data()||{};
   const c=(await db.collection('instagramConnections').doc(id).get()).data();
-  return res.json({config,commentsPermission:c?.commentsPermission===true,leads:snap.docs.map(d=>({id:d.id,...d.data()}))});
+  const saved=(await acquisitionRef(db,id).get()).data();
+  // A different Instagram never inherits an active campaign or product mapping from the previous account.
+  const config=saved?.accountId===c?.accountId?{...defaultAcquisition(),...saved}:defaultAcquisition();
+  const events=await db.collection('instagramEvents').where('storeId','==',id).where('kind','in',['automotive_comment','business_comment','affiliate_comment']).orderBy('receivedAt','desc').limit(50).get();
+  const activity=await Promise.all(events.docs.filter(d=>d.data().accountId===c?.accountId).map(async d=>commentDiagnostic(d.id,d.data(),(await operationsRef(db,id).collection('instagramLeads').doc(d.id).get()).data())));
+  return res.json({config,segment:store.segment,playbook:segmentPlaybooks[store.segment]||segmentPlaybooks.GENERAL,commentsPermission:c?.commentsPermission===true,connection:{connected:!!c?.connected,enabled:!!c?.enabled,expired:!c?.expiresAt||Date.parse(c.expiresAt)<=Date.now()},activity,leads:activity.filter(v=>['sent','sending','delivery_unknown','failed'].includes(v.status))});
+ }));
+ app.get('/api/instagram/acquisition/catalog',owned(async(_req,res,id)=>{
+  const store=(await db.collection('establishments').doc(id).get()).data();const affiliate=store?.segment==='AFFILIATES';
+  const collection=affiliate?db.collection('affiliateWorkspaces').doc(id).collection('products'):db.collection('establishments').doc(id).collection('products');
+  const snap=await collection.where(affiliate?'active':'available','==',true).limit(300).get();
+  return res.json({products:visibleForSegment(snap.docs.map(d=>({id:d.id,...d.data()})),store?.segment).map((p:any)=>({id:p.id,name:clean(p.name,160)}))});
  }));
  app.post('/api/instagram/acquisition/permissions',owned(async(_req,res,id)=>res.json({commentsPermission:await verifyCommentPermission(db,id,graph)})));
  app.get('/api/instagram/acquisition/media',owned(async(_req,res,id)=>{
@@ -74,10 +89,14 @@ export function registerAcquisitionRoutes(app:Express,db:admin.firestore.Firesto
  }));
  app.post('/api/instagram/acquisition',owned(async(req,res,id)=>{
   const config=normalizeAcquisition(req.body),ref=acquisitionRef(db,id),previous=(await ref.get()).data();
+  if(req.body.updatedAt&&previous?.updatedAt&&req.body.updatedAt!==previous.updatedAt)throw new Error('A configuração mudou em outra tela. Recarregue antes de salvar.');
   const c=(await db.collection('instagramConnections').doc(id).get()).data();
   if(config.enabled && (!c?.connected || !c.enabled || !await verifyCommentPermission(db,id,graph)))throw new Error('Renove a autorização com permissão de comentários e ative a IA no Direct antes de iniciar a captação.');
   const newMedia=config.campaigns.filter((p:any)=>!(previous?.campaigns || []).some((old:any)=>old.mediaId===p.mediaId && previous?.accountId===c?.accountId));
   if(newMedia.length){if(!c?.connected)throw new Error('Conecte o Instagram primeiro.');const media=await graph(`${c.accountId}/media?fields=id&limit=100`,c.accessToken);if(newMedia.some((p:any)=>!(media.data || []).some((m:any)=>m.id===p.mediaId)))throw new Error('Selecione uma publicação entre as últimas 100 desta conta.');}
+  const store=(await db.collection('establishments').doc(id).get()).data();
+  for(const p of config.campaigns){if(!config.enabled||!p.productId)continue;const affiliate=store?.segment==='AFFILIATES',product=(await (affiliate?db.collection('affiliateWorkspaces').doc(id):db.collection('establishments').doc(id)).collection('products').doc(p.productId).get()).data();if(!product||(affiliate?!product.active:product.available!==true)||!visibleForSegment([{id:p.productId,...product}],store?.segment).length)throw new Error('Selecione um produto ativo do catálogo desta empresa.');if(p.goal==='link'&&!affiliate)throw new Error('O envio de link de afiliado pertence ao nicho de afiliados.');}
+  if(config.campaigns.some((p:any)=>p.goal==='link'&&(store?.segment!=='AFFILIATES'||!p.productId)))throw new Error('Vincule um achadinho ativo para enviar o link.');
   await ref.set({...config,accountId:c?.accountId || '',updatedAt:now()});return res.json({success:true});
  }));
 }
@@ -100,7 +119,7 @@ export async function draftCommentLead(comment:string,caption:string,summary:str
  if(parsed.interested && (!text || text.length>450 || Buffer.byteLength(text,'utf8')>850))throw new Error('Resposta de captação inválida.');
  return {interested:parsed.interested,privateReply:parsed.interested?text:''};
 }
-type CommentDeps={reserveCredit?:(id:string,text:string,model:string)=>Promise<{allowed:boolean}>;operatingHours?:(store:any)=>{isOpen:boolean};draft?:typeof draftCommentLead;syncLead?:(store:string,contact:string,input:string,reply:string,attribution:TrafficAttribution|null)=>Promise<any>};
+type CommentDeps={reserveCredit?:(id:string,text:string,model:string)=>Promise<{allowed:boolean}>;operatingHours?:(store:any)=>{isOpen:boolean};draft?:typeof draftCommentLead;businessDraft?:typeof draftBusinessComment;syncLead?:(store:string,contact:string,input:string,reply:string,attribution:TrafficAttribution|null)=>Promise<any>};
 const paused=(chat:any)=>chat?.aiPaused && (!chat.aiPausedUntil || Date.parse(chat.aiPausedUntil)>Date.now());
 const terminal=['sent','ignored','failed','delivery_unknown','sending'];
 export async function reviewAutomotiveComment(db:admin.firestore.Firestore,id:string,graph:Graph,deps:CommentDeps={}){
@@ -133,8 +152,12 @@ export async function processAutomotiveComment(db:admin.firestore.Firestore,even
   const [cs,ss,settings,chatSnap]=await Promise.all([connection.get(),storeRef.get(),acquisitionRef(db,event.storeId).get(),chat.get()]);
   const c=cs.data(),store=ss.data(),cfg=settings.data(),existing=chatSnap.data() || {};
   const campaign=(cfg?.campaigns || []).find((p:any)=>p.mediaId===event.mediaId);
+  const trigger=campaignTrigger(cfg,campaign);
+  const productRef=campaign?.productId?(store?.segment==='AFFILIATES'?db.collection('affiliateWorkspaces').doc(event.storeId):storeRef).collection('products').doc(campaign.productId):null;
+  const productData=productRef?(await productRef.get()).data():null;
+  const product:any=productData?{id:campaign.productId,...productData}:null;
   let reason='';
-  if(store?.segment!=='AUTOMOTIVE_PARTS'||!c?.connected||!c.enabled||!c.commentsPermission||!cfg?.enabled||cfg.accountId!==c.accountId||c.accountId!==event.accountId)reason='inactive';
+  if(!BUSINESS_SEGMENTS.includes(store?.segment)||!c?.connected||!c.enabled||!c.commentsPermission||!cfg?.enabled||cfg.accountId!==c.accountId||c.accountId!==event.accountId)reason='inactive';
   else if(!Number.isFinite(Date.parse(c.expiresAt))||Date.parse(c.expiresAt)<=Date.now())reason='authorization_expired';
   else if(event.senderId===c.accountId)reason='own_comment';
   else if(!Number.isFinite(event.timestamp)||Date.now()-event.timestamp>7*86400000||event.timestamp>Date.now()+300000)reason='comment_expired';
@@ -142,10 +165,10 @@ export async function processAutomotiveComment(db:admin.firestore.Firestore,even
   else if(c.respectSchedule!==false && deps.operatingHours && !deps.operatingHours(store).isOpen)reason='outside_hours';
   else if(campaign?.enabled===false || !campaign&&!cfg.allPosts)reason='post_not_enabled';
   else if(existing.lastCommentContactAt && Date.now()-Date.parse(existing.lastCommentContactAt)<24*3600000)reason='contact_cooldown';
-  const normalized=clean(event.text,1000).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
-  const keys=(cfg?.keywords || []).map((s:string)=>s.normalize('NFD').replace(/[\u0300-\u036f]/g,''));
-  if(!reason && /(?:\b(?:nao (?:me )?(?:mande|envie|chame)|pare de (?:me )?(?:mandar|enviar|chamar)|remova meu contato|nao quero (?:receber )?(?:mensagens?|contato|direct))\b|^nao quero[.!\s]*$)/.test(normalized))reason='contact_refused';
-  if(!reason && keys.length&&!keys.some((k:string)=>normalized.includes(k)))reason='keyword_not_matched';
+  if(!reason&&productRef&&(!product||(store?.segment==='AFFILIATES'?!productData?.active:productData?.available!==true)||!visibleForSegment([product],store?.segment).length))reason='product_unavailable';
+  if(!reason&&refusesCommentContact(event.text))reason='contact_refused';
+  const keywordMatch=matchesCommentKeyword(event.text,trigger.keywords);
+  if(!reason&&(trigger.mode==='keyword'||trigger.keywords.length)&&!keywordMatch)reason='keyword_not_matched';
   if(reason){await eventRef.update({status:'ignored',reason});return;}
   // Mirror the public surface explicitly. This is not an inbound DM and cannot open its messaging window.
   const profile=existing.activeAutomotiveProfile || 'legacy';
@@ -153,13 +176,19 @@ export async function processAutomotiveComment(db:admin.firestore.Firestore,even
   await chat.collection('messages').doc(`comment_${eventId}`).set({sender:'user',origin:'instagram_comment',surface:'comment',automotiveProfileId:profile,text:`[Comentário na publicação] ${clean(event.text,1000)}`,timestamp:new Date(event.timestamp).toISOString(),channel:'instagram',instagramMediaId:event.mediaId});
   const media=await graph(`${event.mediaId}?fields=id,caption,permalink`,c.accessToken);
   if(deps.reserveCredit && !(await deps.reserveCredit(event.storeId,event.text,'gemini-2.5-flash')).allowed){await eventRef.update({status:'ignored',reason:'billing_required'});return;}
-  const draft=event.commentDraft || await (deps.draft || draftCommentLead)(event.text,media.caption || '',campaign?.summary || '');
+  const draft=event.commentDraft || (store?.segment==='AUTOMOTIVE_PARTS'?(await (deps.draft || draftCommentLead)(event.text,media.caption || '',[campaign?.summary,product?`Referência do catálogo: ${product.name}`:''].filter(Boolean).join('\n'))):await (deps.businessDraft||draftBusinessComment)({segment:store.segment,comment:event.text,caption:media.caption||'',campaign,product:productSnapshot(product),keywordMatch}));
+  if(draft.interested&&store.segment==='AUTOMOTIVE_PARTS'&&['visit','schedule'].includes(campaign?.goal)&&!event.commentDraft)draft.privateReply='Vamos conferir os detalhes do atendimento. '+nextBusinessQuestion(store.segment,campaign.goal,event.text,!!product);
+  if(draft.interested&&(!draft.privateReply||Array.from(draft.privateReply).length>900||Buffer.byteLength(draft.privateReply,'utf8')>850))throw new Error('Resposta de captação inválida.');
   if(!draft.interested){await eventRef.update({status:'ignored',reason:'no_commercial_interest'});return;}
-  const source={kind:'instagram_comment',mediaId:event.mediaId,commentId:event.mid,permalink:/^https:\/\/(www\.)?instagram\.com\//.test(media.permalink || '')?media.permalink:'',caption:clean(media.caption,900),campaignName:campaign?.campaignName || campaign?.title || '',paid:campaign?.paid===true,paidDeclaredByOwner:campaign?.paid===true,capturedAt:now()};
+  const source={kind:'instagram_comment',accountId:event.accountId,segment:store.segment,productId:product?.id||'',productName:clean(product?.name,160),goal:campaign?.goal&&campaign.goal!=='default'?campaign.goal:segmentPlaybooks[store.segment]?.goal||'quote',summary:clean(campaign?.summary,700),mediaId:event.mediaId,commentId:event.mid,permalink:/^https:\/\/(www\.)?instagram\.com\//.test(media.permalink || '')?media.permalink:'',caption:clean(media.caption,900),campaignName:campaign?.campaignName || campaign?.title || '',paid:campaign?.paid===true,paidDeclaredByOwner:campaign?.paid===true,capturedAt:now()};
   const hour=new Date().toISOString().slice(0,13),budget=root.collection('instagramBudgets').doc(hour);
   const ready=await db.runTransaction(async tx=>{
    const live=(await tx.get(eventRef)).data(),liveChat=(await tx.get(chat)).data(),liveConfig=(await tx.get(acquisitionRef(db,event.storeId))).data(),liveConnection=(await tx.get(connection)).data(),usage=(await tx.get(budget)).data();
    const liveCampaign=(liveConfig?.campaigns || []).find((p:any)=>p.mediaId===event.mediaId);
+   const liveProduct=productRef?(await tx.get(productRef)).data():null;
+   const liveStore=(await tx.get(storeRef)).data();
+   if(liveStore?.segment!==store.segment||liveConnection?.respectSchedule!==false&&deps.operatingHours&&!deps.operatingHours(liveStore||{}).isOpen)return false;
+   if(liveConfig?.updatedAt!==cfg?.updatedAt||JSON.stringify(liveCampaign)!==JSON.stringify(campaign)||productRef&&(!liveProduct||(store.segment==='AFFILIATES'?!liveProduct.active:liveProduct.available!==true)||JSON.stringify(liveProduct)!==JSON.stringify(productData)))return false;
    if(!live || live.status!=='processing' || paused(liveChat) || !liveConfig?.enabled || !liveConnection?.connected || !liveConnection.enabled || !liveConnection.commentsPermission || liveConnection.accountId!==event.accountId || liveConfig.accountId!==event.accountId || Date.parse(liveConnection.expiresAt)<=Date.now() || liveCampaign?.enabled===false || !liveCampaign&&!liveConfig.allPosts || liveChat?.lastCommentContactAt&&Date.now()-Date.parse(liveChat.lastCommentContactAt)<24*3600000)return false;
    if(Number(usage?.count || 0)>=liveConfig.hourlyLimit){tx.update(eventRef,{status:'ignored',reason:'hourly_limit'});return false;}
    tx.set(budget,{count:Number(usage?.count || 0)+1,updatedAt:now()});
@@ -175,21 +204,22 @@ export async function processAutomotiveComment(db:admin.firestore.Firestore,even
    const result=await graph(`${c.accountId}/messages`,c.accessToken,'POST',{recipient:{comment_id:event.mid},message:{text:draft.privateReply}});
    if(!result.message_id)throw new Error('Unconfirmed private reply');sent=true;
    await outgoing.update({deliveryStatus:'sent',providerMessageId:result.message_id});
-   await chat.set({instagramAcquisition:source,...(!existing.firstInstagramAcquisition?{firstInstagramAcquisition:source}:{}),leadSource:'Comentário Instagram',lastOutboundAt:now()},{merge:true});
+   await chat.set({instagramAcquisition:source,...(!existing.firstInstagramAcquisition?{firstInstagramAcquisition:source}:{}),leadSource:'Comentário Instagram',lastOutboundAt:now(),...(store.segment==='AFFILIATES'&&product?.id?{affiliateProductId:product.id}:{})},{merge:true});
    await status('sent',{privateMessageId:result.message_id,sentAt:now(),publicStatus:'not_requested'});
-  }catch{
-   await outgoing.update({deliveryStatus:'failed'});await status('delivery_unknown',{lastError:'Envio privado não confirmado. Confira a conversa antes de reenviar.'});return;
+  }catch(error:any){
+   const refused=Number.isInteger(error?.code)&&error.retryable===false;
+   await outgoing.update({deliveryStatus:'failed'});await status(refused?'failed':'delivery_unknown',{lastError:refused?`A Meta recusou o envio (código ${error.code}). Confira a autorização da conta.`:'Envio privado não confirmado. Confira a conversa antes de reenviar.'});return;
   }
   if(sent){
    // CRM is separate from delivery: a failure here must never resend the Direct.
-   try{const sync=deps.syncLead || (async(store,contact,input,reply,attribution)=>(await import('./automotive')).saveAutomotiveContactAndSyncCrm({db,establishmentId:store,customerPhone:contact,incomingText:input,replyText:reply,attribution}));
+   if(store.segment==='AUTOMOTIVE_PARTS')try{const sync=deps.syncLead || (async(store,contact,input,reply,attribution)=>(await import('./automotive')).saveAutomotiveContactAndSyncCrm({db,establishmentId:store,customerPhone:contact,incomingText:input,replyText:reply,attribution}));
     const synced=await sync(event.storeId,chatKey,event.text,draft.privateReply,acquisitionAttribution(source));
     if(synced?.activeProfileId)for(const id of [`comment_${eventId}`,`comment_reply_${eventId}`])await chat.collection('messages').doc(id).set({automotiveProfileId:synced.activeProfileId},{merge:true});
    }catch{await lead.set({crmStatus:'review_required'},{merge:true});}
    const latestCfg=(await acquisitionRef(db,event.storeId).get()).data(),latestC=(await connection.get()).data(),latestChat=(await chat.get()).data();
    if(latestCfg?.publicReplies && latestCfg.enabled && latestC?.connected && latestC.enabled && latestC.accountId===event.accountId && !paused(latestChat)){
     // Public acknowledgement only follows confirmed private delivery, never before it.
-    const publicText='Te chamei no Direct para conferir os detalhes do seu projeto. 😊';
+    const publicText=publicAcknowledgement(store.segment);
     await lead.set({publicStatus:'sending'},{merge:true});
     try{const reply=await graph(`${event.mid}/replies`,c.accessToken,'POST',{message:publicText});if(!reply.id)throw Error('Unconfirmed comment reply');await lead.set({publicStatus:'sent',publicReply:publicText,publicReplyId:reply.id},{merge:true});await chat.collection('messages').doc(`public_reply_${eventId}`).set({sender:'assistant',origin:'ai',surface:'comment',automotiveProfileId:profile,text:`[Resposta no comentário] ${publicText}`,timestamp:now(),channel:'instagram',deliveryStatus:'sent'});}catch{await lead.set({publicStatus:'delivery_unknown'},{merge:true});}
    }

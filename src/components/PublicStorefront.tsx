@@ -1,3 +1,4 @@
+import {SkeletonScreen, Preloader} from './Loading';
 import React, { useEffect, useMemo, useState } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -78,7 +79,7 @@ export const PublicStorefront: React.FC<{ storeId: string }> = ({ storeId }) => 
   const categories = Object.keys(grouped); const items = products.filter(p => cart[p.id]); const totalItems = items.reduce((n, p) => n + cart[p.id], 0); const total = items.reduce((n, p) => n + p.price * cart[p.id], 0);
   const add = (id: string) => setCart(c => ({ ...c, [id]: (c[id] || 0) + 1 })); const remove = (id: string) => setCart(c => { const n = (c[id] || 0) - 1; const next = { ...c }; if (n <= 0) delete next[id]; else next[id] = n; return next; });
   const finish = () => { if (!store?.phone || !items.length) return; const lines = items.map(p => `${cart[p.id]}x ${p.name} — ${money(p.price * cart[p.id])}`).join('\n'); const msg = `Olá! Quero fazer este pedido pelo site:\n\n${lines}\n\nSubtotal: ${money(total)}\n\nPode confirmar os itens e me pedir o endereço/localização para finalizar?`; window.open(`https://wa.me/${store.phone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank'); };
-  if (loading) return <div className="min-h-screen bg-[#070b18] text-white flex items-center justify-center"><div className="w-9 h-9 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" /></div>;
+  if (loading) return <div className="ui-page-loading" style={{minHeight:'100dvh',background:'#fff'}}><Preloader label="Carregando a loja…"/><SkeletonScreen count={6}/></div>;
   if (error || !store) return <div className="min-h-screen bg-[#070b18] text-white flex items-center justify-center p-6 text-center"><p>{error || 'Vitrine não encontrada.'}</p></div>;
   if (store.segment === 'AUTOMOTIVE_PARTS') return <AutomotiveStorefront store={store} products={products} />;
   if (getSegmentConfig(store.segment).id === 'VEHICLES') return <VehicleDealershipStorefront store={store} products={products} />;

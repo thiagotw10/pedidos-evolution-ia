@@ -1,3 +1,4 @@
+import {Preloader} from './Loading';
 import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Box, Check, Loader2, Upload, X } from 'lucide-react';
 import { getDownloadURL, ref, uploadBytesResumable, type UploadTask } from 'firebase/storage';
@@ -213,7 +214,7 @@ export default function AutomotiveModelEditor({
       {busy ? (
         <div className="space-y-2 rounded-xl border border-indigo-400/30 bg-indigo-500/10 p-3" aria-busy="true">
           <div className="flex items-center justify-between gap-2">
-            <p role="status" className="flex items-center gap-2 text-xs text-indigo-200"><Loader2 className="h-4 w-4 animate-spin" /> {progress === null ? 'Validando o modelo 3D...' : `Enviando modelo: ${progress}%`}</p>
+            <p role="status" className="flex items-center gap-2 text-xs text-indigo-200"><Preloader compact className="h-4 w-4" /> {progress === null ? 'Validando o modelo 3D...' : `Enviando modelo: ${progress}%`}</p>
             <button type="button" onClick={cancelUpload} className="rounded-lg px-2 py-1 text-xs text-slate-200 hover:bg-slate-800">Cancelar envio</button>
           </div>
           {progress !== null && <progress aria-label="Progresso do envio do modelo 3D" value={progress} max={100} className="h-2 w-full accent-indigo-400" />}
@@ -236,7 +237,7 @@ export default function AutomotiveModelEditor({
 
       {model && showPreview && <div className="overflow-hidden rounded-xl border border-slate-800 bg-[#0b0e12] text-white">
         <ModelPreviewBoundary key={model.url}>
-          <Suspense fallback={<p role="status" className="flex items-center gap-2 p-4 text-xs text-slate-300"><Loader2 className="h-4 w-4 animate-spin" /> Abrindo prévia 3D...</p>}>
+          <Suspense fallback={<p role="status" className="flex items-center gap-2 p-4 text-xs text-slate-300"><Preloader compact className="h-4 w-4" /> Abrindo prévia 3D...</p>}>
             <ProjectModelScene accent={accent} model={model} projectName={projectName || 'Escapamento do projeto'} fallbackImage={images[0]} />
           </Suspense>
         </ModelPreviewBoundary>

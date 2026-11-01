@@ -8,7 +8,7 @@
     
     <!-- PWA & Mobile Web App Meta Tags -->
     <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#10b981" />
+    <meta name="theme-color" content="#141414" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="iaPedido" />
@@ -20,9 +20,13 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+      .ui-boot{position:fixed;inset:0;display:grid;place-items:center;background:#141414;color:#fff;font-family:Arial,Helvetica,sans-serif;padding:24px;text-align:center}.ui-boot-brand{display:flex;align-items:center;justify-content:center;gap:12px}.ui-boot-brand>span{display:grid;place-items:center;width:54px;height:54px;border-radius:18px;background:#303030}.ui-boot-brand strong{font-size:32px;letter-spacing:-1.5px}.ui-boot p{font-size:13px;color:#aaa;margin:24px 0 32px}.ui-boot-track{height:3px;width:120px;overflow:hidden;border-radius:99px;background:#353535;margin:auto}.ui-boot-track>span{display:block;width:45%;height:100%;background:white;animation:boot-progress 1.5s ease-in-out infinite}@keyframes boot-progress{from{transform:translateX(-110%)}to{transform:translateX(350%)}}@media(prefers-reduced-motion:reduce){.ui-boot-track>span{animation:none;transform:translateX(60%)}}
+    </style>
   </head>
   <body class="bg-slate-950 text-slate-100 antialiased selection:bg-emerald-500 selection:text-white">
-    <div id="root"></div>
+    <div id="root"><div class="ui-boot" role="status" aria-label="Preparando seu espaço"><div><div class="ui-boot-brand"><span><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9 2-6h14l2 6M3 9a3 3 0 0 0 5 2 3 3 0 0 0 4 0 3 3 0 0 0 4 0 3 3 0 0 0 5-2M5 12v9h14v-9M9 21v-7h6v7"/></svg></span><strong>iaPedido</strong></div><p>Seu negócio. Tudo conectado.</p><div class="ui-boot-track" aria-hidden="true"><span></span></div></div></div></div>
+    <noscript>Ative o JavaScript no navegador para acessar o iaPedido.</noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

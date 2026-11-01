@@ -1,4 +1,5 @@
 import React from 'react';
+import {getCrmNavigation} from '../utils/crmNavigation';
 import { Volume2, VolumeX, Smartphone, Instagram, Store, Clock, LogOut, User, Menu, Download } from 'lucide-react';
 import { Establishment } from '../types';
 
@@ -29,7 +30,7 @@ export const Header: React.FC<HeaderProps> = ({
   userEmail,
   onSignOut
 }) => {
-  const titles: Record<string,string> = {home: 'Meu negócio', orders: establishment?.segment === 'AUTOMOTIVE_PARTS' ? 'Projetos' : 'Pedidos', inbox: 'Conversas', garage: 'Garagem', products: 'Catálogo', internal: 'Equipe', radar: 'Oportunidades', workshops: 'Oficinas parceiras', traffic: 'Tráfego', finance: 'Financeiro', billing: 'Plano e créditos', campaigns: 'Campanhas', simulator: 'Simulador', instagram: 'Instagram', whatsapp: 'WhatsApp', settings: 'Configurações'};
+  const titles = Object.fromEntries(getCrmNavigation(establishment).flatMap(group=>group.items.map(item=>[item.id,item.label])));
   return (<>
     <header className="crm-mobile-header md:hidden sticky top-0 z-30 flex items-center justify-between gap-3">
       <div className="min-w-0"><button onClick={onOpenSettings} className="crm-company truncate max-w-full">{establishment?.name || 'Meu negócio'}</button>

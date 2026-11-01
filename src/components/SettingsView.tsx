@@ -1,3 +1,4 @@
+import {Preloader} from './Loading';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Store, 
@@ -533,7 +534,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   title="Detectar automaticamente latitude e longitude a partir do texto do endereço"
                 >
                   {geocodingLoading ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+                    <Preloader compact className="w-4 h-4  text-emerald-400" />
                   ) : (
                     <MapPin className="w-4 h-4 text-emerald-400" />
                   )}
@@ -643,7 +644,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   className="sm:self-end px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-50 shadow-lg shadow-emerald-950"
                 >
                   {sendingTestLocation ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <Preloader compact className="w-4 h-4" />
                   ) : (
                     <Send className="w-3.5 h-3.5" />
                   )}
@@ -1008,7 +1009,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
             {/* Main Toggle Switch */}
             <div className="flex items-center gap-2.5 bg-slate-950 p-2 px-3 rounded-xl border border-slate-800 shrink-0">
-              {saving && <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin" />}
+              {saving && <Preloader compact className="w-3.5 h-3.5 text-amber-400" />}
               <span className={`text-xs font-bold ${scheduleEnabled ? 'text-emerald-400' : 'text-slate-400'}`}>
                 {scheduleEnabled ? 'Horário Ativo' : 'Atender 24 Horas'}
               </span>
@@ -1459,7 +1460,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         >
                           {isLoading ? (
                             <>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <Preloader compact className="w-3.5 h-3.5" />
                               <span>Sintetizando...</span>
                             </>
                           ) : isPlaying ? (

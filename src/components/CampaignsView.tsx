@@ -1,3 +1,4 @@
+import {SkeletonScreen, Preloader} from './Loading';
 import {ModalFrame} from './ModalFrame';
 import React, { useState, useEffect, useRef } from 'react';
 import { 
@@ -614,10 +615,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
         </div>
 
         {loading ? (
-          <div className="py-20 text-center space-y-3">
-            <Loader2 className="w-8 h-8 text-emerald-400 animate-spin mx-auto" />
-            <p className="text-sm text-slate-400">Carregando campanhas agendadas...</p>
-          </div>
+          <SkeletonScreen label="Carregando campanhas…" />
         ) : campaigns.length === 0 ? (
           <div className="bg-slate-900/50 border border-dashed border-slate-800 rounded-3xl p-12 text-center space-y-4">
             <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 mx-auto">
@@ -759,7 +757,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                   >
                     {sendingNowId === camp.id ? (
                       <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <Preloader compact className="w-3.5 h-3.5" />
                         Disparando...
                       </>
                     ) : (
@@ -1033,7 +1031,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                       {/* Groups list */}
                       {loadingGroups ? (
                         <div className="py-6 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
-                          <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
+                          <Preloader compact className="w-4 h-4  text-purple-400" />
                           <span>Buscando seus grupos do WhatsApp...</span>
                         </div>
                       ) : groups.length === 0 ? (
@@ -1222,7 +1220,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                     >
                       {uploadingImage ? (
                         <>
-                          <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+                          <Preloader compact className="w-4 h-4  text-emerald-400" />
                           <span>Enviando arte da promoção...</span>
                         </>
                       ) : (
@@ -1381,7 +1379,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                 >
                   {saving ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <Preloader compact className="w-4 h-4" />
                       <span>Salvando...</span>
                     </>
                   ) : (

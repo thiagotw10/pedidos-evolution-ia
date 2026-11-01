@@ -1,3 +1,4 @@
+import {SkeletonScreen, Preloader} from './Loading';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ShoppingBag, Film, Plus, ExternalLink, RefreshCw, Pencil, Link, Instagram, CheckCircle2 } from 'lucide-react';
 import { auth } from '../lib/firebase';
@@ -37,17 +38,17 @@ export function AffiliateWorkspace({establishmentId,view,onOpenInstagram,client}
   const action = (post:Post,operation:string,body:object={}) => run(async()=>{await request(`posts/${post.id}/${operation}`,body);await reload();setNotice(operation==='publish'?'Reel publicado. Ative o envio de links nos comentários quando desejar.':operation==='automation'?'Automação atualizada.':operation==='prepare'?'Vídeo enviado para processamento na Meta. Confira o status para continuar.':'Status atualizado.');});
   const products = data?.products || [];
   const posts = data?.posts || [];
+  if(!data&&!error)return <div className="ui-page-loading"><SkeletonScreen variant="dashboard" label="Carregando seus achadinhos…"/><SkeletonScreen/></div>;
   return <div className="mx-auto max-w-6xl p-4 sm:p-6 space-y-6 text-slate-200 pb-10">
     <header className="flex flex-wrap justify-between items-start gap-4">
       <div><p className="text-xs uppercase tracking-widest text-pink-300 font-semibold mb-2">Afiliados & Achadinhos</p><h1 className="text-2xl sm:text-3xl font-bold text-white flex gap-3 items-center">{view==='products'?<ShoppingBag className="text-pink-400"/>:<Film className="text-pink-400"/>}{view==='products'?'Meus Achadinhos':'Conteúdo & Reels'}</h1><p className="text-sm text-slate-400 mt-2">Do produto ao conteúdo, com o link certo para cada pessoa.</p></div>
-      <div className="flex gap-2"><button className="p-3 bg-slate-800 rounded-xl disabled:opacity-40" disabled={busy} onClick={()=>run(reload)} aria-label="Atualizar achadinhos"><RefreshCw size={18}/></button><button className={button} disabled={busy} onClick={()=>{setError('');setDraft(null);view==='products'?setEditing({...emptyProduct}):makeDraft(products.find(p=>p.active)?.id || '');}}><Plus size={18}/>{view==='products'?'Novo achadinho':'Novo rascunho'}</button></div>
+      <div className="flex gap-2"><button className="p-3 bg-slate-800 rounded-xl disabled:opacity-40" disabled={busy} onClick={()=>run(reload)} aria-label="Atualizar achadinhos">{busy?<Preloader compact label="Atualizando achadinhos…"/>:<RefreshCw size={18}/>}</button><button className={button} disabled={busy} onClick={()=>{setError('');setDraft(null);view==='products'?setEditing({...emptyProduct}):makeDraft(products.find(p=>p.active)?.id || '');}}><Plus size={18}/>{view==='products'?'Novo achadinho':'Novo rascunho'}</button></div>
     </header>
     <div className="grid sm:grid-cols-3 gap-3">
       {[['Achadinhos ativos',products.filter(p=>p.active).length],['Conteúdos publicados',posts.filter(p=>p.status==='published').length],['Automações ativas',posts.filter(p=>p.automationEnabled).length]].map(([label,value])=><div key={label} className="bg-slate-900 border border-slate-800 rounded-2xl p-4"><p className="text-xs text-slate-400">{label}</p><p className="text-2xl font-bold text-white mt-1">{value}</p></div>)}
     </div>
     {error && <p role="alert" className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-200">{error}</p>}
     {notice && <p role="status" className="p-4 bg-emerald-500/10 rounded-xl text-emerald-200">{notice}</p>}
-    {!data && !error && <p className="text-slate-400">Carregando seus achadinhos...</p>}
     {data && <section className="grid md:grid-cols-2 gap-4">
       <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-5 flex items-start gap-3"><Instagram className="text-pink-400 shrink-0" size={22}/><div className="min-w-0"><h2 className="font-semibold text-white">{data.instagram.username?`@${data.instagram.username}`:'Instagram do seu perfil'}</h2><p className="text-sm text-slate-400 mt-1">{data.instagram.connected && data.instagram.affiliatePermissions?'Conectado para publicar e gerenciar comentários.':data.instagram.connected?'Conectado para mensagens. Renove a autorização para publicar e responder comentários.':'Conecte a conta profissional deste perfil para publicar e enviar links.'}</p><button className="text-pink-300 text-sm font-semibold mt-3" onClick={onOpenInstagram}>Gerenciar conexão →</button></div></div>
       <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-5"><h2 className="font-semibold text-white">Importação da Shopee</h2><p className="text-sm text-slate-400 mt-1">{data.shopee.status}</p><a href="https://affiliate.shopee.com.br/open_api" target="_blank" rel="noopener noreferrer" className="inline-flex gap-2 items-center text-pink-300 text-sm mt-3">Conferir acesso no Portal do Afiliado <ExternalLink size={14}/></a></div>

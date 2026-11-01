@@ -45,6 +45,11 @@ exports.instagramTextParts = instagramTextParts;
 exports.processInstagramEvent = processInstagramEvent;
 exports.refreshInstagramTokens = refreshInstagramTokens;
 exports.sendInstagramDirect = sendInstagramDirect;
+exports.processInstagramStudioQueue = processInstagramStudioQueue;
+const instagramReach_1 = require("./instagramReach");
+const instagramLeadGeo_1 = require("./instagramLeadGeo");
+const instagramStudio_1 = require("./instagramStudio");
+const instagramBusinessPolicy_1 = require("./instagramBusinessPolicy");
 const instagramAcquisition_1 = require("./instagramAcquisition");
 const affiliate_1 = require("./affiliate");
 const admin = __importStar(require("firebase-admin"));
@@ -139,16 +144,18 @@ async function saveConnection(db, storeId, token, expiresIn, permissions = []) {
     const segment = (await db.collection('establishments').doc(storeId).get()).data()?.segment;
     const affiliate = segment === affiliate_1.AFFILIATE_SEGMENT;
     let affiliatePermissions = false, commentsPermission = false;
-    if (affiliate || segment === 'AUTOMOTIVE_PARTS') {
+    if (instagramBusinessPolicy_1.BUSINESS_SEGMENTS.includes(segment)) {
         commentsPermission = await (0, instagramAcquisition_1.probeCommentPermission)({ accountId, accessToken: token, grantedPermissions }, graph);
         affiliatePermissions = affiliate && commentsPermission && grantedPermissions.includes('instagram_business_content_publish');
     }
-    await graph('me/subscribed_apps', token, 'POST', { subscribed_fields: segment === 'AUTOMOTIVE_PARTS' ? (commentsPermission ? 'messages,comments,messaging_referral' : 'messages,messaging_referral') : commentsPermission ? 'messages,comments' : 'messages' });
+    await graph('me/subscribed_apps', token, 'POST', { subscribed_fields: commentsPermission ? 'messages,comments,messaging_referral' : 'messages,messaging_referral' });
     await connectionRef(db, storeId).update({ affiliatePermissions, commentsPermission });
     await connectionRef(db, storeId).update({ connected: true, ...previousSettings });
 }
 function registerInstagramWebhookRoutes(app, db, processAi, deps = {}) {
     (0, affiliate_1.registerAffiliateRoutes)(app, db, graph);
+    (0, instagramStudio_1.registerInstagramStudio)(app, db, graph);
+    (0, instagramReach_1.registerInstagramReach)(app, db);
     (0, instagramAcquisition_1.registerAcquisitionRoutes)(app, db, graph);
     const owned = (handler) => async (req, res) => {
         let uid;
@@ -179,6 +186,7 @@ function registerInstagramWebhookRoutes(app, db, processAi, deps = {}) {
         return res.json({ configured: !!(c.appId && c.secret && c.verifyToken),
             missing: [!c.appId && 'INSTAGRAM_APP_ID', !c.secret && 'INSTAGRAM_APP_SECRET', !c.verifyToken && 'INSTAGRAM_VERIFY_TOKEN'].filter(Boolean),
             respectSchedule: data.respectSchedule !== false, storeOpen: deps.operatingHours ? deps.operatingHours(store).isOpen : true,
+            publishingPermission: Array.isArray(data.grantedPermissions) && data.grantedPermissions.includes(instagramStudio_1.PUBLISH_SCOPE), insightsPermission: Array.isArray(data.grantedPermissions) && data.grantedPermissions.includes(instagramStudio_1.INSIGHTS_SCOPE),
             commentsPermission: data.commentsPermission === true, affiliatePermissions: data.affiliatePermissions === true, connected: !!data.connected, enabled: !!data.enabled, username: data.username || null,
             accountId: data.accountId || null, expiresAt: data.expiresAt || null, lastError: data.lastError || null,
             lastInboundAt: data.lastInboundAt || null, lastOutboundAt: data.lastOutboundAt || null,
@@ -186,7 +194,7 @@ function registerInstagramWebhookRoutes(app, db, processAi, deps = {}) {
             webhookUrl: `${c.origin}/api/instagram/webhook`, redirectUri: `${c.origin}/api/instagram/callback`,
             verifyToken: c.verifyToken });
     }));
-    app.post('/api/instagram/connect', owned(async (_req, res, storeId) => {
+    app.post('/api/instagram/connect', owned(async (req, res, storeId) => {
         const c = config();
         if (!c.appId || !c.secret || !c.verifyToken)
             return res.status(503).json({ error: 'Configure as credenciais do aplicativo Instagram no servidor primeiro.' });
@@ -194,9 +202,11 @@ function registerInstagramWebhookRoutes(app, db, processAi, deps = {}) {
         await db.collection('instagramOauthStates').doc(hash(state)).set({ storeId, expiresAt: Date.now() + 10 * 60 * 1000 });
         const segment = (await db.collection('establishments').doc(storeId).get()).data()?.segment;
         const affiliate = segment === affiliate_1.AFFILIATE_SEGMENT;
-        const automotive = segment === 'AUTOMOTIVE_PARTS';
+        const capabilities = Array.isArray(req.body?.capabilities) ? req.body.capabilities : [];
+        const current = (await connectionRef(db, storeId).get()).data();
+        const scopes = (0, instagramStudio_1.instagramStudioScopes)(segment, capabilities, current);
         const query = new URLSearchParams({ client_id: c.appId, redirect_uri: `${c.origin}/api/instagram/callback`,
-            response_type: 'code', scope: 'instagram_business_basic,instagram_business_manage_messages' + (affiliate ? ',instagram_business_content_publish,instagram_business_manage_comments' : automotive ? ',instagram_business_manage_comments' : ''),
+            response_type: 'code', scope: scopes.join(','),
             enable_fb_login: '0', force_authentication: '1', state });
         return res.json({ url: `https://www.instagram.com/oauth/authorize?${query}` });
     }));
@@ -285,8 +295,11 @@ function registerInstagramWebhookRoutes(app, db, processAi, deps = {}) {
                     const segment = (await db.collection('establishments').doc(mapping.storeId).get()).data()?.segment;
                     if (segment === 'AUTOMOTIVE_PARTS')
                         message.kind = 'automotive_comment';
-                    else if (segment !== affiliate_1.AFFILIATE_SEGMENT)
-                        continue;
+                    else if (segment !== affiliate_1.AFFILIATE_SEGMENT) {
+                        if (!instagramBusinessPolicy_1.BUSINESS_SEGMENTS.includes(segment))
+                            continue;
+                        message.kind = 'business_comment';
+                    }
                 }
                 const id = hash(`${message.accountId}:${message.mid}`);
                 try {
@@ -398,10 +411,16 @@ async function processInstagramEvent(db, eventId, processAi, deps = {}) {
         return (0, instagramAcquisition_1.reviewAutomotiveComment)(db, eventId, graph, deps);
     if (event.kind === 'instagram_referral')
         return (0, instagramAcquisition_1.captureInstagramReferral)(db, eventId);
-    if (event.kind === 'automotive_comment')
+    if (event.kind === 'automotive_comment' || event.kind === 'business_comment')
         return (0, instagramAcquisition_1.processAutomotiveComment)(db, eventId, graph, deps);
-    if (event.kind === 'affiliate_comment')
-        return (0, affiliate_1.processAffiliateComment)(db, eventId, graph);
+    if (event.kind === 'affiliate_comment') {
+        const cfg = (await (0, instagramAcquisition_1.acquisitionRef)(db, event.storeId).get()).data();
+        const bound = cfg?.campaigns?.some((p) => p.mediaId === event.mediaId);
+        const legacy = bound ? null : await db.collection('affiliateWorkspaces').doc(event.storeId).collection('posts').where('mediaId', '==', event.mediaId).limit(1).get();
+        if (legacy?.docs.length)
+            return (0, affiliate_1.processAffiliateComment)(db, eventId, graph);
+        return (0, instagramAcquisition_1.processAutomotiveComment)(db, eventId, graph, deps);
+    }
     const chatKey = `ig_${event.senderId}`;
     const chat = db.collection('establishments').doc(event.storeId).collection('chats').doc(chatKey);
     const lock = db.collection('instagramLocks').doc(hash(`${event.storeId}:${chatKey}`));
@@ -433,6 +452,12 @@ async function processInstagramEvent(db, eventId, processAi, deps = {}) {
                 audioUrl: attachments.find((a) => a.type === 'audio')?.url || null });
             await chat.set({ channel: 'instagram', customerPhone: chatKey, instagramSenderId: event.senderId, instagramAccountId: event.accountId }, { merge: true });
         }
+        if (c?.connected && c.accountId === event.accountId && store) {
+            const known = (await chat.get()).data() || {};
+            await chat.set({ firstInstagramInboundAt: known.firstInstagramInboundAt || new Date(event.timestamp).toISOString(), lastInboundAt: Date.parse(known.lastInboundAt) > event.timestamp ? known.lastInboundAt : new Date(event.timestamp).toISOString() }, { merge: true });
+            if (event.text)
+                await (0, instagramLeadGeo_1.captureExplicitLeadLocation)(db, event.storeId, chatKey, event.text, event.accountId, event.timestamp);
+        }
         if (!c?.connected || !c.enabled || c.accountId !== event.accountId || !store || Date.now() - event.timestamp > 23 * 3600000) {
             await ref.update({ status: 'ignored', reason: 'inactive_or_expired_window' });
             return;
@@ -443,10 +468,10 @@ async function processInstagramEvent(db, eventId, processAi, deps = {}) {
         const outsideHours = c.respectSchedule !== false && deps.operatingHours && !deps.operatingHours(store).isOpen;
         const savedReferral = (await db.collection('automotiveOperations').doc(event.storeId).collection('instagramReferrals').doc(chatKey).get()).data();
         const referral = event.referral?.source === 'ADS' ? { ...event.referral, timestamp: event.timestamp } : savedReferral?.accountId === event.accountId && Date.now() - Number(savedReferral.timestamp) < 7 * 86400000 ? savedReferral : null;
-        if (store.segment === 'AUTOMOTIVE_PARTS' && referral)
+        if (referral)
             await (0, instagramAcquisition_1.applyInstagramReferral)(db, event.storeId, chatKey, referral);
         await chat.set({ channel: 'instagram', customerPhone: chatKey, customerName: existing.customerName || 'Cliente Instagram',
-            leadSource: referral && store.segment === 'AUTOMOTIVE_PARTS' ? 'Anúncio Instagram' : existing.leadSource || 'Instagram Direct', instagramSenderId: event.senderId, instagramAccountId: event.accountId, lastInboundAt: new Date(event.timestamp).toISOString(), unreadByHuman: true }, { merge: true });
+            leadSource: referral ? 'Anúncio Instagram' : existing.leadSource || 'Instagram Direct', instagramSenderId: event.senderId, instagramAccountId: event.accountId, lastInboundAt: new Date(event.timestamp).toISOString(), unreadByHuman: true }, { merge: true });
         let plan = event.plan;
         if (!plan) {
             const text = event.text || `[${event.attachments[0]?.type || 'Mídia'} recebida pelo Instagram]`;
@@ -578,4 +603,5 @@ async function sendInstagramDirect(db, storeId, contactKey, text, attachment) {
         return { success: false, error: 'O Instagram recusou o envio. Confira a autorização e a janela de atendimento.' };
     }
 }
+async function processInstagramStudioQueue(db) { await (0, instagramStudio_1.runInstagramStudioQueue)(db, graph); }
 //# sourceMappingURL=instagramWebhook.js.map

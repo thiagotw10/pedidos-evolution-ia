@@ -1,3 +1,4 @@
+import {SkeletonScreen} from './Loading';
 import {ModalFrame} from './ModalFrame';
 import React, { useState } from 'react';
 import { 
@@ -200,10 +201,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
       {/* Orders Grid */}
       {loading ? (
-        <div className="text-center py-20 text-slate-400">
-          <Clock className="w-8 h-8 mx-auto mb-2 animate-spin text-emerald-400" />
-          <p>Carregando pedidos em tempo real...</p>
-        </div>
+        <SkeletonScreen label="Carregando pedidos…" />
       ) : filteredOrders.length === 0 ? (
         <div className="bg-slate-900/40 rounded-2xl border border-slate-800/60 p-12 text-center text-slate-400">
           <OrdersIcon className="w-12 h-12 mx-auto mb-3 text-slate-600" />

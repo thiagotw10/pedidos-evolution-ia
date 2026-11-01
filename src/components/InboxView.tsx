@@ -1,3 +1,4 @@
+import {SkeletonScreen} from './Loading';
 import React, {useEffect, useState} from 'react';
 import {collection,onSnapshot} from 'firebase/firestore';
 import {Bell,Instagram,Smartphone} from 'lucide-react';
@@ -36,7 +37,7 @@ export function InboxView(){
         <div className="overflow-y-auto flex-1">{visible.map(c=><button key={c.id} onClick={()=>open(c.id)} className={`text-left w-full p-4 border-b border-slate-800/60 ${c.id===selectedId?'bg-emerald-500/10':'hover:bg-slate-900'}`}>
           <div className="flex items-center gap-2">{isInstagram(c.id)?<Instagram size={17} className="text-pink-400"/>:<Smartphone size={17} className="text-emerald-400"/>}<span className="truncate text-sm font-semibold text-white flex-1">{c.customerName|| (isInstagram(c.id)?'Cliente Instagram':c.id)}</span>{c.unreadByHuman&&<span aria-label="Mensagem não lida" className="w-2 h-2 rounded-full bg-emerald-400"/>}</div>
           {c.instagramAcquisition&&<p className="truncate text-[10px] text-pink-300 mt-2">{c.leadSource || 'Instagram'}{c.instagramAcquisition.campaignName?` · ${c.instagramAcquisition.campaignName}`:''}</p>}<p className="truncate text-xs text-slate-400 mt-2">{c.lastMessage||c.lastUserMessage||'Abrir conversa'}</p><div className="flex justify-between text-[10px] text-slate-500 mt-2"><span>{controlled(c)?'Atendimento humano':'Assistente ativo'}</span><span>{time(c.lastMessageAt||c.lastTimestamp||c.lastInboundAt)}</span></div></button>)}
-          {!visible.length&&<p className="p-5 text-sm text-slate-500">{loading?'Carregando…':'Nenhuma conversa encontrada.'}</p>}</div>
+          {loading?<SkeletonScreen variant="list" label="Carregando conversas…" count={5}/>:!visible.length&&<p className="p-5 text-sm text-slate-500">Nenhuma conversa encontrada.</p>}</div>
       </aside>
     </div>
     {selectedId&&<AutomotiveProjects key={selectedId} conversationContactId={selectedId} onConversationClose={()=>open('')}/>}

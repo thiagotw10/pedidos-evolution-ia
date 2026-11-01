@@ -1,3 +1,4 @@
+import {SkeletonScreen} from './Loading';
 import {ModalFrame} from './ModalFrame';
 import React, { useState, useEffect } from 'react';
 import {
@@ -399,10 +400,7 @@ export const AutomotivePartnerWorkshops: React.FC<AutomotivePartnerWorkshopsProp
 
       {/* Grid of Partner Workshops */}
       {loading ? (
-        <div className="py-20 flex flex-col items-center justify-center text-slate-400 space-y-3">
-          <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin" />
-          <p className="text-sm font-medium">Carregando oficinas credenciadas...</p>
-        </div>
+        <SkeletonScreen label="Carregando oficinas parceiras…" />
       ) : filteredPartners.length === 0 ? (
         <div className="py-16 text-center bg-slate-900/40 border border-dashed border-slate-800 rounded-3xl p-8 space-y-3">
           <Building2 className="w-12 h-12 text-slate-600 mx-auto" />

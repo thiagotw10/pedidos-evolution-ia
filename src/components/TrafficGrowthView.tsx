@@ -1,3 +1,4 @@
+import {SkeletonScreen, Preloader} from './Loading';
 import React, { useState, useEffect } from 'react';
 import {
   TrendingUp,
@@ -81,6 +82,7 @@ export const TrafficGrowthView: React.FC<TrafficGrowthViewProps> = ({
   });
 
   const [loading, setLoading] = useState(true);
+  const [statsLoaded, setStatsLoaded] = useState(false);
   const [savingConfig, setSavingConfig] = useState(false);
   const [testingCapi, setTestingCapi] = useState(false);
   const [testResult, setTestResult] = useState<{ success?: boolean; message?: string } | null>(null);
@@ -123,6 +125,7 @@ export const TrafficGrowthView: React.FC<TrafficGrowthViewProps> = ({
       console.warn('Erro ao carregar métricas de tráfego:', e);
     } finally {
       setLoading(false);
+      setStatsLoaded(true);
     }
   };
 
@@ -216,6 +219,7 @@ export const TrafficGrowthView: React.FC<TrafficGrowthViewProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  if (loading&&!statsLoaded) return <div className="ui-page-loading"><Preloader label="Carregando métricas…"/><SkeletonScreen variant="dashboard" count={4}/><SkeletonScreen variant="list"/></div>;
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-8 space-y-6 text-slate-100">
       {/* Header */}

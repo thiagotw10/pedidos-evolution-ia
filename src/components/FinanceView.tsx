@@ -1,3 +1,4 @@
+import {SkeletonScreen, Preloader} from './Loading';
 import React, { useState, useMemo } from 'react';
 import { 
   TrendingUp, 
@@ -23,12 +24,13 @@ import { getSegmentConfig, getSegmentCatalogIcon } from '../utils/segments';
 
 interface FinanceViewProps {
   orders: Order[];
+  loading?: boolean;
   establishment?: Establishment | null;
 }
 
 type PeriodFilter = 'TODAY' | 'WEEK' | 'MONTH' | 'LAST_MONTH' | 'ALL';
 
-export const FinanceView: React.FC<FinanceViewProps> = ({ orders, establishment }) => {
+export const FinanceView: React.FC<FinanceViewProps> = ({ orders, establishment, loading=false }) => {
   const segConfig = getSegmentConfig(establishment?.segment);
   const CatalogIcon = getSegmentCatalogIcon(establishment?.segment);
   const [period, setPeriod] = useState<PeriodFilter>('MONTH');
@@ -220,6 +222,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ orders, establishment 
     document.body.removeChild(link);
   };
 
+  if (loading) return <div className="ui-page-loading"><Preloader label="Carregando financeiro…"/><SkeletonScreen variant="dashboard" count={4}/><SkeletonScreen variant="list" count={4}/></div>;
   return (
     <div className="p-3 sm:p-6 md:p-8 max-w-7xl mx-auto space-y-5 sm:space-y-8 animate-in fade-in">
       {/* Top Banner & Filter Controls */}

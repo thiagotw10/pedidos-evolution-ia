@@ -1,3 +1,7 @@
+import {WorkspaceTabs} from './WorkspaceTabs';
+import {CalendarDays, BarChart3, MapPin, MessagesSquare, SlidersHorizontal} from 'lucide-react';
+import {InstagramStudioView} from './InstagramStudioView';
+import {SkeletonScreen, Preloader} from './Loading';
 import {InstagramAcquisitionView} from './InstagramAcquisitionView';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Instagram, RefreshCw, ExternalLink, CheckCircle2, AlertCircle, Copy } from 'lucide-react';
@@ -11,7 +15,14 @@ type Status = {
   webhookVerifiedAt: string | null; webhookUrl: string; redirectUri: string; verifyToken: string;
 };
 
-export function InstagramView({ establishmentId, affiliate = false, automotive=false }: { establishmentId: string; affiliate?: boolean; automotive?:boolean }) {
+export function InstagramView({ establishmentId, affiliate = false, automotive=false,onNavigate,client }: {client?:(path:string,body?:object)=>Promise<any>;onNavigate?:(tab:string)=>void; establishmentId: string; affiliate?: boolean; automotive?:boolean }) {
+  const [section,setSection] = useState(()=>{
+    const query=new URLSearchParams(location.search),value=query.get('instagramSection');
+    if(query.has('instagram'))return 'account';
+    return value==='results'?'results':value==='reach'?'reach':value==='acquisition'?'acquisition':value==='account'?'account':'content';
+  });
+  const selectSection=(value:string)=>{setSection(value);const url=new URL(location.href);url.searchParams.set('instagramSection',value);url.searchParams.delete('instagram');history.replaceState(history.state,'',url);};
+  const tabs=[{id:'content',label:'Publicações',icon:CalendarDays},{id:'results',label:'Resultados',icon:BarChart3},{id:'reach',label:'Origem dos leads',icon:MapPin},{id:'acquisition',label:'Captação',icon:MessagesSquare},{id:'account',label:'Conta e atendimento',icon:SlidersHorizontal}];
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState(false);
   const [respectSchedule, setRespectSchedule] = useState(true);
@@ -23,6 +34,7 @@ export function InstagramView({ establishmentId, affiliate = false, automotive=f
       : result === 'error' ? 'Não foi possível autorizar. Confira o aplicativo Meta e tente novamente.' : '';
   });
   const request = useCallback(async (path: string, body?: object) => {
+    if(client)return client(path,body);
     const user = auth.currentUser;
     if (!user) throw new Error('Entre novamente na sua conta para gerenciar o Instagram.');
     const token = await user.getIdToken();
@@ -33,32 +45,35 @@ export function InstagramView({ establishmentId, affiliate = false, automotive=f
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Não foi possível concluir a operação.');
     return data;
-  }, [establishmentId]);
+  }, [establishmentId,client]);
+  const acquisitionClient=useCallback((path:string,body?:object)=>client!(`acquisition${path}`,body),[client]);
   const reload = useCallback(async () => { const data = await request('status'); setStatus(data); setRespectSchedule(data.respectSchedule !== false); }, [request]);
   useEffect(() => { reload().catch(e => setError(e.message)); }, [reload]);
   const run = async (action: () => Promise<void>) => {
     setBusy(true); setError('');
     try { await action(); } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
-  const connect = () => run(async () => { const data = await request('connect', {}); location.assign(data.url); });
+  const connect = (capabilities:string[] = []) => run(async () => { const data = await request('connect', {capabilities}); location.assign(data.url); });
   const toggle = () => run(async () => { const enabled = !status?.enabled; await request('enable', { enabled, respectSchedule }); await reload(); setNotice(enabled ? 'Atendimento automático ativado no Instagram.' : 'Atendimento automático pausado no Instagram.'); });
   const disconnect = () => run(async () => { await request('disconnect', {}); await reload(); setNotice('Instagram desconectado.'); });
   const copy = (value: string) => run(async () => { await navigator.clipboard.writeText(value); setNotice('Copiado.'); });
   const date = (value: string | null) => value ? new Date(value).toLocaleString('pt-BR') : 'Aguardando';
   const expired = !!status?.expiresAt && new Date(status.expiresAt).getTime() <= Date.now();
 
-  return <div className="max-w-4xl mx-auto space-y-6 pb-8">
-    <div className="flex items-center justify-between gap-3">
-      <div><h1 className="text-2xl font-bold text-white flex items-center gap-3"><Instagram className="text-pink-400" /> {affiliate ? 'Instagram para Achadinhos' : 'Instagram Direct'}</h1>
-        <p className="text-slate-400 mt-2">{affiliate ? 'Conecte o Instagram deste perfil para publicar Reels e enviar os links dos produtos.' : 'O mesmo assistente, catálogo e regras da sua loja, agora no Direct.'}</p></div>
-      <button disabled={busy} onClick={() => run(reload)} className="p-3 rounded-xl bg-slate-800 text-slate-200 disabled:opacity-50" aria-label="Atualizar conexão"><RefreshCw className={busy ? 'animate-spin' : ''} size={20} /></button>
+  return <div className="crm-instagram-workspace max-w-4xl mx-auto space-y-6 pb-8">
+    <div className="crm-instagram-heading">
+      <div><h1><Instagram size={26}/>Instagram</h1><p>Publique conteúdos, acompanhe resultados e transforme interesse em conversas.</p>
+      <div className="crm-instagram-context">{status?.connected?<><span>@{status.username}</span><small>{status.enabled&&!expired?'IA ativa no Direct':'IA pausada no Direct'}</small></>:<small>{status?'Conta não conectada':'Carregando conta…'}</small>}</div></div>
+      <button disabled={busy} onClick={() => run(reload)} className="p-3 rounded-xl bg-slate-800 text-slate-200 disabled:opacity-50" aria-label="Atualizar conexão">{busy?<Preloader compact label="Atualizando conexão…"/>:<RefreshCw size={20}/>}</button>
     </div>
+    <WorkspaceTabs items={tabs} value={section} onChange={selectSection} label="Seções do Instagram"/>
+    {status&&!status.connected&&section!=='account'&&<div className="ig-feedback" role="status">Conecte uma conta profissional para usar os recursos do Instagram. <button onClick={()=>selectSection('account')}>Conectar conta</button></div>}
     {error && <div role="alert" className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 flex gap-2"><AlertCircle className="shrink-0" size={20} />{error}</div>}
     {notice && <p role="status" className="p-4 rounded-xl bg-sky-500/10 text-sky-200">{notice}</p>}
     {affiliate && status?.connected && !status.affiliatePermissions && <p className="p-4 rounded-xl bg-amber-500/10 text-amber-200 text-sm">Renove a autorização para permitir publicações e comentários. Essas permissões precisam estar disponíveis no aplicativo Meta. As automações de links são ativadas por Reel na tela Conteúdo & Reels.</p>}
-    {!status && !error && <p className="text-slate-400">Carregando conexão...</p>}
+    {!status && !error && <SkeletonScreen variant="dashboard" label="Carregando conexão…" count={2}/>}
     {status && <>
-      <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
+      <section hidden={section!=='account'} role="tabpanel" id="workspace-panel-account" aria-labelledby="workspace-tab-account" className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
         <div className="flex flex-wrap gap-3 items-center justify-between"><div>
           <h2 className="text-lg font-bold text-white">{status.username ? `@${status.username}` : 'Conectar sua conta profissional'}</h2>
           <p className="text-sm text-slate-400 mt-1">{status.connected ? 'Autorização direta com o Instagram' : 'Autorize o acesso às mensagens pelo Instagram.'}</p>
@@ -75,7 +90,7 @@ export function InstagramView({ establishmentId, affiliate = false, automotive=f
         </label>
         {respectSchedule && !status.storeOpen && <p className="text-sm text-amber-300">A loja está fora do horário de atendimento da IA. Novas mensagens seguirão a regra de fora de expediente configurada na loja.</p>}
         <div className="flex flex-wrap gap-3">
-          <button onClick={connect} disabled={busy || !status.configured} className="bg-pink-600 hover:bg-pink-500 disabled:opacity-40 text-white px-5 py-3 rounded-xl font-semibold flex items-center gap-2"><Instagram size={18} />{status.connected ? 'Renovar autorização' : 'Conectar Instagram'}</button>
+          <button onClick={()=>connect()} disabled={busy || !status.configured} className="bg-pink-600 hover:bg-pink-500 disabled:opacity-40 text-white px-5 py-3 rounded-xl font-semibold flex items-center gap-2"><Instagram size={18} />{status.connected ? 'Renovar autorização' : 'Conectar Instagram'}</button>
           {status.connected && <>
             <button onClick={toggle} disabled={busy || expired} className="bg-slate-800 text-white px-5 py-3 rounded-xl font-semibold disabled:opacity-40">{status.enabled ? 'Pausar IA' : 'Ativar IA no Direct'}</button>
             <button onClick={disconnect} disabled={busy} className="text-slate-400 px-3 py-3 disabled:opacity-40">Desconectar</button>
@@ -87,7 +102,11 @@ export function InstagramView({ establishmentId, affiliate = false, automotive=f
           <div><p className="text-slate-500">Autorização válida até</p><p className="text-slate-200 mt-1">{date(status.expiresAt)}</p></div>
         </div>}
       </section>
-      {automotive&&<InstagramAcquisitionView establishmentId={establishmentId} onReconnect={connect}/>}
+      <div hidden={!['content','results','reach'].includes(section)} role="tabpanel" id={`workspace-panel-${['content','results','reach'].includes(section)?section:'content'}`} aria-labelledby={`workspace-tab-${['content','results','reach'].includes(section)?section:'content'}`}>
+      <InstagramStudioView client={client} embedded section={section==='results'?'metrics':section==='reach'?'reach':'content'} onSectionChange={value=>selectSection(value==='metrics'?'results':value)} establishmentId={establishmentId} onReconnect={capabilities=>connect(capabilities)} onOpenConversation={id=>{const url=new URL(location.href);url.searchParams.set('tab','inbox');url.searchParams.set('chat',id);url.searchParams.delete('instagram');url.searchParams.delete('instagramSection');if(onNavigate){history.replaceState(history.state,'',url);onNavigate('inbox');}else location.assign(url.href);}}/>
+      </div>
+      <div hidden={section!=='acquisition'} role="tabpanel" id="workspace-panel-acquisition" aria-labelledby="workspace-tab-acquisition"><InstagramAcquisitionView client={client?acquisitionClient:undefined} establishmentId={establishmentId} onReconnect={()=>connect()}/></div>
+      <div hidden={section!=='account'}>
       {!affiliate && !automotive && <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
         <h2 className="font-bold text-white">Trocar o atendimento do ManyChat</h2>
         <ol className="list-decimal pl-5 space-y-3 text-slate-300 text-sm">
@@ -111,6 +130,7 @@ export function InstagramView({ establishmentId, affiliate = false, automotive=f
           <p className="flex gap-2 items-center">{status.webhookVerifiedAt && <CheckCircle2 size={16} className="text-emerald-400" />}Webhook verificado: {date(status.webhookVerifiedAt)}</p>
         </div>
       </details>
+      </div>
     </>}
   </div>;
 }

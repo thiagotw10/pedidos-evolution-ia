@@ -1,3 +1,4 @@
+import {SplashScreen, SkeletonScreen, Preloader} from './components/Loading';
 import {CrmHome} from './components/CrmHome';
 import {InternalConsultationsView} from './components/InternalConsultationsView';
 import { GarageView } from './components/GarageView';
@@ -39,7 +40,6 @@ import { PwaInstallModal } from './components/PwaInstallModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { MobileDrawer } from './components/MobileDrawer';
 import { Order, Product, Establishment, OrderStatus } from './types';
-import { Loader2 } from 'lucide-react';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
@@ -66,6 +66,8 @@ export default function App() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [establishment, setEstablishment] = useState<Establishment | null>(null);
+  const [loadingEstablishment, setLoadingEstablishment] = useState(true);
+  const [establishmentError, setEstablishmentError] = useState('');
   const [loadingOrders, setLoadingOrders] = useState(true);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -260,12 +262,16 @@ export default function App() {
   // 3. Listen for Establishment Data (Firestore)
   useEffect(() => {
     if (!isAuthenticated) return;
+    setLoadingEstablishment(true);
+    setEstablishmentError('');
     fetchEstablishmentFallback();
     try {
       const estDocRef = doc(db, 'establishments', storeId);
       const unsubscribe = onSnapshot(estDocRef, (snap) => {
         if (snap.exists()) {
           setEstablishment({ id: snap.id, ...snap.data() } as Establishment);
+          setLoadingEstablishment(false);
+          setEstablishmentError('');
         } else {
           fetchEstablishmentFallback();
         }
@@ -305,13 +311,20 @@ export default function App() {
 
   const fetchEstablishmentFallback = async () => {
     try {
-      const res = await fetch(`/api/establishment?establishmentId=${storeId}`);
+      const res = await fetch(`/api/establishment?establishmentId=${storeId}`, {signal: AbortSignal.timeout(20000)});
+      if (!res.ok) throw new Error('Não foi possível carregar a empresa.');
       const data = await res.json();
       if (data && data.name) {
         setEstablishment({ id: storeId, ...data });
+        setEstablishmentError('');
+      } else {
+        throw new Error('Não foi possível carregar a empresa.');
       }
     } catch (e) {
       console.error('Failed to fetch establishment:', e);
+      setEstablishmentError('Não foi possível carregar seu espaço. Verifique sua conexão e tente novamente.');
+    } finally {
+      setLoadingEstablishment(false);
     }
   };
 
@@ -396,12 +409,7 @@ export default function App() {
 
   // Show loading screen while checking auth
   if (authLoading) {
-    return (
-      <div className="h-screen w-screen bg-slate-950 flex flex-col items-center justify-center text-white space-y-4">
-        <Loader2 className="w-10 h-10 text-emerald-400 animate-spin" />
-        <p className="text-sm text-slate-400 font-medium">Carregando iaPedido...</p>
-      </div>
-    );
+    return <SplashScreen />;
   }
 
   if (publicStoreId) {
@@ -486,7 +494,8 @@ export default function App() {
           />
 
           <main data-crm-tab={currentTab} className="crm-main flex-1 pb-24 md:pb-16 min-w-0 w-full overflow-x-hidden">
-            {currentTab === 'home' && <CrmHome establishment={establishment} productCount={products.length} onNavigate={setCurrentTab} />}
+            {!establishment ? <div className="ui-page-loading">{loadingEstablishment?<><Preloader label="Preparando seu espaço…"/><SkeletonScreen variant="dashboard" count={3}/><SkeletonScreen variant="list"/></>:<div role="alert"><p>{establishmentError||'Seu espaço ainda não está disponível.'}</p><button className="ui-loading-retry" onClick={()=>{setLoadingEstablishment(true);void fetchEstablishmentFallback();}}>Tentar novamente</button></div>}</div>:<>
+            {currentTab === 'home' && <CrmHome establishmentId={storeId} establishment={establishment} productCount={products.length} loadingProducts={loadingProducts} onNavigate={setCurrentTab} />}
             {establishment?.segment === 'AFFILIATES' && ['orders','products'].includes(currentTab) && <AffiliateWorkspace establishmentId={storeId} view={currentTab === 'products' ? 'products' : 'posts'} onOpenInstagram={() => setCurrentTab('instagram')} />}
             {currentTab === 'orders' && establishment?.segment === 'AUTOMOTIVE_PARTS' && <AutomotiveProjects />}
             {currentTab === 'internal' && establishment?.segment === 'AUTOMOTIVE_PARTS' && <InternalConsultationsView establishmentId={storeId} />}
@@ -526,6 +535,7 @@ export default function App() {
 
             {currentTab === 'finance' && establishment?.segment !== 'AFFILIATES' && establishment?.segment !== 'AUTOMOTIVE_PARTS' && (
               <FinanceView
+                loading={loadingOrders}
                 orders={orders}
                 establishment={establishment}
               />
@@ -569,7 +579,7 @@ export default function App() {
               />
             )}
 
-            {currentTab === 'instagram' && <InstagramView establishmentId={storeId} automotive={establishment?.segment === 'AUTOMOTIVE_PARTS'} affiliate={establishment?.segment === 'AFFILIATES'} />}
+            {currentTab === 'instagram' && <InstagramView onNavigate={setCurrentTab} establishmentId={storeId} automotive={establishment?.segment === 'AUTOMOTIVE_PARTS'} affiliate={establishment?.segment === 'AFFILIATES'} />}
 
             {currentTab === 'whatsapp' && establishment?.segment !== 'AFFILIATES' && (
               <WhatsAppView
@@ -585,6 +595,7 @@ export default function App() {
               />
             )}
 
+            </>}
           </main>
         </div>
       </div>

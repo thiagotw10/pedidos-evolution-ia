@@ -1,3 +1,4 @@
+import {Preloader} from './Loading';
 import {ModalFrame} from './ModalFrame';
 import React, { useState, useEffect, useRef } from 'react';
 import { 
@@ -457,7 +458,7 @@ export const CarVideoStudioModal: React.FC<CarVideoStudioModalProps> = ({
               >
                 {generatingScript ? (
                   <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <Preloader compact className="w-4 h-4" />
                     Gerando Roteiro Magnético com Gemini 2.5...
                   </>
                 ) : (
@@ -516,7 +517,7 @@ export const CarVideoStudioModal: React.FC<CarVideoStudioModalProps> = ({
                 >
                   {generatingAudio ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <Preloader compact className="w-4 h-4" />
                       Sintetizando Voz Neural Ultra-Realista...
                     </>
                   ) : (
@@ -698,7 +699,7 @@ export const CarVideoStudioModal: React.FC<CarVideoStudioModalProps> = ({
               >
                 {savingToVehicle ? (
                   <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <Preloader compact className="w-4 h-4" />
                     Salvando no Veículo...
                   </>
                 ) : saveSuccess ? (

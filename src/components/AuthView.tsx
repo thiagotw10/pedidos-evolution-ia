@@ -1,3 +1,4 @@
+import {Preloader} from './Loading';
 import React, { useEffect, useState } from 'react';
 import { 
   signInWithEmailAndPassword, 
@@ -428,7 +429,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
               className="w-full mt-2 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white text-sm font-semibold rounded-xl shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-50"
             >
               {loading ? (
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <Preloader label={isRegister?'Criando conta…':'Entrando…'}/>
               ) : (
                 <>
                   <span>{isRegister ? 'Criar minha conta' : 'Entrar no Painel'}</span>

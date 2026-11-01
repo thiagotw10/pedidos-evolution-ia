@@ -1,17 +1,5 @@
 import React from 'react';
-import { 
-  ShoppingBag, 
-  TrendingUp, 
-  UtensilsCrossed, 
-  Smartphone, 
-  Menu,
-  MessageCircle,
-  Car,
-  Home,
-  Shirt,
-  Package,
-  Wrench
-} from 'lucide-react';
+import {Menu,MessageCircle,Home,Wrench} from 'lucide-react';
 import { Establishment } from '../types';
 import { getSegmentConfig, getSegmentCatalogIcon, getSegmentOrdersIcon } from '../utils/segments';
 
@@ -36,39 +24,12 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   const CatalogIcon = getSegmentCatalogIcon(establishment?.segment);
   const OrdersIcon = getSegmentOrdersIcon(establishment?.segment);
 
-  const tabs = [
-    {
-      id: 'orders',
-      label: segConfig.id === 'AFFILIATES' ? 'Reels' : segConfig.id === 'AUTOMOTIVE_PARTS' ? 'Orçamentos' : segConfig.id === 'VEHICLES' ? 'Propostas' : segConfig.id === 'REAL_ESTATE' ? 'Leads' : 'Pedidos',
-      icon: OrdersIcon,
-      badge: pendingOrdersCount > 0 ? pendingOrdersCount : null
-    },
-    {
-      id: 'finance',
-      label: 'Financeiro',
-      icon: TrendingUp,
-      badge: null
-    },
-    {
-      id: 'products',
-      label: segConfig.id === 'AFFILIATES' ? 'Achadinhos' : segConfig.id === 'AUTOMOTIVE_PARTS' ? 'Vitrine' : (segConfig.shortLabel ? segConfig.shortLabel.split(' ')[0] : 'Catálogo'),
-      icon: CatalogIcon,
-      badge: null
-    },
-    {
-      id: 'inbox',
-      label: 'Conversas',
-      icon: MessageCircle,
-      badge: null
-    }
+  const primaryTabs = [
+    {id:'home',label:'Início',icon:Home,badge:null},
+    {id:'orders',label:segConfig.id==='AFFILIATES'?'Reels':segConfig.id==='AUTOMOTIVE_PARTS'?'Projetos':segConfig.id==='VEHICLES'?'Propostas':segConfig.id==='REAL_ESTATE'?'Leads':'Pedidos',icon:OrdersIcon,badge:pendingOrdersCount>0?pendingOrdersCount:null},
+    {id:'inbox',label:'Conversas',icon:MessageCircle,badge:null},
+    segConfig.id==='AUTOMOTIVE_PARTS'?{id:'garage',label:'Garagem',icon:Wrench,badge:null}:{id:'products',label:segConfig.id==='AFFILIATES'?'Achadinhos':'Catálogo',icon:CatalogIcon,badge:null},
   ];
-
-  const primaryTabs = segConfig.id === 'AUTOMOTIVE_PARTS' ? [
-    {id: 'home', label: 'Início', icon: Home, badge: null},
-    {id: 'orders', label: 'Projetos', icon: OrdersIcon, badge: null},
-    {id: 'inbox', label: 'Conversas', icon: MessageCircle, badge: null},
-    {id: 'garage', label: 'Garagem', icon: Wrench, badge: null},
-  ] : tabs.filter(tab => segConfig.id !== 'AFFILIATES' || tab.id !== 'finance');
   const moreActive = !primaryTabs.some(tab => tab.id === currentTab);
   return (
     <nav aria-label="Navegação principal" className="crm-bottom-nav md:hidden fixed bottom-0 inset-x-0 z-40 flex items-center border-t border-white/10">
