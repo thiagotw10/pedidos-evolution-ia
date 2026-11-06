@@ -1,3 +1,4 @@
+import AutomotiveBuildReveal from './AutomotiveBuildReveal';
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { 
   ArrowUpRight,
@@ -282,6 +283,7 @@ export function AutomotiveStorefront({ store, products }: AutomotiveStorefrontPr
 
   return (
     <div ref={storefrontRef} id="auto-top" className="auto-storefront" style={{ '--auto-accent': accent, '--auto-accent-rgb': rgb.join(', '), '--auto-on-accent': onAccent } as React.CSSProperties}>
+      <AutomotiveBuildReveal storeId={store.id} root={storefrontRef}/>
       <header className="auto-header">
         <a className="auto-brand" href="#auto-top" aria-label={`${store.name} — início`}>
           {store.logoUrl ? <img src={store.logoUrl} alt="" /> : <span className="auto-brand-symbol"><Flame size={23} strokeWidth={1.5} /></span>}

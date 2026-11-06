@@ -1,0 +1,16 @@
+.auto-build-reveal{position:fixed;inset:0;z-index:65;pointer-events:none;overflow:hidden;contain:strict}
+.auto-build-cursor{position:absolute;top:0;left:0;opacity:0;will-change:transform;display:flex;align-items:flex-start;gap:2px;transition:opacity .35s}
+.auto-build-cursor svg{position:relative;flex-shrink:0;filter:drop-shadow(0 0 6px color-mix(in srgb,var(--cursor-color) 40%,transparent))}
+.auto-build-cursor span{margin-top:22px;background:var(--cursor-color);color:#111318;border-radius:4px 12px 12px 12px;padding:5px 9px;font:600 10px/1.2 system-ui;box-shadow:0 3px 15px #0003;white-space:nowrap;opacity:0;transition:opacity .3s}
+.auto-build-cursor.is-working span{opacity:1}
+.auto-build-cursor.label-left span{position:absolute;right:22px;border-radius:12px 4px 12px 12px}
+.auto-build-trail{position:absolute;width:52px;height:52px;left:-25px;top:-25px;border:1px dotted var(--cursor-color);border-radius:50%;opacity:0;transform:scale(.5)}
+.auto-build-cursor.is-working .auto-build-trail{animation:auto-build-pulse 1.8s ease-out infinite}
+.auto-build-cursor:nth-child(2n) .auto-build-trail{animation-delay:-.9s}
+.auto-build-frame{position:absolute;left:0;top:0;opacity:0;border:1px dashed #70e5d255;border-radius:8px;background:linear-gradient(90deg,transparent calc(var(--build-progress) - 2%),#70e5d218 var(--build-progress),transparent calc(var(--build-progress) + 2%));pointer-events:none}
+.auto-build-frame i{position:absolute;top:0;bottom:0;left:var(--build-progress);width:1px;background:linear-gradient(transparent,#70e5d2,transparent);box-shadow:0 0 12px #70e5d2}
+.auto-build-skip{position:absolute;left:max(16px,env(safe-area-inset-left));bottom:max(24px,env(safe-area-inset-bottom));pointer-events:auto;background:#14171ff0;border:1px solid #ffffff40;border-radius:99px;color:white;padding:12px 18px;display:flex;align-items:center;gap:18px;font:500 12px system-ui;cursor:pointer;box-shadow:0 8px 30px #0004}
+.auto-build-skip:focus-visible{outline:2px solid white;outline-offset:4px}
+@keyframes auto-build-pulse{0%{opacity:.6;transform:scale(.2)}100%{opacity:0;transform:scale(1.2)}}
+@media(max-width:767px){.auto-build-cursor span{font-size:9px;padding:4px 6px}.auto-build-cursor:nth-of-type(2n) span{display:none}.auto-build-skip{padding:10px 14px;font-size:11px}.auto-build-trail{width:36px;height:36px;left:-17px;top:-17px}}
+@media(prefers-reduced-motion:reduce){.auto-build-reveal{display:none}}

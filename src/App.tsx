@@ -408,14 +408,11 @@ export default function App() {
     }
   };
 
-  // Show loading screen while checking auth
-  if (authLoading) {
-    return <SplashScreen />;
-  }
-
+  // Public storefronts do not wait for CRM authentication or show its branding.
   if (publicStoreId) {
     return <PublicStorefront storeId={decodeURIComponent(publicStoreId)} />;
   }
+  if (authLoading) return <SplashScreen />;
 
   // If user is not authenticated, render Landing Page or Auth View
   if (!isAuthenticated) {
