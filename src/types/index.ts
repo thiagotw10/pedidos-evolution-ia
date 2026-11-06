@@ -3,10 +3,16 @@ import type { AutomotiveModel3D } from '../../functions/src/automotiveModel3d';
 export type { AutomotiveModel3D } from '../../functions/src/automotiveModel3d';
 
 export interface Product {
+  catalogKind?: 'exhaust_product'|'vehicle_project';
+  linkedExhaustIds?: string[];
+  technicalFacts?: Record<string,string>;
+  priceOnRequest?: boolean;
+  vehicleSpecs?: {brand?:string;model?:string;version?:string;year?:string;mileage?:number;fuel?:string;transmission?:string;engine?:string;color?:string;status?:string};
   id: string;
   name: string;
   publicSlug?: string;
   description: string;
+  aiKnowledge?: string;
   price: number;
   category: string;
   imageUrl?: string;

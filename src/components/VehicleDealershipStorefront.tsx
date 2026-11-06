@@ -1,3 +1,4 @@
+import './vehicle-storefront.css';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ArrowUpRight,
@@ -36,6 +37,7 @@ export interface VehicleProduct {
   imageUrl?: string;
   images?: string[];
   videoUrl?: string;
+  vehicleSpecs?: {year?:string;mileage?:number;transmission?:string;engine?:string;[key:string]:any};
 }
 
 export interface VehicleStoreInfo {
@@ -104,6 +106,8 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
   const cursorDotRef = useRef<HTMLDivElement>(null);
   const cursorRingRef = useRef<HTMLDivElement>(null);
 
+  const [consent,setConsent]=useState(false),[proposalBusy,setProposalBusy]=useState(false),[proposalError,setProposalError]=useState('');
+  const proposalRequest=useRef(crypto.randomUUID());
   // Veículo ativo em destaque no Hero e na Rota
   const [featuredIdx, setFeaturedIdx] = useState(0);
   const [heroPhotoIdx, setHeroPhotoIdx] = useState(0);
@@ -140,6 +144,24 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
     tab: 'photos',
     photoIndex: 0
   });
+
+  useEffect(() => {
+    if (!lightbox.isOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    document.body.style.overflow = 'hidden';
+    rootRef.current?.querySelector<HTMLButtonElement>('.vehicle-gallery-close')?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setLightbox(prev => ({ ...prev, isOpen: false }));
+      if (event.key !== 'Tab') return;
+      const controls = Array.from(rootRef.current?.querySelectorAll<HTMLElement>('.vehicle-gallery button, .vehicle-gallery a[href], .vehicle-gallery video[controls]') || []).filter(el => el.getClientRects().length > 0);
+      const first = controls[0], last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => { document.body.style.overflow = previousOverflow; document.removeEventListener('keydown', onKey); previousFocus?.focus(); };
+  }, [lightbox.isOpen]);
 
   useEffect(() => {
     const prevTitle = document.title;
@@ -191,7 +213,7 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
   const featuredVehicle = products[featuredIdx % Math.max(1, products.length)] || null;
   const featuredImages = featuredVehicle ? getVehicleImages(featuredVehicle) : [];
   const featuredSpecs = featuredVehicle
-    ? extractVehicleSpecs(featuredVehicle.name, featuredVehicle.description)
+    ? {...extractVehicleSpecs(featuredVehicle.name, featuredVehicle.description),...featuredVehicle.vehicleSpecs,...(featuredVehicle.vehicleSpecs?.mileage!==undefined?{km:featuredVehicle.vehicleSpecs.mileage.toLocaleString('pt-BR')+' km'}:{})}
     : {};
 
   // Formatação de WhatsApp da loja
@@ -249,8 +271,9 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
     });
   };
 
-  const handleSendProposalWhatsApp = (e: React.FormEvent) => {
+  const handleSendProposalWhatsApp = async (e: React.FormEvent) => {
     e.preventDefault();
+    if(proposalBusy)return;setProposalError('');if(!consent){setProposalError('Autorize o contato sobre sua solicitação.');return;}
     const chosenVehicles = products.filter((p) => selectedIds.includes(p.id));
     const vehicleNames =
       chosenVehicles.length > 0
@@ -279,18 +302,20 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
       .filter(Boolean)
       .join('\n');
 
-    if (waNumber) {
-      window.open(`https://wa.me/${waNumber}?text=${encodeURIComponent(lines)}`, '_blank');
-    } else {
-      alert('Número de WhatsApp da loja ainda não configurado no painel.');
-    }
+    if(!waNumber){setProposalError('A loja ainda não configurou o WhatsApp.');return;}
+    setProposalBusy(true);
+    const popup=window.open('about:blank','_blank');if(popup)popup.opener=null;
+    try{
+      const response=await fetch(`/api/public/vehicles/${encodeURIComponent(store.id)}/interest`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({requestId:proposalRequest.current,name:proposalForm.customerName,phone:proposalForm.customerPhone,productIds:(chosenVehicles.length?chosenVehicles:featuredVehicle?[featuredVehicle]:[]).map(p=>p.id),tradeIn:proposalForm.tradeInVehicle,payment:proposalForm.dealType,downPayment:proposalForm.entryValue,visitPreference:proposalForm.visitPreference,notes:proposalForm.notes,consent,campaignName:new URLSearchParams(location.search).get('utm_campaign')||''})});const data=await response.json();if(!response.ok)throw Error(data.error);
+      proposalRequest.current=crypto.randomUUID();const url=`https://wa.me/${waNumber}?text=${encodeURIComponent(lines)}`;if(popup)popup.location.href=url;else window.location.href=url;
+    }catch(e:any){popup?.close();setProposalError(e.message||'Não foi possível registrar sua solicitação.');}finally{setProposalBusy(false);}
   };
 
   return (
     <div
       ref={rootRef}
       id="showroom-top"
-      className="min-h-screen bg-[#050609] text-[#f3f4f6] relative overflow-x-clip selection:text-black"
+      className="vehicle-storefront min-h-screen bg-[#050609] text-[#f3f4f6] relative overflow-x-clip selection:text-black"
       style={{ '--sotd-accent': accent } as React.CSSProperties}
     >
       {/* Custom Awwwards Follower Cursor (Desktop) */}
@@ -306,7 +331,7 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
       />
 
       {/* 1. TOP STICKY NAVIGATION BAR (Estilo Editorial Awwwards) */}
-      <header className="sticky top-0 z-40 h-20 px-4 sm:px-8 lg:px-14 flex items-center justify-between gap-4 bg-[#050609]/85 backdrop-blur-2xl border-b border-white/10">
+      <header className="vehicle-header sticky top-0 z-40 h-20 px-4 sm:px-8 lg:px-14 flex items-center justify-between gap-4 bg-[#050609]/85 backdrop-blur-2xl border-b border-white/10">
         <a href="#showroom-top" className="flex items-center gap-3.5 min-w-0 group">
           {store.logoUrl ? (
             <img
@@ -366,14 +391,14 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
             }}
           >
             <MessageCircle className="w-4 h-4 fill-current" />
-            <span>Atendimento WhatsApp</span>
+            <span className="hidden sm:inline">Atendimento WhatsApp</span><span className="sm:hidden">WhatsApp</span>
             <ArrowUpRight className="w-4 h-4 hidden sm:inline" />
           </a>
         </div>
       </header>
 
       {/* 2. HERO STAGE: VITRINE CINEMATOGRÁFICA DO CATÁLOGO DE VEÍCULOS */}
-      <section className="relative min-h-[calc(100svh-5rem)] flex flex-col justify-between px-4 sm:px-8 lg:px-14 pt-8 pb-10 overflow-hidden">
+      <section className="vehicle-hero relative min-h-[calc(100svh-5rem)] flex flex-col justify-between px-4 sm:px-8 lg:px-14 pt-8 pb-10 overflow-hidden">
         {/* Imagem de Fundo Cinematográfica do Veículo Selecionado */}
         <div className="absolute inset-0 pointer-events-none z-0">
           {featuredImages.length > 0 ? (
@@ -424,7 +449,7 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
         </div>
 
         {/* Conteúdo Central do Hero: Destaque do Veículo + Card Interativo */}
-        <div className="relative z-10 grid lg:grid-cols-[1.2fr_0.8fr] gap-8 lg:gap-12 items-center my-auto py-8">
+        <div className="vehicle-hero-grid relative z-10 grid grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] gap-8 lg:gap-12 items-center my-auto py-8">
           <div className="space-y-6">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.06] border border-white/15 text-xs font-mono">
               <Sparkles className="w-3.5 h-3.5" style={{ color: accent }} />
@@ -435,7 +460,7 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
               </span>
             </div>
 
-            <h1 className="text-4xl sm:text-6xl xl:text-7xl font-black tracking-tight text-white leading-[0.98] uppercase">
+            <h1 className="vehicle-hero-title text-4xl sm:text-6xl xl:text-7xl font-black tracking-tight text-white leading-[0.98] uppercase">
               {featuredVehicle ? (
                 <>
                   {featuredVehicle.name.split(' ').slice(0, 2).join(' ')}{' '}
@@ -450,7 +475,7 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
               )}
             </h1>
 
-            <p className="text-sm sm:text-base text-slate-300 max-w-xl leading-relaxed">
+            <p className="vehicle-hero-description text-sm sm:text-base text-slate-300 max-w-xl leading-relaxed">
               {featuredVehicle?.description ||
                 store.description ||
                 'Explore nosso estoque real cadastrado no painel, simule financiamento ou avaliação do seu usado na troca e fale direto com nosso consultor no WhatsApp.'}
@@ -490,7 +515,7 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
             )}
 
             {/* Botões de Ação Principais (Foco Total em WhatsApp + Catálogo) */}
-            <div className="flex flex-wrap items-center gap-3 pt-2">
+            <div className="vehicle-hero-actions flex flex-wrap items-center gap-3 pt-2">
               <a
                 href={
                   featuredVehicle
@@ -549,7 +574,7 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
 
           {/* Card Flutuante do Veículo em Destaque + Seletor Rápido do Estoque */}
           {featuredVehicle && (
-            <div className="bg-[#0b0e16]/90 backdrop-blur-2xl border border-white/15 rounded-3xl p-4 sm:p-6 shadow-[0_30px_90px_rgba(0,0,0,0.85)] space-y-4">
+            <div className="vehicle-featured-card bg-[#0b0e16]/90 backdrop-blur-2xl border border-white/15 rounded-3xl p-4 sm:p-6 shadow-[0_30px_90px_rgba(0,0,0,0.85)] space-y-4">
               <div
                 className="relative aspect-[16/10] rounded-2xl overflow-hidden bg-slate-950 border border-white/10 cursor-pointer group"
                 onClick={() =>
@@ -575,7 +600,7 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
 
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20" />
 
-                <div className="absolute top-3 left-3 right-3 flex items-center justify-between">
+                <div className="vehicle-photo-badges absolute top-3 left-3 right-3 flex items-center justify-between">
                   <span
                     className="px-3 py-1 rounded-full text-[10px] font-mono font-black uppercase bg-black/75 border border-white/15 backdrop-blur-md"
                     style={{ color: accent }}
@@ -589,9 +614,9 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
                   )}
                 </div>
 
-                <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between gap-2">
+                <div className="vehicle-photo-caption absolute bottom-3 left-3 right-3 flex items-end justify-between gap-2">
                   <div>
-                    <p className="text-xs text-slate-300 font-mono">Pronta Entrega • Visita ou Online</p>
+                    <p className="text-xs text-slate-300 font-mono">Veículo cadastrado • Consulte disponibilidade</p>
                     <h2 className="text-base sm:text-lg font-black text-white truncate max-w-[260px]">
                       {featuredVehicle.name}
                     </h2>
@@ -611,6 +636,7 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
                   {featuredImages.map((img, i) => (
                     <button
                       key={i}
+                      aria-label={`Ver foto ${i + 1} de ${featuredImages.length}`}
                       type="button"
                       onClick={() => setHeroPhotoIdx(i)}
                       className={`w-14 h-10 rounded-lg overflow-hidden border-2 shrink-0 transition cursor-pointer ${
@@ -666,7 +692,7 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
             <ArrowDown className="w-3.5 h-3.5 animate-bounce" style={{ color: accent }} />
             <span>ROLE PARA EXPLORAR O ESTOQUE E TRAÇAR SUA ROTA</span>
           </a>
-          <span>LAUDO CAUTELAR • TROCA COM TROCO • FINANCIAMENTO EM ATÉ 60X</span>
+          <span>ESTOQUE DA LOJA • CONDIÇÕES SOB CONSULTA</span>
         </div>
       </section>
 
@@ -676,9 +702,9 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
         <i style={{ color: accent }}>✳</i>
         <span>ATENDIMENTO WHATSAPP COM IA 24H</span>
         <i style={{ color: accent }}>✳</i>
-        <span>AVALIAÇÃO DO SEU USADO NA TROCA</span>
+        <span>CONSULTE AVALIAÇÃO DO SEU USADO</span>
         <i style={{ color: accent }}>✳</i>
-        <span>AGENDAMENTO DE TEST-DRIVE VIP</span>
+        <span>CONSULTE VISITAS E TEST-DRIVE</span>
       </div>
 
       {/* 3. CATÁLOGO PRINCIPAL DE VEÍCULOS CADASTRADOS NO PAINEL */}
@@ -695,14 +721,14 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
               Catálogo de Veículos ({filteredProducts.length})
             </h2>
             <p className="text-xs sm:text-sm text-slate-400 max-w-2xl">
-              Todos os veículos abaixo são sincronizados em tempo real com o painel da loja. Clique em{' '}
+              Confira os veículos cadastrados pela loja. Disponibilidade e condições são conferidas no atendimento. Clique em{' '}
               <strong className="text-white">Chamar no WhatsApp</strong> para receber fotos detalhadas, vídeo do motor
               ou simular financiamento.
             </p>
           </div>
 
           {/* Barra de Busca + Ordenação */}
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="vehicle-filters flex flex-wrap items-center gap-2.5">
             <div className="relative">
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
@@ -765,12 +791,12 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
 
         {/* Grid de Veículos Awwwards */}
         {filteredProducts.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 sm:gap-8">
+          <div className="vehicle-inventory-grid grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 sm:gap-8">
             {filteredProducts.map((vehicle, idx) => {
               const images = getVehicleImages(vehicle);
               const slideIdx = cardSliders[vehicle.id] || 0;
               const isSelected = selectedIds.includes(vehicle.id);
-              const specs = extractVehicleSpecs(vehicle.name, vehicle.description);
+              const specs={...extractVehicleSpecs(vehicle.name,vehicle.description),...vehicle.vehicleSpecs,...(vehicle.vehicleSpecs?.mileage!==undefined?{km:vehicle.vehicleSpecs.mileage.toLocaleString('pt-BR')+' km'}:{})};
 
               return (
                 <article
@@ -922,13 +948,13 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
                         )}
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/[0.04] border border-white/10">
                           <Award className="w-3 h-3" style={{ color: accent }} />
-                          Garantia & Procedência
+                          Informações do veículo
                         </span>
                       </div>
 
                       <p className="text-xs text-slate-400 line-clamp-3 leading-relaxed">
                         {vehicle.description ||
-                          'Veículo revisado com procedência garantida. Aceitamos seu usado na troca e financiamos com as melhores taxas.'}
+                          'Consulte a equipe sobre condições, procedência e formas de pagamento.'}
                       </p>
                     </div>
                   </div>
@@ -1019,7 +1045,7 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
 
       {/* 5. SIMULADOR DE PROPOSTA, TROCA & FINANCIAMENTO DIRETO NO WHATSAPP */}
       <section id="proposta-whatsapp" className="py-16 sm:py-24 px-4 sm:px-8 lg:px-14 max-w-[1720px] mx-auto">
-        <div className="grid lg:grid-cols-[1fr_1.2fr] gap-8 sm:gap-12 rounded-3xl border border-white/15 bg-gradient-to-b from-[#0c1018] to-[#06080d] p-6 sm:p-12 shadow-2xl">
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] gap-8 sm:gap-12 rounded-3xl border border-white/15 bg-gradient-to-b from-[#0c1018] to-[#06080d] p-6 sm:p-12 shadow-2xl">
           <div className="space-y-6">
             <span
               className="inline-flex items-center gap-2 text-xs font-mono font-bold uppercase tracking-[0.22em]"
@@ -1078,7 +1104,7 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
               </div>
               <div className="flex items-center gap-2.5">
                 <CheckCircle2 className="w-4 h-4 shrink-0" style={{ color: accent }} />
-                <span>Aceitamos seu carro ou moto na troca com avaliação justa</span>
+                <span>Consulte a possibilidade de avaliar seu usado na troca</span>
               </div>
               {store.address && (
                 <div className="flex items-center gap-2.5">
@@ -1180,13 +1206,16 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
               />
             </label>
 
-            <button
+            <label className="flex items-start gap-3 text-xs text-slate-300"><input type="checkbox" required checked={consent} onChange={e=>setConsent(e.target.checked)} className="!w-5 !h-5 shrink-0"/><span>Autorizo a loja a entrar em contato sobre esta solicitação. <a href="/privacidade.html" target="_blank" rel="noreferrer" className="underline">Privacidade</a></span></label>
+            {proposalError&&<p role="alert" className="text-sm text-red-300">{proposalError}</p>}
+            <p className="text-xs text-slate-400">Seu interesse será registrado antes de abrir o WhatsApp. A proposta não reserva o veículo nem aprova financiamento.</p>
+            <button disabled={proposalBusy}
               type="submit"
               className="w-full py-4 px-6 rounded-2xl font-black text-xs sm:text-sm uppercase tracking-wider text-slate-950 shadow-2xl flex items-center justify-center gap-2.5 transition hover:brightness-110 cursor-pointer"
               style={{ backgroundColor: accent }}
             >
               <MessageCircle className="w-5 h-5 fill-current" />
-              <span>Enviar Proposta para o WhatsApp da Loja</span>
+              <span>{proposalBusy?'Registrando interesse…':'Registrar interesse e abrir WhatsApp'}</span>
               <ArrowUpRight className="w-4 h-4" />
             </button>
           </form>
@@ -1208,8 +1237,8 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
       </footer>
 
       {/* BOTÃO FLUTUANTE DE WHATSAPP (PONTO CENTRAL DE CONVERSÃO) */}
-      <aside className="fixed right-5 bottom-5 z-40">
-        <a
+      <aside className="vehicle-floating-contact fixed right-5 bottom-5 z-40">
+        <a aria-label="Conversar com a loja no WhatsApp"
           href={getWhatsAppLink()}
           target="_blank"
           rel="noopener noreferrer"
@@ -1231,14 +1260,15 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
       {/* LIGHTBOX MODAL (FOTOS EM TELA CHEIA & VÍDEO) */}
       {lightbox.isOpen && lightbox.vehicle && (
         <div
-          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex items-center justify-center p-3 sm:p-6"
+          className="vehicle-gallery fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex items-center justify-center p-3 sm:p-6"
           onClick={() => setLightbox((prev) => ({ ...prev, isOpen: false }))}
         >
           <div
-            className="relative w-full max-w-5xl max-h-[92vh] flex flex-col bg-[#0b0e15] border border-white/15 rounded-3xl overflow-hidden shadow-2xl"
+            role="dialog" aria-modal="true" aria-label={`Galeria de ${lightbox.vehicle.name}`}
+            className="vehicle-gallery-dialog relative w-full max-w-5xl max-h-[92vh] flex flex-col bg-[#0b0e15] border border-white/15 rounded-3xl overflow-hidden shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-white/10 bg-black/50">
+            <div className="vehicle-gallery-header flex items-center justify-between px-4 sm:px-6 py-4 border-b border-white/10 bg-black/50">
               <div className="min-w-0 pr-3">
                 <span className="text-[10px] font-mono font-bold uppercase block" style={{ color: accent }}>
                   {lightbox.vehicle.category || 'SHOWROOM'} • {formatBRL(lightbox.vehicle.price)}
@@ -1276,7 +1306,7 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
                 <button
                   type="button"
                   onClick={() => setLightbox((prev) => ({ ...prev, isOpen: false }))}
-                  className="w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer"
+                  aria-label="Fechar galeria" className="vehicle-gallery-close w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -1346,7 +1376,7 @@ export const VehicleDealershipStorefront: React.FC<VehicleDealershipStorefrontPr
               )}
             </div>
 
-            <div className="p-4 sm:p-5 border-t border-white/10 bg-[#0b0e15] flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="vehicle-gallery-footer p-4 sm:p-5 border-t border-white/10 bg-[#0b0e15] flex flex-col sm:flex-row items-center justify-between gap-3">
               <div>
                 <p className="text-xs text-slate-400">Gostou deste veículo?</p>
                 <p className="text-sm font-black text-white">

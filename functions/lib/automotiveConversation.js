@@ -39,6 +39,11 @@ function selectAutomotiveProfile(text, memory, extracted) {
     if (context.year && !/^(19|20)\d{2}$/.test(context.year))
         context.year = '';
     let switched = false;
+    const thirdParty = /\b(amigo|amiga|colega|irmao|irma|conhecido|conhecida)\b/.test((0, exports.normalizeAuto)(text)) || memory.automotiveCatalogs?.[active]?.audience === 'friend';
+    if (thirdParty && !intent.ownsVehicle) {
+        intent.exploring = true;
+        intent.ownsVehicle = false;
+    }
     const model = (0, exports.normalizeAuto)(extracted.model), brand = (0, exports.normalizeAuto)(extracted.brand);
     const newProject = /\b(outro projeto|novo projeto para o mesmo|outro carro|outro veiculo|tambem tenho|agora tenho|troquei de carro)\b/.test((0, exports.normalizeAuto)(text));
     const correction = /\b(na verdade|corrigindo|correcao|errei|quis dizer)\b/.test((0, exports.normalizeAuto)(text));

@@ -104,3 +104,16 @@ test('audio tool can consult but cannot finalize a reservation or address confir
  assert.match((await run('sim',false)).replyText,/SIM por texto/);assert.equal(db.data.get(root).kits[0].reserved,0);
  assert.match((await run('sim')).replyText,/confirmada/);assert.equal(db.data.get(root).kits[0].reserved,1);
 });
+test('standalone instalação routes to the current vehicle operation instead of the generic menu',async()=>{
+ const db=seed();db.data.get(root).config.enabled=false;
+ const result=await resolveAutomotiveOperations(db,'store','ig_123','legacy',vehicle,'Instalação');
+ assert.equal(result.kind,'internal_consultation');assert.match(result.replyText,/consultar a equipe/);
+});
+test('actual installation stages synchronize only the linked customer project',async()=>{
+ const db=seed();db.data.get('automotive_projects/project').phone='ig_123';
+ const o=offer(db.data.get(root),'progress');await reserveGarage(db,'store',o,contact,'ai');
+ await transitionGarageBooking(db,'store',day,o.id,'installing');assert.equal(db.data.get('automotive_projects/project').status,'Em execução');
+ await transitionGarageBooking(db,'store',day,o.id,'ready');assert.equal(db.data.get('automotive_projects/project').status,'Pronto para retirada');
+ await transitionGarageBooking(db,'store',day,o.id,'completed');assert.equal(db.data.get('automotive_projects/project').status,'Concluído');
+ const other=seed();other.data.get('automotive_projects/project').phone='ig_other';const second=offer(other.data.get(root),'other');await reserveGarage(other,'store',second,contact,'ai');await transitionGarageBooking(other,'store',day,second.id,'installing');assert.equal(other.data.get('automotive_projects/project').status,undefined);
+});

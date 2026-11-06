@@ -1,0 +1,174 @@
+[
+  {
+    "code": "FG-P01",
+    "slug": "01-conjunto-azulado",
+    "name": "Conjunto de escapamento em titânio — FG-P01",
+    "category": "Sistemas de escapamento — identificação pendente",
+    "photos": [
+      "/Users/thiagojosedeoliveira/Desktop/fotos-escape-pedro/IMG_5573.PNG",
+      "/Users/thiagojosedeoliveira/Desktop/fotos-escape-pedro/IMG_5588.PNG",
+      "/Users/thiagojosedeoliveira/Desktop/fotos-escape-pedro/IMG_5594.PNG",
+      "/Users/thiagojosedeoliveira/Desktop/fotos-escape-pedro/IMG_5604.PNG",
+      "/Users/thiagojosedeoliveira/Desktop/fotos-escape-pedro/IMG_5605.PNG",
+      "/Users/thiagojosedeoliveira/Desktop/fotos-escape-pedro/IMG_5607.PNG"
+    ],
+    "cover": "/Users/thiagojosedeoliveira/Desktop/fotos-escape-pedro/IMG_5573.PNG",
+    "description": "Conjunto de escapamento em titânio com tubulação soldada, trechos curvos em laço, corpos cilíndricos e suportes de fixação. Acabamento azulado com tons dourados e violáceos.",
+    "knowledge": "Produto: conjunto de escapamento em titânio FG-P01. Material: titânio. Construção: duas partes aproximadamente espelhadas, tubos com juntas soldadas, trajetos curvos em laço, corpos cilíndricos e suportes de fixação. Acabamento: azulado, dourado e violáceo.\nAtendimento: use os campos técnicos atuais deste cadastro para complementar as respostas. Apresente o material e as características diretamente, sem narrar fontes, validações ou processos internos. Informe somente o que foi perguntado; não liste dados ausentes espontaneamente. Aplicação por veículo, medidas, grau da liga, acionamento de válvulas, características acústicas, ganhos, preço, estoque, prazo e garantia só podem ser afirmados quando preenchidos nos campos correspondentes. Se uma informação solicitada estiver ausente, diga de forma natural que vai precisar conferir. Não atribua a função antirressonância aos laços nem prometa encaixe, controle remoto ou ganhos sem esses dados. Preço sob consulta não significa gratuito.",
+    "status": "draft_requires_technical_validation",
+    "automotiveSpecs": {
+      "validation": "reference",
+      "material": "Titânio"
+    },
+    "price": null,
+    "pendingConfirmation": [
+      "Nome comercial e código/SKU",
+      "Grau da liga e material dos acessórios; espessura e diâmetros",
+      "Veículos/gerações/motores/anos com aplicação validada",
+      "Componentes e acessórios efetivamente incluídos",
+      "Preço atual, unidade/par, instalação e frete",
+      "Estoque/capacidade, prazo e condições de garantia",
+      "Projetos e publicações associados; vídeos de ronco identificados",
+      "Funcionamento das válvulas e acionamento; função dos laços e dos corpos cilíndricos",
+      "Correspondência exata deste grupo com a linha publicada no site; confirmar fabricação deste código"
+    ],
+    "sources": [
+      {
+        "url": "https://flowgarage.com.br/",
+        "checkedAt": "2026-11-05",
+        "scope": "company_and_product_line_only",
+        "exactItemMatch": false
+      }
+    ],
+    "companyMaterialConfirmation": {
+      "materials": [
+        "Titânio",
+        "Inox"
+      ],
+      "source": "Confirmação direta do usuário",
+      "confirmedAt": "2026-11-05",
+      "scope": "company_only",
+      "exactItemMaterialConfirmed": false
+    },
+    "materialConfirmation": {
+      "material": "Titânio",
+      "source": "Usuário: azulado é titânio, prateado é inox",
+      "confirmedAt": "2026-11-05",
+      "alloyGrade": null
+    }
+  },
+  {
+    "code": "FG-P02",
+    "slug": "02-conjunto-prateado",
+    "name": "Conjunto de escapamento em inox — FG-P02",
+    "category": "Sistemas de escapamento — identificação pendente",
+    "photos": [
+      "/Users/thiagojosedeoliveira/Desktop/fotos-escape-pedro/IMG_5646.PNG",
+      "/Users/thiagojosedeoliveira/Desktop/fotos-escape-pedro/IMG_5647.PNG",
+      "/Users/thiagojosedeoliveira/Desktop/fotos-escape-pedro/IMG_5648.PNG",
+      "/Users/thiagojosedeoliveira/Desktop/fotos-escape-pedro/IMG_5654.PNG",
+      "/Users/thiagojosedeoliveira/Desktop/fotos-escape-pedro/IMG_5655.PNG",
+      "/Users/thiagojosedeoliveira/Desktop/fotos-escape-pedro/IMG_5656.PNG"
+    ],
+    "cover": "/Users/thiagojosedeoliveira/Desktop/fotos-escape-pedro/IMG_5648.PNG",
+    "description": "Conjunto de escapamento em inox com acabamento prateado e brilhante. Possui tubulação soldada, curvas em laço, corpos cilíndricos e suportes de fixação.",
+    "knowledge": "Produto: conjunto de escapamento em inox FG-P02. Material: aço inoxidável. Construção: tubos com juntas soldadas, curvas em laço, corpos cilíndricos e suportes de fixação. Acabamento: prateado e brilhante.\nAtendimento: use os campos técnicos atuais deste cadastro para complementar as respostas. Apresente o material e as características diretamente, sem narrar fontes, validações ou processos internos. Informe somente o que foi perguntado; não liste dados ausentes espontaneamente. Aplicação por veículo, medidas, grau da liga, acionamento de válvulas, características acústicas, ganhos, preço, estoque, prazo e garantia só podem ser afirmados quando preenchidos nos campos correspondentes. Se uma informação solicitada estiver ausente, diga de forma natural que vai precisar conferir. Não atribua a função antirressonância aos laços nem prometa encaixe, controle remoto ou ganhos sem esses dados. Preço sob consulta não significa gratuito.",
+    "status": "draft_requires_technical_validation",
+    "automotiveSpecs": {
+      "validation": "reference",
+      "material": "Inox"
+    },
+    "price": null,
+    "pendingConfirmation": [
+      "Nome comercial e código/SKU",
+      "Grau da liga e material dos acessórios; espessura e diâmetros",
+      "Veículos/gerações/motores/anos com aplicação validada",
+      "Componentes e acessórios efetivamente incluídos",
+      "Preço atual, unidade/par, instalação e frete",
+      "Estoque/capacidade, prazo e condições de garantia",
+      "Projetos e publicações associados; vídeos de ronco identificados",
+      "Funcionamento das válvulas e acionamento; função dos laços e dos corpos cilíndricos",
+      "Correspondência exata deste grupo com a linha publicada no site; confirmar fabricação deste código"
+    ],
+    "sources": [
+      {
+        "url": "https://flowgarage.com.br/",
+        "checkedAt": "2026-11-05",
+        "scope": "company_and_product_line_only",
+        "exactItemMatch": false
+      }
+    ],
+    "companyMaterialConfirmation": {
+      "materials": [
+        "Titânio",
+        "Inox"
+      ],
+      "source": "Confirmação direta do usuário",
+      "confirmedAt": "2026-11-05",
+      "scope": "company_only",
+      "exactItemMaterialConfirmed": false
+    },
+    "materialConfirmation": {
+      "material": "Inox",
+      "source": "Usuário: azulado é titânio, prateado é inox",
+      "confirmedAt": "2026-11-05",
+      "alloyGrade": null
+    }
+  },
+  {
+    "code": "FG-P03",
+    "slug": "03-coletor-tubular",
+    "name": "Coletor tubular em inox com três ramais — FG-P03",
+    "category": "Coletores de escapamento — identificação pendente",
+    "photos": [
+      "/Users/thiagojosedeoliveira/Desktop/fotos-escape-pedro/IMG_5657.PNG",
+      "/Users/thiagojosedeoliveira/Desktop/fotos-escape-pedro/IMG_5658.PNG",
+      "/Users/thiagojosedeoliveira/Desktop/fotos-escape-pedro/IMG_5659.PNG",
+      "/Users/thiagojosedeoliveira/Desktop/fotos-escape-pedro/IMG_5660.PNG"
+    ],
+    "cover": "/Users/thiagojosedeoliveira/Desktop/fotos-escape-pedro/IMG_5658.PNG",
+    "description": "Coletor tubular em inox com três ramais que convergem para uma conexão única flangeada. Possui juntas soldadas e acabamento prateado.",
+    "knowledge": "Produto: coletor tubular em inox FG-P03. Material: aço inoxidável. Construção: três ramais tubulares ligados a uma flange comum, convergindo para uma conexão única flangeada. Possui juntas soldadas. Acabamento: prateado. Os três ramais não determinam o número total de cilindros do motor.\nAtendimento: use os campos técnicos atuais deste cadastro para complementar as respostas. Apresente o material e as características diretamente, sem narrar fontes, validações ou processos internos. Informe somente o que foi perguntado; não liste dados ausentes espontaneamente. Aplicação por veículo, medidas, grau da liga, acionamento de válvulas, características acústicas, ganhos, preço, estoque, prazo e garantia só podem ser afirmados quando preenchidos nos campos correspondentes. Se uma informação solicitada estiver ausente, diga de forma natural que vai precisar conferir. Não atribua a função antirressonância aos laços nem prometa encaixe, controle remoto ou ganhos sem esses dados. Preço sob consulta não significa gratuito.",
+    "status": "draft_requires_technical_validation",
+    "automotiveSpecs": {
+      "validation": "reference",
+      "material": "Inox"
+    },
+    "price": null,
+    "pendingConfirmation": [
+      "Nome comercial e código/SKU",
+      "Grau da liga e material dos acessórios; espessura e diâmetros",
+      "Veículos/gerações/motores/anos com aplicação validada",
+      "Componentes e acessórios efetivamente incluídos",
+      "Preço atual, unidade/par, instalação e frete",
+      "Estoque/capacidade, prazo e condições de garantia",
+      "Projetos e publicações associados; vídeos de ronco identificados",
+      "Lado, venda unitária/par, interfaces, sensores/catalisadores e necessidade de remap",
+      "Correspondência exata deste grupo com a linha publicada no site; confirmar fabricação deste código"
+    ],
+    "sources": [
+      {
+        "url": "https://flowgarage.com.br/",
+        "checkedAt": "2026-11-05",
+        "scope": "company_and_product_line_only",
+        "exactItemMatch": false
+      }
+    ],
+    "companyMaterialConfirmation": {
+      "materials": [
+        "Titânio",
+        "Inox"
+      ],
+      "source": "Confirmação direta do usuário",
+      "confirmedAt": "2026-11-05",
+      "scope": "company_only",
+      "exactItemMaterialConfirmed": false
+    },
+    "materialConfirmation": {
+      "material": "Inox",
+      "source": "Usuário: azulado é titânio, prateado é inox",
+      "confirmedAt": "2026-11-05",
+      "alloyGrade": null
+    }
+  }
+]

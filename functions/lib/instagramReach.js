@@ -41,7 +41,7 @@ const leadGeoData_1 = require("./leadGeoData");
 const instagramLeadGeo_1 = require("./instagramLeadGeo");
 const instagramAcquisition_1 = require("./instagramAcquisition");
 const clean = (v, n = 200) => String(v || '').trim().slice(0, n);
-const reachStage = (status) => ['Aprovado', 'Em execução', 'Enviado', 'Concluído'].includes(status) ? 'won' : status === 'Cancelado' ? 'lost' : status === 'Orçamento enviado' ? 'quote' : ['Qualificação', 'Análise técnica'].includes(status) ? 'qualified' : 'new';
+const reachStage = (status) => ['Aprovado', 'Em execução', 'Pronto para retirada', 'Enviado', 'Concluído'].includes(status) ? 'won' : status === 'Cancelado' ? 'lost' : status === 'Orçamento enviado' ? 'quote' : ['Qualificação', 'Análise técnica'].includes(status) ? 'qualified' : 'new';
 exports.reachStage = reachStage;
 const validTime = (value) => typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : null;
 function sourceDto(value) { return value ? { kind: clean(value.kind, 40), mediaId: /^\d+$/.test(value.mediaId || '') ? String(value.mediaId) : '', adId: /^\d+$/.test(value.adId || '') ? String(value.adId) : '', title: clean(value.campaignName || value.caption || 'Publicação Instagram', 180), capturedAt: validTime(value.capturedAt), paidDeclared: value.paidDeclaredByOwner === true } : null; }

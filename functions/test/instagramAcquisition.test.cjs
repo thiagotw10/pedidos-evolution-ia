@@ -105,3 +105,52 @@ test('save rejects foreign or unavailable product bindings and prevents link goa
 test('long affiliate names and validated short links fit the conservative private-reply byte budget',async()=>{
  const product={name:'漢'.repeat(160),affiliateUrl:'https://shope.ee/'+ 'a'.repeat(480)};const draft=await policy.draftBusinessComment({segment:'AFFILIATES',comment:'quero',caption:'produto',campaign:{goal:'link'},product,keywordMatch:true},async()=>JSON.stringify({interested:true}));assert.ok(Buffer.byteLength(draft.privateReply,'utf8')<=850);assert.ok(draft.privateReply.includes(product.affiliateUrl));
 });
+
+test('public acknowledgements respect segment and only promise a link after actual link delivery',()=>{
+ const {publicAcknowledgement}=require('../lib/instagramBusinessPolicy');
+ assert.match(publicAcknowledgement('AFFILIATES',undefined,true),/Te mandei o link/);
+ assert.doesNotMatch(publicAcknowledgement('AFFILIATES'),/mandei o link/);
+ assert.match(publicAcknowledgement('AUTOMOTIVE_PARTS'),/projeto/);
+ assert.equal(publicAcknowledgement('AFFILIATES','  Veja seu Direct! 💌  ',true),'Veja seu Direct! 💌');
+});
+test('public reply configuration accepts legacy posts and rejects invalid custom text',()=>{
+ const config={...defaultAcquisition(),campaigns:[{mediaId:'987654321',enabled:true,paid:false}]};
+ assert.equal(normalizeAcquisition(config).campaigns[0].publicReplyText,'');
+ config.campaigns[0].publicReplyText='  Seu link está no Direct!  ';
+ assert.equal(normalizeAcquisition(config).campaigns[0].publicReplyText,'Seu link está no Direct!');
+ for(const value of ['a'.repeat(301),{text:'oi'},true]){config.campaigns[0].publicReplyText=value;assert.throws(()=>normalizeAcquisition(config),/300 caracteres/);}
+});
+test('custom public response is used verbatim only after successful Direct delivery',async()=>{
+ const db=seed();db.data.get(cfg).campaigns=[{mediaId:'987654321',enabled:true,paid:false,publicReplyText:'Confira seu Direct para falarmos do seu projeto!'}];
+ await run(db);assert.deepEqual(calls.filter(c=>c.method==='POST').map(c=>c.path),['456/messages','comment1/replies']);
+ assert.equal(calls.find(c=>c.path==='comment1/replies').body.message,'Confira seu Direct para falarmos do seu projeto!');
+ assert.equal(db.data.get(root+'/instagramLeads/e').publicReply,'Confira seu Direct para falarmos do seu projeto!');
+});
+test('new unbound posts get public-only praise without a DM, CRM lead, window or repeat send',async()=>{
+ const db=seed();db.data.set(cfg,{...db.data.get(cfg),engagementEnabled:true,triggerMode:'keyword',keywords:['preço']});db.data.delete(chat);db.data.get(event).text='Ficou lindo demais!';
+ const socialDeps={...deps,socialDraft:async()=>({kind:'praise',publicReply:'Esse elogio deixou o feed no brilho! Valeu 😎'})};await run(db,graph,socialDeps);
+ assert.deepEqual(calls.filter(c=>c.method==='POST').map(c=>c.path),['comment1/replies']);assert.equal(db.data.get(event).status,'public_sent');assert.equal(db.data.has(chat),false);assert.equal(db.data.has(root+'/instagramLeads/e'),false);
+ await processAutomotiveComment(db,'e',graph,socialDeps);assert.equal(calls.filter(c=>c.method==='POST').length,1);
+});
+test('complaints are flagged for review; ambiguous public deliveries are never automatically repeated',async()=>{
+ const db=seed();db.data.get(cfg).engagementEnabled=true;
+ await run(db,graph,{...deps,socialDraft:async()=>({kind:'complaint',publicReply:''})});assert.equal(db.data.get(event).status,'review_required');assert.equal(calls.filter(c=>c.method==='POST').length,0);
+ const other=seed();other.data.get(cfg).engagementEnabled=true;other.data.get(event).text='Que lindo';let sends=0;
+ const ambiguous=async(path,token,method)=>{if(method==='POST'){sends++;throw Error('timeout')}return {caption:'Carro'};};const options={...deps,socialDraft:async()=>({kind:'praise',publicReply:'Valeu pelo carinho! 😎'})};await run(other,ambiguous,options);assert.equal(other.data.get(event).status,'public_delivery_unknown');await processAutomotiveComment(other,'e',ambiguous,options);assert.equal(sends,1);
+});
+test('commercial persona keeps private sales message intact and only acknowledges after confirmed DM',async()=>{
+ const db=seed();db.data.get(cfg).engagementEnabled=true;
+ await run(db,graph,{...deps,socialDraft:async()=>({kind:'commercial',publicReply:''})});
+ assert.deepEqual(calls.filter(c=>c.method==='POST').map(c=>c.path),['456/messages','comment1/replies']);assert.equal(calls.find(c=>c.path==='456/messages').body.message.text,'Vamos conferir a aplicação para seu Jetta 2023. Qual é a versão dele?');assert.match(calls.find(c=>c.path==='comment1/replies').body.message,/Direct/);
+});
+test('engagement opt-in validates and rechecks a pause before a public reply',async()=>{
+ assert.equal(normalizeAcquisition({...defaultAcquisition(),engagementEnabled:true}).engagementEnabled,true);assert.throws(()=>normalizeAcquisition({...defaultAcquisition(),engagementEnabled:'yes'}));
+ const db=seed();db.data.get(cfg).engagementEnabled=true;await run(db,graph,{...deps,socialDraft:async()=>{db.data.get(chat).aiPaused=true;return {kind:'praise',publicReply:'Valeu demais!'};}});assert.equal(calls.filter(c=>c.method==='POST').length,0);
+});
+test('unbound vehicle post resolves a unique catalogue reference and preserves caption and original comment',async()=>{
+ const db=seed();db.data.get('establishments/store').segment='VEHICLES';db.data.get(event).text='Quanto custa esse carro?';
+ db.data.set('establishments/store/products/hb20',{name:'Hyundai HB20',available:true,price:55000,vehicleSpecs:{brand:'Hyundai',model:'HB20'}});
+ const catalogueGraph=async(path,token,method,body)=>method?graph(path,token,method,body):{caption:'Hyundai HB20 em nosso showroom',permalink:'https://www.instagram.com/p/posttest/'};
+ await run(db,catalogueGraph,{businessDraft:async input=>{assert.equal(input.product.id,'hb20');return {interested:true,privateReply:'Te ajudo com o Hyundai HB20. Quer conhecer os detalhes?'}}});
+ assert.equal(db.data.get(chat).instagramAcquisition.productId,'hb20');assert.equal(db.data.get(chat).instagramAcquisition.caption,'Hyundai HB20 em nosso showroom');assert.equal(db.data.get(chat).instagramAcquisition.comment,'Quanto custa esse carro?');
+});

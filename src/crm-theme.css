@@ -270,3 +270,18 @@
   .crm-overview-channels button { padding:10px; font-size:11px; gap:6px; margin:0; }
   .crm-overview-channels button svg:last-child { display:none; }
 }
+
+/* Keep board columns readable instead of shrinking all stages into the viewport. */
+.crm-main .crm-kanban-scroll { width:100%; max-width:100%; min-width:0; overflow-x:auto; padding:4px 0 16px; overscroll-behavior-x:contain; }
+.crm-main .crm-kanban-track { display:flex; align-items:stretch; gap:16px; width:max-content; min-width:100%; }
+.crm-main .crm-kanban-track > .crm-kanban-column { flex:0 0 292px; width:292px; min-width:292px; max-width:292px; }
+.crm-main .crm-kanban-column-header { gap:12px; min-height:64px; align-items:flex-start; }
+.crm-main .crm-kanban-column-header > div { flex:1; min-width:0; }
+.crm-main .crm-kanban-column-header > span { flex-shrink:0; }
+.crm-main .crm-kanban-column-header h2 { line-height:1.5; overflow-wrap:anywhere; }
+.crm-main .crm-kanban-column-header h2 > span { flex-shrink:0; }
+@media(max-width:767px) {
+ .crm-main .crm-kanban-track > .crm-kanban-column { flex-basis:280px; width:280px; min-width:280px; max-width:280px; }
+ .crm-main .crm-kanban-scroll { scroll-snap-type:x proximity; }
+ .crm-main .crm-kanban-column { scroll-snap-align:start; }
+}

@@ -1,3 +1,4 @@
+import {prepareAiGateway,reviewAiReply,GatewayDecision,SECURITY_REPLY} from './aiGateway';
 import { Express, Request, Response } from 'express';
 import * as admin from 'firebase-admin';
 
@@ -172,10 +173,15 @@ export async function processAffiliateComment(db: admin.firestore.Firestore,even
     await eventRef.update({status:'ignored',reason:storeSnap.data()?.segment!==AFFILIATE_SEGMENT?'inactive':event.senderId===c?.accountId?'own_comment':!c?.connected||!c.affiliatePermissions?'inactive':new Date(c.expiresAt).getTime()<=Date.now()?'authorization_expired':!p?.automationEnabled||p.status!=='published'?'legacy_post_inactive':!matchesAffiliateKeyword(event.text,p.keywords||[])?'keyword_not_matched':'inactive'}); return;
   }
   if(/\b(?:nao (?:me )?(?:mande|envie|chame)|nao quero (?:receber )?(?:mensagens?|contato|direct))\b/.test(normalize(event.text))){await eventRef.update({status:'ignored',reason:'contact_refused'});return;}
+  const gateway=await prepareAiGateway(event.text||'',storeSnap.data()||{},'instagram');
+  await eventRef.update({aiGateway:gateway});
+  if(gateway.blocked){await eventRef.update({status:'ignored',reason:'security_blocked'});return;}
   const product = (await workspace(db,event.storeId).collection('products').doc(p.productId).get()).data();
   const chat = storeRef.collection('chats').doc(`ig_${event.senderId}`);
   if (!product?.active || (await chat.get()).data()?.aiPaused) { await eventRef.update({status:'ignored',reason:!product?.active?'product_unavailable':'human_takeover'}); return; }
   const reply = `Aqui está o link de ${product.name}:\n${affiliateUrl(product.affiliateUrl,true)}\n\nÉ um link de afiliado: podemos receber comissão. Confira preço e disponibilidade na Shopee.`;
+  const review=await reviewAiReply(event.text||'',reply,{segment:AFFILIATE_SEGMENT,allowedUrls:[affiliateUrl(product.affiliateUrl,true)]},{remote:false});
+  if(review.corrected){await eventRef.update({status:'ignored',reason:'response_guardrail',guardrail:review});return;}
   // At most one attempt across webhook retries; ambiguous provider timeouts require manual review.
   const acquired = await db.runTransaction(async tx => {
     const current = (await tx.get(eventRef)).data();
@@ -193,7 +199,7 @@ export async function processAffiliateComment(db: admin.firestore.Firestore,even
     const result = await graph(`${c.accountId}/messages`,c.accessToken,'POST',{recipient:{comment_id:event.mid},message:{text:reply}});
     if (!result.message_id) throw new Error('Unconfirmed private reply');
     const timestamp = iso();
-    await chat.collection('messages').doc(`comment_${eventId}`).set({sender:'assistant',origin:'automation',channel:'instagram',text:reply,timestamp,deliveryStatus:'sent',providerMessageId:result.message_id,affiliateProductId:p.productId});
+    await chat.collection('messages').doc(`comment_${eventId}`).set({sender:'assistant',origin:'automation',channel:'instagram',text:reply,timestamp,deliveryStatus:'sent',providerMessageId:result.message_id,affiliateProductId:p.productId,aiGateway:{channel:'instagram',route:'affiliate_comment',actualModel:null,reviewer:review.reviewer}});
     await chat.set({channel:'instagram',customerPhone:`ig_${event.senderId}`,customerName:'Visitante Instagram',instagramSenderId:event.senderId,instagramAccountId:event.accountId,
       affiliateProductId:p.productId,lastMessage:reply,lastTimestamp:timestamp,updatedAt:timestamp,leadSource:'Comentário Instagram',unreadByHuman:true},{merge:true});
     // A private reply does not open the regular 24h DM window; do not set lastInboundAt.
@@ -206,7 +212,7 @@ export async function processAffiliateComment(db: admin.firestore.Firestore,even
   }
 }
 
-export async function affiliateDirectReply(db: admin.firestore.Firestore,storeId: string,chatId: string,incoming: string, channel: 'instagram' | 'whatsapp' = 'instagram') {
+export async function affiliateDirectReply(db: admin.firestore.Firestore,storeId: string,chatId: string,incoming: string, channel: 'instagram' | 'whatsapp' = 'instagram',gateway?:GatewayDecision) {
   const root = workspace(db,storeId), chat = db.collection('establishments').doc(storeId).collection('chats').doc(chatId);
   const [productsSnap,chatSnap] = await Promise.all([root.collection('products').where('active','==',true).limit(300).get(),chat.get()]);
   const products = productsSnap.docs.map(d=>({id:d.id,...d.data()} as any));
@@ -223,8 +229,12 @@ export async function affiliateDirectReply(db: admin.firestore.Firestore,storeId
   } else {
     replyText = products.length ? `Oi! Qual achadinho você quer conhecer? 😊 Me diga o nome do produto ou envie a referência do Reel para eu localizar o link certo.` : 'Oi! Estamos preparando nossos achadinhos por aqui 😊 Qual produto você está procurando?';
   }
+  gateway=gateway||await prepareAiGateway(incoming,{segment:AFFILIATE_SEGMENT},channel);
+  if(gateway.blocked)replyText=SECURITY_REPLY;
+  const review=await reviewAiReply(incoming,replyText,{segment:AFFILIATE_SEGMENT,allowedUrls:products.map(p=>affiliateUrl(p.affiliateUrl,true))},{remote:false});
+  replyText=review.text;
   const timestamp = iso();
-  const message = await chat.collection('messages').add({sender:'assistant',origin:'ai',channel,text:replyText,timestamp,deliveryStatus:'pending'});
+  const message = await chat.collection('messages').add({sender:'assistant',origin:'ai',channel,text:replyText,timestamp,deliveryStatus:'pending',aiGateway:{channel,route:gateway.blocked?'security_blocked':'affiliate_catalog',actualModel:null,selectedModel:gateway.model,triageSource:gateway.triageSource,reviewer:review.reviewer,corrected:review.corrected,reason:review.reason}});
   await chat.set({lastMessage:replyText,lastTimestamp:timestamp,updatedAt:timestamp},{merge:true});
   return {replyText,assistantMessageId:message.id};
 }

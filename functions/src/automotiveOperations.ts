@@ -1,5 +1,5 @@
 import {resolveLeadLocation,saveLeadLocation} from './instagramLeadGeo';
-import {openInternalConsultation} from './internalConsultation';
+import {openInternalConsultation,acceptStaffScheduleOffer} from './internalConsultation';
 import * as admin from 'firebase-admin';
 import crypto from 'crypto';
 import {normalizeAuto} from './automotiveConversation';
@@ -74,7 +74,8 @@ export async function resolveAutomotiveOperations(db:admin.firestore.Firestore,s
   if(/\b(cep|entrega|frete|envio)\b/.test(t) && !diversion)return response('Para consultar o endereço de entrega, qual é o seu CEP? A consulta do CEP não calcula o frete.','shipping');
   const garage=session.garage || {};
   const stockQuestion=/\b(estoque|saldo|disponivel|disponiveis)\b/.test(t) || /\b(tem|possui)\b.*\b(kit|escape|escapamento|peca)\b/.test(t) && !/\b(fotos?|videos?|imagens?|referencias?|projetos?)\b/.test(t);
-  const wantsGarage=stockQuestion || /\b(quero|gostaria|pretendo|posso|preciso)\b.*\b(instalar|instalacao|colocar|montar)\b/.test(t) || operationDay(input)!==null && /\b(instalar|instalacao|colocar|montar|escape|escapamento)\b/.test(t) || /\b(agendar|agendamento|marcar|vagas?|estoque|disponibilidade|horario disponivel|tem.*(?:kit|escape|peca).*disponivel)\b/.test(t);
+  const wantsGarage=/^instalacao[.! ]*$/.test(t) || stockQuestion || /\b(quero|gostaria|pretendo|posso|preciso)\b.*\b(instalar|instalacao|colocar|montar)\b/.test(t) || operationDay(input)!==null && /\b(instalar|instalacao|colocar|montar|escape|escapamento)\b/.test(t) || /\b(agendar|agendamento|marcar|vagas?|estoque|disponibilidade|horario disponivel|tem.*(?:kit|escape|peca).*disponivel)\b/.test(t);
+  if(!garage.stage && allowCommit){const accepted=await acceptStaffScheduleOffer(db,storeId,contactId,profile,input);if(accepted)return accepted;}
   if(!wantsGarage && (!garage.stage || diversion))return null;
   const root=operationsRef(db,storeId),state=garageState((await root.get()).data());
 

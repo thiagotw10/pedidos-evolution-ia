@@ -31,7 +31,6 @@ export function getCrmNavigation(establishment?:Establishment|null) {
    ...(!automotive&&!affiliate?[{id:'finance',label:'Financeiro',icon:TrendingUp}]:[]),
    {id:'settings',label:'Configurações e IA',icon:Settings},
    ...(!affiliate?[{id:'simulator',label:'Testar atendimento IA',icon:MessageSquareCode}]:[]),
-   {id:'billing',label:'Plano e créditos',icon:CreditCard},
   ]},
  ];
 }

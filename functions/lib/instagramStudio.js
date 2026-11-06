@@ -139,9 +139,9 @@ function studioFunnel(chats, projects, accountId) {
             continue;
         const row = get(mediaId);
         row.leads++;
-        if (['Orçamento enviado', 'Aprovado', 'Em execução', 'Enviado', 'Concluído'].includes(p.status))
+        if (['Orçamento enviado', 'Aprovado', 'Em execução', 'Pronto para retirada', 'Enviado', 'Concluído'].includes(p.status))
             row.quotes++;
-        if (['Aprovado', 'Em execução', 'Enviado', 'Concluído'].includes(p.status)) {
+        if (['Aprovado', 'Em execução', 'Pronto para retirada', 'Enviado', 'Concluído'].includes(p.status)) {
             row.sales++;
             const amount = Number(p.quoteValue), currency = p.currency || 'BRL';
             if (Number.isFinite(amount) && amount >= 0)
@@ -194,7 +194,7 @@ function registerInstagramStudio(app, db, graph) {
         const c = connection.data();
         if (!c?.connected)
             return res.json({ connected: false });
-        const saved = snapshot.data(), analytics = saved?.accountId === c.accountId ? saved.analytics : null;
+        const saved = snapshot.data(), analytics = c?.connected && c.accountId && saved?.accountId === c.accountId ? saved?.analytics ?? null : null;
         const media = Array.isArray(analytics?.media) ? analytics.media : [];
         const total = (key) => { const values = media.map((m) => m.metrics?.[key]).filter((v) => typeof v === 'number' && Number.isFinite(v)); return values.length ? values.reduce((a, b) => a + b, 0) : null; };
         return res.json({ connected: true, accountId: c.accountId, username: c.username || '', enabled: c.enabled === true, expired: !Number.isFinite(Date.parse(c.expiresAt)) || Date.parse(c.expiresAt) <= Date.now(), insightsPermission: (0, exports.hasScope)(c, exports.INSIGHTS_SCOPE), syncedAt: analytics?.syncedAt || null, since: analytics?.since || null, until: analytics?.until || null, views: analytics?.account?.views ?? null, reach: analytics?.account?.reach ?? null, likes: total('likes'), comments: total('comments'), sampleSize: media.length, media: media.slice(0, 3).map((m) => ({ id: clean(m.id, 100), caption: clean(m.caption, 180), type: clean(m.type, 30), thumbnail: /^https:\/\//.test(m.thumbnail || '') ? m.thumbnail : '', likes: typeof m.metrics?.likes === 'number' ? m.metrics.likes : null, comments: typeof m.metrics?.comments === 'number' ? m.metrics.comments : null })) });
@@ -204,7 +204,7 @@ function registerInstagramStudio(app, db, graph) {
         const c = connection.data();
         const projects = store.data()?.segment === 'AUTOMOTIVE_PARTS' ? await db.collection('automotive_projects').where('establishmentId', '==', id).limit(1000).get() : null;
         const saved = metrics.data();
-        return res.json({ segment: store.data()?.segment, connection: { connected: !!c?.connected, username: c?.username || '', accountId: c?.accountId || '', publishing: (0, exports.hasScope)(c, exports.PUBLISH_SCOPE), insights: (0, exports.hasScope)(c, exports.INSIGHTS_SCOPE) }, posts: snap.docs.filter(d => d.data().accountId === c?.accountId).map(d => postDto(d.id, d.data())), analytics: saved?.accountId === c?.accountId ? saved.analytics : null, funnel: studioFunnel(chats.docs.map(d => d.data()), projects?.docs.map(d => d.data()) || [], c?.accountId || ''), crmAvailable: store.data()?.segment === 'AUTOMOTIVE_PARTS', sampleLimit: 1000 });
+        return res.json({ segment: store.data()?.segment, connection: { connected: !!c?.connected, username: c?.username || '', accountId: c?.accountId || '', publishing: (0, exports.hasScope)(c, exports.PUBLISH_SCOPE), insights: (0, exports.hasScope)(c, exports.INSIGHTS_SCOPE) }, posts: snap.docs.filter(d => !!c?.accountId && d.data().accountId === c.accountId).map(d => postDto(d.id, d.data())), analytics: c?.connected && c.accountId && saved?.accountId === c.accountId ? saved?.analytics ?? null : null, funnel: studioFunnel(chats.docs.map(d => d.data()), projects?.docs.map(d => d.data()) || [], c?.accountId || ''), crmAvailable: store.data()?.segment === 'AUTOMOTIVE_PARTS', sampleLimit: 1000 });
     }));
     app.post('/api/instagram/studio/posts', owned(async (req, res, id) => {
         const p = validateStudioPost(req.body);

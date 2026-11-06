@@ -1,3 +1,7 @@
+import {automotiveStages,boardStage,boardColumns} from '../utils/automotiveStages';
+import { projectChannel, channelLeadCount } from '../utils/projectChannel';
+import {InstagramMessageContext,SafeConversationImage} from './InstagramMessageContext';
+import {InstagramContactIdentity} from './InstagramContactIdentity';
 import {SkeletonScreen, Preloader} from './Loading';
 import {ModalFrame} from './ModalFrame';
 import {ConversationDialog} from './ConversationDialog';
@@ -45,26 +49,7 @@ import { auth, db } from '../lib/firebase';
 import { collection, doc, query, orderBy, limitToLast, onSnapshot } from 'firebase/firestore';
 import { subscribeToPushNotifications } from '../utils/pwaNotifications';
 
-const stages = [
-  'Novo contato',
-  'Qualificação',
-  'Análise técnica',
-  'Orçamento enviado',
-  'Aprovado',
-  'Em execução',
-  'Enviado',
-  'Concluído',
-  'Cancelado'
-];
-
-const kanbanStages = [
-  'Novo contato',
-  'Qualificação',
-  'Análise técnica',
-  'Orçamento enviado',
-  'Aprovado',
-  'Em execução'
-];
+const stages = automotiveStages;
 
 type Project = {
   id: string;
@@ -84,6 +69,7 @@ type Project = {
   delivery: string;
   status: string;
   source?: 'public_site' | 'whatsapp_ai' | string;
+  instagramAcquisition?: {kind?:string;caption?:string;comment?:string;productName?:string;permalink?:string};
   whatsappConnected?: boolean;
   conversationSummary?: string;
   lastMessage?: string;
@@ -95,6 +81,8 @@ type Project = {
   quote?: string;
   freight?: string;
   leadTime?: string;
+  completionForecast?: string;
+  serviceUpdate?: string;
   tracking?: string;
   trafficSource?: 'META_ADS' | 'GOOGLE_ADS' | 'SITE' | 'ORGANIC' | string;
   campaignName?: string;
@@ -188,6 +176,7 @@ export function renderWhatsAppFormattedText(text: string) {
 }
 
 type ConversationMessage = {
+  instagramContext?:any[];
   id: string;
   sender: 'user' | 'assistant' | 'system';
   author?: string;
@@ -360,7 +349,7 @@ function ConversationMedia({message,outbound,onImage}:{message:ConversationMessa
   const media=[...(message.media||[])];
   if(message.mediaUrl&&!media.some(m=>m.url===message.mediaUrl))media.push({url:message.mediaUrl,type:'image'});
   if(message.audioUrl&&!media.some(m=>m.url===message.audioUrl))media.push({url:message.audioUrl,type:'audio'});
-  return <>{media.filter(m=>/^(https:\/\/|data:(image|video|audio)\/)/i.test(m.url)).map((m,i)=><div key={i} className="my-1 min-w-0 max-w-full">{m.type==='audio'?<WhatsAppAudioPlayer audioUrl={m.url} isOutbound={outbound}/>:m.type==='video'?<video controls playsInline preload="metadata" src={m.url} className="block max-w-full max-h-80 rounded-xl"/>:<button type="button" onClick={()=>onImage(m.url)} title="Ampliar imagem" className="block max-w-full"><img src={m.url} alt={m.caption||'Mídia da conversa'} className="block max-w-full max-h-80 object-contain rounded-xl"/></button>}</div>)}</>;
+  return <><InstagramMessageContext items={message.instagramContext?.length?message.instagramContext:media.filter(m=>!['image','video','audio'].includes(m.type||'image')).map(m=>({kind:m.type==='story_mention'?'story_mention':'shared_post',permalink:m.url,previewUrl:m.url}))}/>{media.filter(m=>['image','audio','video'].includes(m.type||'image')).filter(m=>/^(https:\/\/|data:(image|video|audio)\/)/i.test(m.url)).map((m,i)=><div key={i} className="my-1 min-w-0 max-w-full">{m.type==='audio'?<WhatsAppAudioPlayer audioUrl={m.url} isOutbound={outbound}/>:m.type==='video'?<video controls playsInline preload="metadata" src={m.url} className="block max-w-full max-h-80 rounded-xl"/>:<SafeConversationImage url={m.url} alt={m.caption||'Mídia da conversa'} onOpen={()=>onImage(m.url)}/>}</div>)}</>;
 }
 
 export function AutomotiveProjects({conversationContactId, onConversationClose}: {conversationContactId?:string;onConversationClose?:()=>void} = {}) {
@@ -371,6 +360,7 @@ export function AutomotiveProjects({conversationContactId, onConversationClose}:
   const [busy, setBusy] = useState(false);
   const [initialLoading, setInitialLoading] = useState(!conversationContactId);
   const [filter, setFilter] = useState('Todos');
+  const [teamOnly,setTeamOnly]=useState(false);
   const [sourceFilter, setSourceFilter] = useState<'ALL' | 'WHATSAPP' | 'INSTAGRAM' | 'SITE'>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'kanban' | 'list'>(() => window.matchMedia('(max-width: 767px)').matches ? 'list' : 'kanban');
@@ -544,7 +534,7 @@ export function AutomotiveProjects({conversationContactId, onConversationClose}:
     if(!selected?.phone||!auth.currentUser)return;
     return onSnapshot(doc(db,'establishments',auth.currentUser.uid,'chats',selected.phone),snap=>{
       const data=snap.data();if(!data)return;
-      setSelected(prev=>prev?{...prev,aiPaused:data.aiPaused??prev.aiPaused,aiPausedUntil:data.aiPausedUntil??(data.aiPausedUntil===null?null:prev.aiPausedUntil)}:prev);
+      setSelected(prev=>prev?{...prev,instagramAcquisition:data.instagramAcquisition??prev.instagramAcquisition,aiPaused:data.aiPaused??prev.aiPaused,aiPausedUntil:data.aiPausedUntil??(data.aiPausedUntil===null?null:prev.aiPausedUntil)}:prev);
     });
   },[selected?.phone]);
   useEffect(()=>{
@@ -1123,10 +1113,10 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
 
   const filteredProjects = useMemo(() => {
     return projects.filter(p => {
-      if (filter !== 'Todos' && p.status !== filter) return false;
-      if (sourceFilter === 'INSTAGRAM' && !String(p.phone || '').startsWith('ig_') && p.source !== 'instagram_ai') return false;
-      if (sourceFilter === 'WHATSAPP' && p.source !== 'whatsapp_ai' && !p.whatsappConnected) return false;
-      if (sourceFilter === 'SITE' && p.source !== 'public_site') return false;
+      if (teamOnly && !isAiCurrentlyPaused(p)) return false;
+      if (viewMode==='list' && filter !== 'Todos' && p.status !== filter) return false;
+      if (sourceFilter !== 'ALL' && projectChannel(p) !== sourceFilter) return false;
+
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase().trim();
         const haystack = [
@@ -1148,20 +1138,21 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
       }
       return true;
     });
-  }, [projects, filter, sourceFilter, searchTerm]);
+  }, [projects, filter, sourceFilter, searchTerm, teamOnly, viewMode]);
 
   const stats = useMemo(() => {
     const total = projects.length;
-    const fromWhatsApp = projects.filter(p => p.source === 'whatsapp_ai' || p.whatsappConnected).length;
+    const fromWhatsApp = channelLeadCount(projects,'WHATSAPP');
+    const fromInstagram = channelLeadCount(projects,'INSTAGRAM');
     const awaitingTech = projects.filter(p => ['Novo contato', 'Qualificação', 'Análise técnica'].includes(p.status)).length;
     const hotLeads = projects.filter(p => p.leadTemperature === 'HOT' || p.status === 'Análise técnica').length;
     const totalPipelineValue = projects.reduce((acc, curr) => acc + (Number(curr.quoteValue) || 0), 0);
     const pausedAiCount = projects.filter(isAiCurrentlyPaused).length;
-    return { total, fromWhatsApp, awaitingTech, hotLeads, totalPipelineValue, pausedAiCount };
+    return { total, fromInstagram, fromWhatsApp, awaitingTech, hotLeads, totalPipelineValue, pausedAiCount };
   }, [projects]);
 
   function isInstagramProject(project: Project) {
-    return /^(ig_|instagram_)/.test(String(project.phone || ''));
+    return projectChannel(project)==='INSTAGRAM';
   }
 
   function displayVehicleModel(project: Project) {
@@ -1238,7 +1229,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
 
       {initialLoading&&<SkeletonScreen variant="dashboard" label="Carregando projetos e orçamentos…" count={5}/>}
       {/* KPI Summary Cards */}
-      <div hidden={initialLoading} className="crm-project-stats grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+      <div hidden={initialLoading} className="crm-project-stats grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
         <div className="rounded-2xl border border-white/10 bg-slate-900/90 p-4">
           <span className="text-[11px] uppercase tracking-wider text-slate-400">Total no Pipeline</span>
           <p className="text-2xl font-black text-white mt-1">{stats.total}</p>
@@ -1249,7 +1240,12 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
             <MessageSquare className="w-3 h-3" /> WhatsApp Leads
           </span>
           <p className="text-2xl font-black text-emerald-400 mt-1">{stats.fromWhatsApp}</p>
-          <span className="text-[11px] text-slate-400">IA qualificando contatos</span>
+          <span className="text-[11px] text-slate-400">Contatos únicos no funil</span>
+        </div>
+        <div className="rounded-2xl border border-pink-500/25 bg-slate-900/90 p-4">
+          <span className="text-[11px] uppercase tracking-wider text-pink-400 flex items-center gap-1"><Instagram className="w-3 h-3"/> Leads do Instagram</span>
+          <p className="text-2xl font-black text-pink-400 mt-1">{stats.fromInstagram}</p>
+          <span className="text-[11px] text-slate-400">Contatos únicos no funil</span>
         </div>
         <div className="rounded-2xl border border-orange-500/25 bg-slate-900/90 p-4">
           <span className="text-[11px] uppercase tracking-wider text-orange-300 flex items-center gap-1">
@@ -1258,12 +1254,12 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
           <p className="text-2xl font-black text-orange-300 mt-1">{stats.awaitingTech}</p>
           <span className="text-[11px] text-slate-400">Aguardando retorno técnico</span>
         </div>
-        <div className="rounded-2xl border border-amber-500/25 bg-slate-900/90 p-4">
+        <div role="button" tabIndex={0} aria-pressed={teamOnly} onClick={()=>{setTeamOnly(v=>!v);setFilter('Todos');setSourceFilter('ALL');setSearchTerm('');}} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();e.currentTarget.click();}}} className="rounded-2xl border border-amber-500/25 bg-slate-900/90 p-4 cursor-pointer">
           <span className="text-[11px] uppercase tracking-wider text-amber-300 flex items-center gap-1">
             <Pause className="w-3 h-3" /> Com a equipe
           </span>
           <p className="text-2xl font-black text-amber-300 mt-1">{stats.pausedAiCount}</p>
-          <span className="text-[11px] text-slate-400">Atendimento com a equipe</span>
+          <span className="text-[11px] text-slate-400">IA pausada · toque para filtrar</span>
         </div>
         <div className="rounded-2xl border border-cyan-500/25 bg-slate-900/90 p-4 col-span-2 lg:col-span-1">
           <span className="text-[11px] uppercase tracking-wider text-cyan-300 flex items-center gap-1">
@@ -1351,6 +1347,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
         </div>
       </div>
 
+      {teamOnly && <div className="flex items-center gap-3 text-sm"><span>Exibindo atendimentos com a equipe em todas as etapas.</span><button className="underline" onClick={()=>setTeamOnly(false)}>Mostrar todos</button></div>}
       {/* Stage Filter Pills for List View */}
       {!initialLoading && viewMode === 'list' && (
         <div className="flex overflow-x-auto gap-2 py-1 scrollbar-thin">
@@ -1370,19 +1367,19 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
 
       {/* KANBAN PIPELINE VIEW */}
       {!initialLoading && viewMode === 'kanban' && (
-        <div className="overflow-x-auto pb-4 pt-1">
-          <div className="flex gap-4 min-w-[1280px]">
-            {kanbanStages.map(stageName => {
-              const columnProjects = filteredProjects.filter(p => p.status === stageName);
+        <div className="crm-kanban-scroll" role="region" aria-label="Etapas dos projetos" tabIndex={0}>
+          <div className="crm-kanban-track">
+            {boardColumns(filteredProjects).map(stageName => {
+              const columnProjects = filteredProjects.filter(p => boardStage(p.status) === stageName);
               const columnValue = columnProjects.reduce((acc, curr) => acc + (Number(curr.quoteValue) || 0), 0);
 
               return (
                 <div
                   key={stageName}
-                  className="flex-1 bg-slate-900/60 border border-white/5 rounded-2xl p-3 flex flex-col gap-3 min-w-[250px]"
+                  className="crm-kanban-column bg-slate-900/60 border border-white/5 rounded-2xl p-3 flex flex-col gap-3"
                 >
                   {/* Column Header */}
-                  <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+                  <div className="crm-kanban-column-header flex items-center justify-between border-b border-white/10 pb-2.5">
                     <div>
                       <h2 className="text-xs font-extrabold uppercase tracking-wide text-white flex items-center gap-1.5">
                         <span className="w-2 h-2 rounded-full bg-orange-400 inline-block" />
@@ -1403,7 +1400,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                   <div className="flex flex-col gap-2.5 min-h-[350px]">
                     {columnProjects.map(p => {
                       const isPaused = isAiCurrentlyPaused(p);
-                      const isWhatsApp = p.source === 'whatsapp_ai';
+                      const isWhatsApp = projectChannel(p)==='WHATSAPP';
 
                       return (
                         <div
@@ -1417,7 +1414,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                               #{p.id.slice(0, 6)}
                             </span>
                             <div className="flex items-center gap-1 flex-wrap">
-                              {String(p.phone || '').startsWith('ig_') && <span className="text-pink-300 text-[10px] inline-flex gap-1 items-center"><Instagram size={11} /> Direct</span>}
+                              {projectChannel(p)==='INSTAGRAM' && <span className="text-pink-300 text-[10px] inline-flex gap-1 items-center"><Instagram size={11} /> Direct</span>}
                               {p.country && p.country !== 'BR' && (
                                 <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
                                   {getCountryBadge(p.country).flag} {p.country}
@@ -1500,6 +1497,15 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                                 <ChevronRight className="w-3 h-3" />
                               </button>
                             )}
+                            {stageName === 'Aprovado' && p.delivery === 'Atendimento local' && (
+                              <button type="button" onClick={e => handleQuickAdvanceStage(p, 'Em execução', e)} className="px-2 py-1 rounded-lg bg-orange-500/20 text-orange-300 text-[10px] font-bold">Carro recebido</button>
+                            )}
+                            {stageName === 'Em execução' && p.delivery === 'Atendimento local' && (
+                              <button type="button" onClick={e => handleQuickAdvanceStage(p, 'Pronto para retirada', e)} className="px-2 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">Liberar retirada e avisar</button>
+                            )}
+                            {stageName === 'Pronto para retirada' && (
+                              <button type="button" onClick={e => handleQuickAdvanceStage(p, 'Concluído', e)} className="px-2 py-1 rounded-lg bg-white/10 text-white text-[10px] font-bold">Carro entregue</button>
+                            )}
                             {stageName === 'Orçamento enviado' && (
                               <button
                                 type="button"
@@ -1533,9 +1539,9 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
       {!initialLoading && viewMode === 'list' && (
         <div className="grid md:grid-cols-2 gap-4">
           {filteredProjects.map(p => {
-            const isInstagramLead = String(p.phone || '').startsWith('ig_');
-            const isWhatsAppLead = p.source === 'whatsapp_ai';
-            const hasWhatsAppSync = isWhatsAppLead || p.whatsappConnected;
+            const isInstagramLead = projectChannel(p)==='INSTAGRAM';
+            const isWhatsAppLead = projectChannel(p)==='WHATSAPP';
+            const hasWhatsAppSync = !isInstagramLead && (isWhatsAppLead || p.whatsappConnected);
             const isPaused = isAiCurrentlyPaused(p);
             const refsList = Array.isArray(p.references) ? p.references : [];
 
@@ -1693,6 +1699,7 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                   <h3 className="font-semibold text-sm sm:text-base text-[#e9edef] truncate leading-tight">
                     {selected.customerName || 'Cliente'}
                   </h3>
+                  <InstagramContactIdentity contactId={selected.phone}/>
                   <div className="flex items-center gap-1.5 text-[11px] truncate mt-0.5">
                     {isAiCurrentlyPaused(selected) ? (
                       <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40 text-[10px] shrink-0">
@@ -1825,6 +1832,8 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                 </button>
               </div>
             )}
+
+            {selected.instagramAcquisition?.kind==='instagram_comment'&&<details className="shrink-0 px-4 py-2 border-b border-slate-700 text-xs text-slate-400 bg-slate-900 max-h-40 overflow-auto"><summary className="cursor-pointer font-semibold">Publicação de origem · referência do anúncio</summary>{selected.instagramAcquisition.productName&&<p className="mt-2">{selected.instagramAcquisition.productName}</p>}{selected.instagramAcquisition.caption&&<p className="mt-2 whitespace-pre-wrap">{selected.instagramAcquisition.caption.slice(0,350)}</p>}{selected.instagramAcquisition.comment&&<p className="mt-2">Comentário: {selected.instagramAcquisition.comment.slice(0,200)}</p>}{/^https:\/\/(www\.)?instagram\.com\/(p|reel|tv)\//.test(selected.instagramAcquisition.permalink||'')&&<a className="underline inline-block mt-2" href={selected.instagramAcquisition.permalink} target="_blank" rel="noopener noreferrer">Ver publicação no Instagram</a>}<p className="mt-2">Referência visual; aplicação e orçamento dependem da análise do seu projeto.</p></details>}
 
             {/* Chat Body - Authentic WhatsApp Wallpaper & Bubbles */}
             <div
@@ -2344,6 +2353,17 @@ Gostaria de garantir sua vaga na fila de produção ou ficou com alguma dúvida 
                       <Send className="w-3.5 h-3.5" />
                       <span>⚡ Preparar proposta</span>
                     </button>
+                  </div>
+
+                  <div className="rounded-xl p-3.5 bg-[#182229] border border-white/10 space-y-3">
+                    <p className="text-xs font-bold text-white">Acompanhamento da oficina</p>
+                    <p className="text-xs text-slate-400">Ao receber o carro, mova para Em execução. Só use Pronto para retirada quando ele estiver liberado. O cliente recebe o aviso pelo canal da conversa, quando o envio estiver disponível.</p>
+                    <label className="block text-xs text-slate-300">Previsão de conclusão
+                      <input value={selected.completionForecast || ''} maxLength={200} onChange={e => setSelected({...selected,completionForecast:e.target.value})} placeholder="Ex.: 04/11 às 17h, sujeito à revisão final" className="block w-full min-w-0 bg-[#111b21] border border-white/10 rounded-xl p-2.5 mt-1 text-white" />
+                    </label>
+                    <label className="block text-xs text-slate-300">Atualização visível ao cliente
+                      <textarea value={selected.serviceUpdate || ''} maxLength={500} rows={2} onChange={e => setSelected({...selected,serviceUpdate:e.target.value})} placeholder="Ex.: Montagem concluída; em teste de vedação." className="block w-full min-w-0 bg-[#111b21] border border-white/10 rounded-xl p-2.5 mt-1 text-white" />
+                    </label>
                   </div>
 
                   {/* Manual notes */}

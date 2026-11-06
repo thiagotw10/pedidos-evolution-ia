@@ -104,3 +104,9 @@ test('home summary uses only the current account snapshot, hides disconnected ac
  db.data.get('instagramConnections/flow').connected=false;res=response();await r['GET /api/instagram/studio/summary'](req(),res);assert.deepEqual(res.body,{connected:false});
  res=response();await r['GET /api/instagram/studio/summary'](req({},'other'),res);assert.equal(res.code,403);
 });
+
+test('studio without connection or saved metrics returns a safe empty state',async t=>{
+ auth(t);const db=fakeDb({'establishments/flow':{segment:'VEHICLES'}});const r=routes(db);const res=response();
+ await r['GET /api/instagram/studio'](req(),res);
+ assert.equal(res.code,200);assert.equal(res.body.connection.connected,false);assert.equal(res.body.analytics,null);assert.deepEqual(res.body.posts,[]);
+});

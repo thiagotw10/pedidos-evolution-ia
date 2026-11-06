@@ -43,6 +43,7 @@ exports.registerAffiliateRoutes = registerAffiliateRoutes;
 exports.extractAffiliateComments = extractAffiliateComments;
 exports.processAffiliateComment = processAffiliateComment;
 exports.affiliateDirectReply = affiliateDirectReply;
+const aiGateway_1 = require("./aiGateway");
 const admin = __importStar(require("firebase-admin"));
 exports.AFFILIATE_SEGMENT = 'AFFILIATES';
 const iso = () => new Date().toISOString();
@@ -261,6 +262,12 @@ async function processAffiliateComment(db, eventId, graph) {
         await eventRef.update({ status: 'ignored', reason: 'contact_refused' });
         return;
     }
+    const gateway = await (0, aiGateway_1.prepareAiGateway)(event.text || '', storeSnap.data() || {}, 'instagram');
+    await eventRef.update({ aiGateway: gateway });
+    if (gateway.blocked) {
+        await eventRef.update({ status: 'ignored', reason: 'security_blocked' });
+        return;
+    }
     const product = (await workspace(db, event.storeId).collection('products').doc(p.productId).get()).data();
     const chat = storeRef.collection('chats').doc(`ig_${event.senderId}`);
     if (!product?.active || (await chat.get()).data()?.aiPaused) {
@@ -268,6 +275,11 @@ async function processAffiliateComment(db, eventId, graph) {
         return;
     }
     const reply = `Aqui está o link de ${product.name}:\n${affiliateUrl(product.affiliateUrl, true)}\n\nÉ um link de afiliado: podemos receber comissão. Confira preço e disponibilidade na Shopee.`;
+    const review = await (0, aiGateway_1.reviewAiReply)(event.text || '', reply, { segment: exports.AFFILIATE_SEGMENT, allowedUrls: [affiliateUrl(product.affiliateUrl, true)] }, { remote: false });
+    if (review.corrected) {
+        await eventRef.update({ status: 'ignored', reason: 'response_guardrail', guardrail: review });
+        return;
+    }
     // At most one attempt across webhook retries; ambiguous provider timeouts require manual review.
     const acquired = await db.runTransaction(async (tx) => {
         const current = (await tx.get(eventRef)).data();
@@ -290,7 +302,7 @@ async function processAffiliateComment(db, eventId, graph) {
         if (!result.message_id)
             throw new Error('Unconfirmed private reply');
         const timestamp = iso();
-        await chat.collection('messages').doc(`comment_${eventId}`).set({ sender: 'assistant', origin: 'automation', channel: 'instagram', text: reply, timestamp, deliveryStatus: 'sent', providerMessageId: result.message_id, affiliateProductId: p.productId });
+        await chat.collection('messages').doc(`comment_${eventId}`).set({ sender: 'assistant', origin: 'automation', channel: 'instagram', text: reply, timestamp, deliveryStatus: 'sent', providerMessageId: result.message_id, affiliateProductId: p.productId, aiGateway: { channel: 'instagram', route: 'affiliate_comment', actualModel: null, reviewer: review.reviewer } });
         await chat.set({ channel: 'instagram', customerPhone: `ig_${event.senderId}`, customerName: 'Visitante Instagram', instagramSenderId: event.senderId, instagramAccountId: event.accountId,
             affiliateProductId: p.productId, lastMessage: reply, lastTimestamp: timestamp, updatedAt: timestamp, leadSource: 'Comentário Instagram', unreadByHuman: true }, { merge: true });
         // A private reply does not open the regular 24h DM window; do not set lastInboundAt.
@@ -303,7 +315,7 @@ async function processAffiliateComment(db, eventId, graph) {
         await posts.docs[0].ref.update({ lastError });
     }
 }
-async function affiliateDirectReply(db, storeId, chatId, incoming, channel = 'instagram') {
+async function affiliateDirectReply(db, storeId, chatId, incoming, channel = 'instagram', gateway) {
     const root = workspace(db, storeId), chat = db.collection('establishments').doc(storeId).collection('chats').doc(chatId);
     const [productsSnap, chatSnap] = await Promise.all([root.collection('products').where('active', '==', true).limit(300).get(), chat.get()]);
     const products = productsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -323,8 +335,13 @@ async function affiliateDirectReply(db, storeId, chatId, incoming, channel = 'in
     else {
         replyText = products.length ? `Oi! Qual achadinho você quer conhecer? 😊 Me diga o nome do produto ou envie a referência do Reel para eu localizar o link certo.` : 'Oi! Estamos preparando nossos achadinhos por aqui 😊 Qual produto você está procurando?';
     }
+    gateway = gateway || await (0, aiGateway_1.prepareAiGateway)(incoming, { segment: exports.AFFILIATE_SEGMENT }, channel);
+    if (gateway.blocked)
+        replyText = aiGateway_1.SECURITY_REPLY;
+    const review = await (0, aiGateway_1.reviewAiReply)(incoming, replyText, { segment: exports.AFFILIATE_SEGMENT, allowedUrls: products.map(p => affiliateUrl(p.affiliateUrl, true)) }, { remote: false });
+    replyText = review.text;
     const timestamp = iso();
-    const message = await chat.collection('messages').add({ sender: 'assistant', origin: 'ai', channel, text: replyText, timestamp, deliveryStatus: 'pending' });
+    const message = await chat.collection('messages').add({ sender: 'assistant', origin: 'ai', channel, text: replyText, timestamp, deliveryStatus: 'pending', aiGateway: { channel, route: gateway.blocked ? 'security_blocked' : 'affiliate_catalog', actualModel: null, selectedModel: gateway.model, triageSource: gateway.triageSource, reviewer: review.reviewer, corrected: review.corrected, reason: review.reason } });
     await chat.set({ lastMessage: replyText, lastTimestamp: timestamp, updatedAt: timestamp }, { merge: true });
     return { replyText, assistantMessageId: message.id };
 }

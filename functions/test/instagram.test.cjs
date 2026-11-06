@@ -80,7 +80,7 @@ test('webhook rejects wrong verify token and unsigned POST; signed batches persi
 });
 test('worker uses shared AI, sends media/text/maps directly and ignores duplicate delivery', async t => {
   const db = seedEvent(); const requests = []; let aiCalls = 0; let billingCalls = 0;
-  t.mock.method(global, 'fetch', async (url, opts) => { requests.push({ url, ...opts }); return new Response(JSON.stringify({ message_id: 'sent' })); });
+  t.mock.method(global, 'fetch', async (url, opts) => { if(String(url).includes('?fields=name,username'))return new Response(JSON.stringify({username:'cliente',name:'Cliente real'})); requests.push({ url, ...opts }); return new Response(JSON.stringify({ message_id: 'sent' })); });
   const ai = async (...args) => { aiCalls++; assert.equal(args[1], 'ig_123'); assert.equal(args[6], 'instagram');
     return { replyText: 'Olá!', mediaList: [{ url: 'https://example.com/photo.jpg', caption: '', type: 'image' }],
       locationToSend: { latitude: 1, longitude: 2, name: 'Loja', address: 'Rua 1' } }; };
@@ -306,11 +306,41 @@ test('out of hours automatic reply is mirrored with sent status', async t => {
 });
 test('takeover midway through a media batch preserves partial status rather than hiding sent text', async t => {
  const db=seedEvent();let sends=0;
- t.mock.method(global,'fetch',async()=>{sends++;db.data.get(chatPath).aiPaused=true;return new Response(JSON.stringify({message_id:'ok'}));});
+ t.mock.method(global,'fetch',async(url)=>{if(String(url).includes('?fields=name,username'))return new Response('{}');sends++;db.data.get(chatPath).aiPaused=true;return new Response(JSON.stringify({message_id:'ok'}));});
  await processInstagramEvent(db,'event1',async()=>{
   db.data.set(chatPath+'/messages/answer',{sender:'assistant',text:'Referência',deliveryStatus:'pending'});
   return {replyText:'Referência',assistantMessageId:'answer',mediaList:[{url:'https://example.com/photo.jpg',type:'image',caption:''}]};
  });
  assert.equal(sends,1);assert.equal(db.data.get(chatPath+'/messages/answer').deliveryStatus,'partial');
  assert.equal(db.data.get(chatPath+'/messages/answer').deliveredParts,1);
+});
+
+const gatewayDecision=(patch={})=>({version:1,channel:'instagram',model:'deepseek-flash',blocked:false,security:{blocked:false,category:'SAFE',confidence:1,durationMs:0},triage:null,triageSource:'local',maxOutputTokens:800,...patch});
+test('Instagram shares the selected model with billing and generation and keeps the decision on retries',async t=>{
+ const db=seedEvent();let gates=0,billed=0,generated=0;
+ t.mock.method(global,'fetch',async()=>new Response(JSON.stringify({message_id:'sent'})));
+ const gateway=async()=>{gates++;return gatewayDecision()};
+ const ai=async(...args)=>{generated++;assert.equal(args[5],'deepseek-flash');assert.equal(args[8].channel,'instagram');return{replyText:'Como posso ajudar?'}};
+ await processInstagramEvent(db,'event1',ai,{gateway,reserveCredit:async(store,text,model)=>{billed++;assert.equal(model,'deepseek-flash');return{allowed:true}}});
+ await processInstagramEvent(db,'event1',ai,{gateway});assert.equal(gates,1);assert.equal(billed,1);assert.equal(generated,1);assert.equal(db.data.get('instagramEvents/event1').aiGateway.model,'deepseek-flash');
+});
+test('Instagram security block sends only the safe acknowledgement, without billing or generation',async t=>{
+ const db=seedEvent();const sent=[];
+ t.mock.method(global,'fetch',async(url,options)=>{sent.push(JSON.parse(options.body));return new Response(JSON.stringify({message_id:'safe'}))});
+ await processInstagramEvent(db,'event1',async()=>assert.fail('no generation'),{gateway:async()=>gatewayDecision({blocked:true}),reserveCredit:async()=>assert.fail('no billing')});
+ assert.equal(sent.length,1);assert.match(sent[0].message.text,/Qual é a sua dúvida/);assert.equal(db.data.get('instagramEvents/event1').status,'sent');
+});
+test('Instagram handoff pauses the bot, alerts the team and sends one acknowledgement',async t=>{
+ const db=seedEvent();let sent=0,notified=0;
+ t.mock.method(global,'fetch',async(url)=>{if(String(url).includes('?fields=name,username'))return new Response('{}');sent++;return new Response(JSON.stringify({message_id:'handoff'}))});
+ const deps={gateway:async()=>gatewayDecision({triage:{intent:'HUMAN_HELP',urgent:true}}),notifyHuman:async()=>{notified++},reserveCredit:async()=>assert.fail('no billing')};
+ await processInstagramEvent(db,'event1',async()=>assert.fail('no model'),deps);
+ await processInstagramEvent(db,'event1',async()=>assert.fail('no regeneration'),deps);
+ assert.equal(db.data.get(chatPath).aiPaused,true);assert.equal(db.data.get(chatPath).needsHuman,true);assert.equal(notified,1);assert.equal(sent,1);assert.equal(db.data.get('instagramEvents/event1').status,'sent');
+});
+test('low-confidence complaint continues Instagram AI without pausing or notifying a takeover',async t=>{
+ const db=seedEvent();let generated=0;
+ t.mock.method(global,'fetch',async()=>new Response(JSON.stringify({message_id:'continued'})));
+ await processInstagramEvent(db,'event1',async()=>{generated++;return{replyText:'Sim, seu projeto está em execução.'}}, {gateway:async()=>gatewayDecision({triage:{intent:'COMPLAINT',urgent:true,confidence:.28}}),notifyHuman:async()=>assert.fail('no handoff alert')});
+ assert.equal(generated,1);assert.notEqual(db.data.get(chatPath).aiPaused,true);assert.notEqual(db.data.get(chatPath).needsHuman,true);
 });

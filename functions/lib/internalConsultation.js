@@ -38,9 +38,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.requestRef = void 0;
 exports.consultationVehicleKey = consultationVehicleKey;
+exports.consultationIdentityMatches = consultationIdentityMatches;
 exports.consultationReply = consultationReply;
 exports.composeInternalReply = composeInternalReply;
 exports.openInternalConsultation = openInternalConsultation;
+exports.isStaffScheduleOffer = isStaffScheduleOffer;
+exports.staffScheduleContinuation = staffScheduleContinuation;
+exports.acceptStaffScheduleOffer = acceptStaffScheduleOffer;
 exports.registerInternalConsultationRoutes = registerInternalConsultationRoutes;
 exports.notifyInternalConsultation = notifyInternalConsultation;
 exports.deliverInternalFollowup = deliverInternalFollowup;
@@ -54,6 +58,27 @@ const now = () => new Date().toISOString();
 const clean = (v, max = 1000) => String(v || '').trim().slice(0, max);
 const hash = (v) => crypto_1.default.createHash('sha256').update(v).digest('hex');
 function consultationVehicleKey(ctx) { return [ctx.brand, ctx.model, ctx.year, ctx.version].map(v => String(v || '').trim().toLowerCase()).join('|'); }
+const identityText = (value) => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[–—]/g, '-').replace(/\s+/g, ' ').trim();
+function canonicalVehicle(ctx) {
+    const version = identityText(ctx.version);
+    // Remove only a repeated, identical version. Other trim/generation details remain significant.
+    const model = identityText(ctx.model).replace(/\(([^)]+)\)/g, (full, part) => version && identityText(part) === version ? '' : full).replace(/\s+/g, ' ').trim();
+    return [identityText(ctx.brand), model, identityText(ctx.year), version].join('|');
+}
+/** Backward-compatible comparison: old tickets/jobs retain their original IDs and vehicleKey. */
+function consultationIdentityMatches(chat, expected) {
+    const profile = chat?.activeAutomotiveProfile || 'legacy';
+    if (!chat || profile !== expected.profile)
+        return false;
+    const current = chat.automotiveProfiles?.[profile] || chat.automotiveContext || {};
+    const prior = expected.vehicle || Object.fromEntries(['brand', 'model', 'year', 'version'].map((key, index) => [key, String(expected.vehicleKey || '').split('|')[index] || '']));
+    const project = current.projectId || chat.projectId;
+    if (expected.projectId && project && expected.projectId !== project)
+        return false;
+    if (chat.automotiveContext && canonicalVehicle(current) !== canonicalVehicle(chat.automotiveContext))
+        return false;
+    return canonicalVehicle(prior) === canonicalVehicle(current);
+}
 const requestRef = (db, store, id) => (0, garage_1.operationsRef)(db, store).collection('requests').doc(id);
 exports.requestRef = requestRef;
 function consultationReply(ticket, answer) {
@@ -128,6 +153,71 @@ async function openInternalConsultation(db, storeId, contactId, profile, ctx, re
     });
     return { replyText: result.created ? 'Vou consultar a equipe da oficina sobre esse ponto e te retorno por aqui assim que tiver a confirmação.' : result.status === 'pending' ? 'Sua consulta continua com a equipe. Assim que houver uma confirmação, eu retomo o atendimento por aqui.' : 'A equipe já respondeu à consulta. Estou conferindo o retorno para seguir com você por aqui.', kind: 'internal_consultation', requestId: id };
 }
+const shortAcceptance = (input) => /^(sim|sim pode|confirmo|confirmado|pode confirmar|pode reservar|isso|correto|correta|e isso|pode ser|ok|combinado|fechado)[.! ]*$/.test(identityText(input));
+const operationsMenu = (text) => identityText(text) === 'qual consulta voce quer fazer: endereco de entrega, estoque de um kit ou instalacao?';
+function scheduleSignature(text) {
+    const t = identityText(text), date = t.match(/\bdia (\d{1,2}) (?:de )?([a-z]+|\/\d{1,2})/), time = t.match(/\b(?:as|pelas) (\d{1,2})(?:h(?:(\d{2}))?|:(\d{2})| horas)\b/);
+    return date && time ? `${date[1]}:${date[2]}:${time[1]}:${time[2] || time[3] || '00'}` : null;
+}
+/** Only a delivered, unexpired offer from the same project can support acceptance. */
+function isStaffScheduleOffer(ticket, message, clock = Date.now()) {
+    const text = identityText(ticket?.customerText);
+    return ticket?.status === 'sent' && ticket.answer?.outcome !== 'unavailable' &&
+        Number.isFinite(Date.parse(ticket.sentAt)) && clock - Date.parse(ticket.sentAt) >= 0 && clock - Date.parse(ticket.sentAt) < 24 * 3600000 &&
+        message?.internalRequestId === ticket.id && message?.deliveryStatus === 'sent' && message?.text === ticket.customerText &&
+        /\b(instalacao|vaga|horario|agendamento)\b/.test(text) && /\b(\d{1,2}h|\d{1,2}:\d{2}|\d{1,2} horas)\b/.test(text) &&
+        /\?/.test(text) && /\b(funciona|pode ser|confirma|concorda|serve|disponivel|consegue)\b/.test(text);
+}
+function staffScheduleContinuation(ticket, messages, input) {
+    if (!shortAcceptance(input) && !/^instalacao[.! ]*$/.test(identityText(input)))
+        return false;
+    const assistants = messages.filter(m => m.sender === 'assistant'), last = assistants[0];
+    const source = { internalRequestId: ticket.id, deliveryStatus: 'sent', text: ticket.customerText };
+    if (!isStaffScheduleOffer(ticket, source))
+        return false;
+    if (shortAcceptance(input) && isStaffScheduleOffer(ticket, last))
+        return true;
+    const signature = scheduleSignature(ticket.customerText);
+    const matchingPrompt = (m) => signature && scheduleSignature(m.text) === signature && /\b(confirma|confirmar)\b/.test(identityText(m.text)) && /\b(sim|funciona|horario)\b/.test(identityText(m.text));
+    if (shortAcceptance(input) && last?.deliveryStatus === 'sent' && matchingPrompt(last))
+        return true;
+    // Recover the old menu loop only when a real affirmative followed the same-slot prompt.
+    if (!operationsMenu(last?.text || ''))
+        return false;
+    const promptIndex = messages.findIndex(m => m.sender === 'assistant' && !operationsMenu(m.text || ''));
+    if (promptIndex < 0 || !matchingPrompt(messages[promptIndex]) || messages[promptIndex].deliveryStatus !== 'sent')
+        return false;
+    return messages.slice(0, promptIndex).some(m => m.sender === 'user' && shortAcceptance(m.text || ''));
+}
+async function acceptStaffScheduleOffer(db, storeId, contactId, profile, input) {
+    if (!shortAcceptance(input) && !/^instalacao[.! ]*$/.test(identityText(input)))
+        return null;
+    const chatRef = db.collection('establishments').doc(storeId).collection('chats').doc(contactId);
+    const chat = (await chatRef.get()).data();
+    if (!chat?.lastInternalRequestId || (chat.activeAutomotiveProfile || 'legacy') !== profile)
+        return null;
+    const source = (0, exports.requestRef)(db, storeId, chat.lastInternalRequestId), ticket = (await source.get()).data();
+    if (!ticket || !consultationIdentityMatches(chat, ticket))
+        return null;
+    const messages = await chatRef.collection('messages').orderBy('timestamp', 'desc').limit(20).get();
+    if (!staffScheduleContinuation(ticket, messages.docs.map(d => d.data()), input))
+        return null;
+    // Availability is not a committed booking. Preserve the accepted offer for final team approval.
+    const id = hash(`accepted-slot:${ticket.id}:${ticket.version}`), ref = (0, exports.requestRef)(db, storeId, id);
+    return db.runTransaction(async (tx) => {
+        const fresh = (await tx.get(source)).data(), current = (await tx.get(chatRef)).data(), existing = (await tx.get(ref)).data();
+        if (fresh?.status !== 'sent' || fresh.version !== ticket.version || !consultationIdentityMatches(current, ticket))
+            return null;
+        if (!existing)
+            tx.set(ref, { id, version: 1, storeId, contactId, profile, channel: ticket.channel, reason: 'availability',
+                question: clean(`O cliente aceitou o horário proposto: "${ticket.customerText}". Confirme a reserva deste mesmo horário e as condições pendentes; não peça outra data.`, 700),
+                customerName: ticket.customerName || 'Cliente', projectId: ticket.projectId || '', vehicle: ticket.vehicle, vehicleKey: ticket.vehicleKey, preferredDay: ticket.preferredDay || '',
+                sourceRequestId: ticket.id, sourceRequestVersion: ticket.version, acceptedOffer: ticket.customerText,
+                status: 'pending', createdAt: now(), updatedAt: now(), answer: null, followupId: null, notified: false });
+        tx.set(source, { customerAcceptance: { text: clean(input, 100), acceptedAt: fresh.customerAcceptance?.acceptedAt || now(), confirmationRequestId: id } }, { merge: true });
+        return { replyText: 'Perfeito, vou seguir com esse horário. Só falta concluir a reserva com a oficina; te aviso por aqui assim que estiver confirmada.', kind: 'staff_offer_accepted' };
+    });
+}
 function registerInternalConsultationRoutes(app, db, compose = composeInternalReply) {
     const owned = (fn) => async (req, res) => {
         let uid;
@@ -177,12 +267,12 @@ function registerInternalConsultationRoutes(app, db, compose = composeInternalRe
                 throw new Error('A conversa de origem não está mais disponível.');
             if ((chat.activeAutomotiveProfile || 'legacy') !== ticket.profile)
                 throw new Error('O cliente mudou de projeto. Abra a conversa para conferir o contexto atual.');
-            if (consultationVehicleKey(chat.automotiveContext || {}) !== ticket.vehicleKey)
-                throw new Error('Os dados do veículo mudaram. Confira a conversa antes de responder.');
+            if (!consultationIdentityMatches(chat, ticket))
+                throw new Error('Os dados do veículo ou do projeto mudaram. Confira a conversa antes de responder.');
             const answer = { outcome, facts: clean(req.body.facts, 500), internalNotes: clean(req.body.internalNotes, 1500), answeredAt: now(), answeredBy: id };
             const followupId = `${ticket.id}_${ticket.version}`;
             tx.update(ref, { status: 'answered', answer, followupId, customerText, updatedAt: now() });
-            tx.set((0, garage_1.operationsRef)(db, id).collection('followups').doc(followupId), { requestId: ticket.id, requestVersion: ticket.version, contactId: ticket.contactId, profile: ticket.profile, vehicleKey: ticket.vehicleKey,
+            tx.set((0, garage_1.operationsRef)(db, id).collection('followups').doc(followupId), { requestId: ticket.id, requestVersion: ticket.version, contactId: ticket.contactId, profile: ticket.profile, vehicleKey: ticket.vehicleKey, vehicle: ticket.vehicle || null, projectId: ticket.projectId || '',
                 channel: ticket.channel, text: customerText, status: 'pending', createdAt: now(), attempts: 0 });
             return { followupId, customerText };
         });
@@ -214,6 +304,7 @@ async function deliverInternalFollowup(db, storeId, id, send) {
         const ticketRef = (0, exports.requestRef)(db, storeId, job.requestId), ticket = (await tx.get(ticketRef)).data();
         const chatRef = db.collection('establishments').doc(storeId).collection('chats').doc(job.contactId), chat = (await tx.get(chatRef)).data();
         const store = (await tx.get(db.collection('establishments').doc(storeId))).data();
+        const identity = job.vehicle ? job : { ...job, vehicle: ticket?.vehicle || null, projectId: job.projectId || ticket?.projectId || '' };
         let reason = '';
         if (store?.segment !== 'AUTOMOTIVE_PARTS')
             reason = 'segment_changed';
@@ -223,7 +314,7 @@ async function deliverInternalFollowup(db, storeId, id, send) {
             reason = 'chat_unavailable';
         else if (chat.aiPaused && (!chat.aiPausedUntil || Date.parse(chat.aiPausedUntil) > Date.now()))
             reason = 'human_takeover';
-        else if ((chat.activeAutomotiveProfile || 'legacy') !== job.profile || consultationVehicleKey(chat.automotiveContext || {}) !== job.vehicleKey)
+        else if (!consultationIdentityMatches(chat, identity))
             reason = 'project_changed';
         else if (Date.now() - Date.parse(job.createdAt) > 23 * 3600000)
             reason = 'followup_expired';
@@ -238,17 +329,17 @@ async function deliverInternalFollowup(db, storeId, id, send) {
         // Never retry an ambiguous send automatically: a provider timeout may still deliver.
         tx.update(jobRef, { status: 'sending', attempts: Number(job.attempts || 0) + 1, startedAt: now() });
         tx.update(ticketRef, { status: 'sending', updatedAt: now() });
-        return { job, store, chatRef, ticketRef };
+        return { job, store, chatRef, ticketRef, identity };
     });
     if (!acquired)
         return;
-    const { job, store, chatRef, ticketRef } = acquired;
+    const { job, store, chatRef, ticketRef, identity } = acquired;
     const sendDefault = async (storeId, contact, text, channel) => channel === 'instagram' ? (0, instagramWebhook_1.sendInstagramDirect)(db, storeId, contact, text) : (0, whatsappSender_1.sendWhatsAppMessage)((process.env.EVOLUTION_API_URL || store?.evolutionApiUrl || '').replace(/\/$/, ''), store?.evolutionApiKey || process.env.EVOLUTION_API_KEY || '', store?.evolutionInstanceName || `pedidos_${storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15)}`, contact, text);
     const messageRef = chatRef.collection('messages').doc(`internal_${id}`);
     try {
         await messageRef.set({ sender: 'assistant', origin: 'ai', channel: job.channel, automotiveProfileId: job.profile, text: job.text, timestamp: now(), deliveryStatus: 'pending', internalRequestId: job.requestId });
         const latest = (await chatRef.get()).data();
-        if (!latest || (latest.aiPaused && (!latest.aiPausedUntil || Date.parse(latest.aiPausedUntil) > Date.now())) || (latest.activeAutomotiveProfile || 'legacy') !== job.profile || consultationVehicleKey(latest.automotiveContext || {}) !== job.vehicleKey) {
+        if (!latest || (latest.aiPaused && (!latest.aiPausedUntil || Date.parse(latest.aiPausedUntil) > Date.now())) || !consultationIdentityMatches(latest, identity)) {
             await jobRef.update({ status: 'blocked', reason: 'human_or_project_changed' });
             await ticketRef.update({ status: 'blocked', deliveryReason: 'human_or_project_changed', updatedAt: now() });
             await messageRef.update({ deliveryStatus: 'cancelled' });

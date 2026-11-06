@@ -1,3 +1,8 @@
+import { technicalFields } from '../../functions/src/performanceKnowledge';
+import {InstagramCatalogImport} from './InstagramCatalogImport';
+import {VehiclePriceInput} from './VehiclePriceInput';
+import {VehiclePhotoAssistant} from './VehiclePhotoAssistant';
+import './vehicle-crm.css';
 import {SkeletonScreen, Preloader} from './Loading';
 import {ModalFrame} from './ModalFrame';
 import React, { useState, useRef } from 'react';
@@ -53,15 +58,17 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
   establishment
 }) => {
   const segConfig = getSegmentConfig(establishment?.segment);
-  const automotive = segConfig.id === 'AUTOMOTIVE_PARTS' || segConfig.id === 'VEHICLES';
+  const automotive = segConfig.id === 'AUTOMOTIVE_PARTS';
   const products = visibleForSegment(allProducts, segConfig.id);
   const CatalogIcon = getSegmentCatalogIcon(establishment?.segment);
   const [searchTerm, setSearchTerm] = useState('');
+  const [catalogFilter,setCatalogFilter]=useState('all');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [analyzingPhotos,setAnalyzingPhotos]=useState(false);
   
   // AI Video Studio state
   const [isStudioOpen, setIsStudioOpen] = useState(false);
@@ -77,7 +84,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
   const [uploadingGallery, setUploadingGallery] = useState(false);
   const [uploadingVideo, setUploadingVideo] = useState(false);
   const [uploadingModel, setUploadingModel] = useState(false);
-  const editorBusy = saving || uploadingModel || uploadingImage || uploadingGallery || uploadingVideo;
+  const editorBusy = analyzingPhotos || saving || uploadingModel || uploadingImage || uploadingGallery || uploadingVideo;
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -92,6 +99,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
 
   // Instagram Import State
   const [isInstagramModalOpen, setIsInstagramModalOpen] = useState(false);
+  const [officialInstagramOpen,setOfficialInstagramOpen]=useState(false);
   const [instagramUrl, setInstagramUrl] = useState('');
   const [parsingInstagram, setParsingInstagram] = useState(false);
   const [instagramParseError, setInstagramParseError] = useState('');
@@ -138,7 +146,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
       setSelectedInstagramImages(data.images || []);
       setImportProjectForm({
         name: data.suggested?.name || '',
-        category: data.suggested?.category || (categories[0] || 'Porsche'),
+        category: data.suggested?.category || (categories[0] || (segConfig.id === 'VEHICLES' ? 'Veículos' : 'Porsche')),
         description: data.suggested?.description || data.caption || '',
         includeVideo: !!data.videoUrl
       });
@@ -218,7 +226,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
     const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
       (p.description && p.description.toLowerCase().includes(searchTerm.toLowerCase()));
     const matchesCategory = selectedCategory === 'ALL' || p.category === selectedCategory;
-    return matchesSearch && matchesCategory;
+    return matchesSearch && matchesCategory && (!automotive||catalogFilter==='all'||(p.catalogKind||'vehicle_project')===catalogFilter);
   });
 
   const handleOpenAddModal = () => {
@@ -419,6 +427,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
 
       await onSaveProduct({
         ...editingProduct,
+        ...(automotive?{catalogKind:editingProduct.catalogKind||'vehicle_project'}:{}),
         images: gallery,
         imageUrl: editingProduct.imageUrl || gallery[0] || '',
         videoUrl: editingProduct.videoUrl || '',
@@ -435,6 +444,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
 
   return (
     <div className="p-3.5 sm:p-6 md:p-8 space-y-4 sm:space-y-6 max-w-7xl mx-auto w-full min-w-0 overflow-x-hidden">
+      {automotive && <nav aria-label="Tipos do catálogo" className="flex flex-wrap gap-2">{[['all','Todos'],['exhaust_product','Produtos / escapamentos'],['vehicle_project','Projetos com veículos']].map(([key,label])=><button key={key} onClick={()=>setCatalogFilter(key)} className={`rounded-full px-4 py-2 text-sm ${catalogFilter===key?'bg-emerald-500 text-slate-950':'bg-slate-800 text-white'}`}>{label}</button>)}</nav>}
       {/* Top Banner */}
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 sm:gap-4">
         <div>
@@ -450,9 +460,9 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
         </div>
 
         <div className="crm-catalog-actions flex flex-wrap items-stretch sm:items-center gap-2 sm:gap-2.5 w-full sm:w-auto">
-          {automotive && (
+          {(automotive || segConfig.id === 'VEHICLES') && (
             <>
-              <button
+              {automotive && <button
                 type="button"
                 onClick={() => handleOpenStudio(filteredProducts[0] || products[0] || null)}
                 className="flex-1 sm:flex-initial px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:brightness-110 active:scale-95 text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition cursor-pointer shadow-lg shadow-indigo-600/25 whitespace-nowrap min-w-0"
@@ -460,12 +470,12 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
               >
                 <Sparkles className="w-4 h-4 text-amber-300 shrink-0" />
                 <span className="truncate">Estúdio Vídeo IA</span>
-              </button>
+              </button>}
 
               <button
                 type="button"
                 onClick={() => {
-                  setIsInstagramModalOpen(true);
+                  setOfficialInstagramOpen(true);
                   setInstagramParseError('');
                   setInstagramParsedData(null);
                 }}
@@ -745,6 +755,12 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
             </div>
 
             <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-5 max-h-[80vh] overflow-y-auto">
+              {segConfig.id==='VEHICLES'&&<VehiclePhotoAssistant product={editingProduct} disabled={editorBusy} onBusyChange={setAnalyzingPhotos} onApply={items=>setEditingProduct(previous=>{
+                if(!previous)return previous;const next={...previous,vehicleSpecs:{...previous.vehicleSpecs}};
+                for(const item of items){if(['name','category','description'].includes(item.field)){if(!String((next as any)[item.field]??'').trim())(next as any)[item.field]=item.value;}else if(!String((next.vehicleSpecs as any)[item.field]??'').trim())(next.vehicleSpecs as any)[item.field]=item.value;}
+                return next;
+              })}/>}
+
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
                   Nome do(a) {segConfig.itemNoun} *
@@ -763,9 +779,9 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    {automotive ? 'Valor definido no orçamento' : 'Preço (R$) *'}
+                    {segConfig.id==='VEHICLES' ? 'Preço de venda' : automotive ? 'Preço do produto / projeto (R$)'  : 'Preço (R$) *'}
                   </label>
-                  <input
+                  {(segConfig.id==='VEHICLES'||automotive)?<VehiclePriceInput value={editingProduct.price||0} disabled={editorBusy} onChange={price=>setEditingProduct(previous=>previous?{...previous,price,...(automotive?{priceOnRequest:price<=0}:{})}:previous)}/>:<input
                     type="number"
                     step="0.01"
                     min="0"
@@ -774,7 +790,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                     onChange={e => setEditingProduct({ ...editingProduct, price: parseFloat(e.target.value) || 0 })}
                     placeholder={automotive ? '0 (Sob consulta)' : '0.00'}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm sm:text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/60"
-                  />
+                  />}
                   {automotive && (
                     <span className="text-[10px] text-slate-500 mt-1 block">
                       Deixe 0 para exibir "Sob consulta" na vitrine.
@@ -1004,6 +1020,15 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                 />
               )}
 
+              {automotive && <fieldset className="rounded-xl border border-slate-700 p-4 space-y-4 min-w-0">
+                <legend className="px-2 font-bold">Produtos e projetos</legend>
+                <label className="block text-sm">Tipo de cadastro<select className="mt-2 w-full rounded-xl bg-slate-950 p-3" disabled={editorBusy} value={editingProduct.catalogKind || 'vehicle_project'} onChange={e=>setEditingProduct({...editingProduct,catalogKind:e.target.value as Product['catalogKind'],linkedExhaustIds:[]})}><option value="exhaust_product">Produto / escapamento</option><option value="vehicle_project">Projeto com veículo</option></select></label>
+                {(editingProduct.catalogKind||'vehicle_project')==='vehicle_project' && <div><p className="text-sm mb-2">Escapamentos usados neste projeto</p>{products.filter(p=>p.catalogKind==='exhaust_product'&&p.id!==editingProduct.id).map(p=><label key={p.id} className="flex gap-2 items-start py-2 text-sm"><input type="checkbox" disabled={editorBusy} checked={(editingProduct.linkedExhaustIds||[]).includes(p.id)} onChange={e=>setEditingProduct({...editingProduct,linkedExhaustIds:e.target.checked?[...(editingProduct.linkedExhaustIds||[]),p.id]:(editingProduct.linkedExhaustIds||[]).filter(id=>id!==p.id)})}/>{p.name}</label>)}<p className="text-xs text-slate-400">Fotos e vídeos deste cadastro mostram o carro. A IA consulta as fichas dos escapes vinculados, sem assumir compatibilidade com outros veículos.</p></div>}
+                <label className="flex gap-2 text-sm"><input type="checkbox" checked={editingProduct.priceOnRequest!==false && !(Number(editingProduct.price)>0)} onChange={e=>setEditingProduct({...editingProduct,priceOnRequest:e.target.checked,...(e.target.checked?{price:0}:{})})}/>Preço sob consulta enquanto não informado</label>
+                <p className="text-xs text-slate-400">Preencha apenas informações confirmadas. Estes campos atualizam automaticamente o contexto consultado pela IA ao salvar; não é necessário reescrever o prompt.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{technicalFields.map(([key,label])=><label key={key} className="block text-xs min-w-0">{label}<textarea rows={3} maxLength={1200} disabled={editorBusy} placeholder="Pendente de confirmação" value={editingProduct.technicalFacts?.[key]||''} onChange={e=>setEditingProduct({...editingProduct,technicalFacts:{...editingProduct.technicalFacts,[key]:e.target.value}})} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-base"/></label>)}</div>
+              </fieldset>}
+
               {segConfig.id === 'AUTOMOTIVE_PARTS' && <fieldset className="rounded-xl border border-emerald-500/20 bg-slate-950/50 p-4 space-y-3">
                 <legend className="px-2 text-sm font-semibold text-emerald-300">Ficha técnica da referência</legend>
                 <p className="text-xs text-slate-400">Preencha apenas dados confirmados deste projeto. Campos vazios permanecem desconhecidos para a IA.</p>
@@ -1014,6 +1039,8 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                 </div>
                 <p className="text-xs text-slate-500">A revisão desta ficha não garante compatibilidade com outro veículo.</p>
               </fieldset>}
+
+              {segConfig.id==='VEHICLES'&&<fieldset className="rounded-xl border border-slate-700 p-4 space-y-3"><legend className="px-2 text-sm font-bold">Ficha estruturada do veículo</legend><div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{[['brand','Marca'],['model','Modelo'],['version','Versão'],['year','Ano'],['mileage','Quilometragem'],['fuel','Combustível'],['transmission','Câmbio'],['engine','Motor'],['color','Cor']].map(([key,label])=><label key={key} className="block text-xs text-slate-300">{label}<input type={key==='mileage'?'number':'text'} min={0} value={(editingProduct.vehicleSpecs as any)?.[key]??''} onChange={e=>setEditingProduct({...editingProduct,vehicleSpecs:{...editingProduct.vehicleSpecs,[key]:key==='mileage'&&e.target.value!==''?Number(e.target.value):e.target.value}})} className="w-full rounded-xl bg-slate-950 p-3 mt-1 border border-slate-700 text-base"/></label>)}</div><label className="block text-xs">Situação do estoque<select value={editingProduct.vehicleSpecs?.status||(editingProduct.available===false?'unavailable':'available')} onChange={e=>setEditingProduct({...editingProduct,available:e.target.value==='available',vehicleSpecs:{...editingProduct.vehicleSpecs,status:e.target.value}})} className="w-full rounded-xl bg-slate-950 p-3 mt-1 border border-slate-700 text-base"><option value="available">Disponível</option><option value="reserved">Reservado pela equipe</option><option value="sold">Vendido</option><option value="unavailable">Indisponível</option></select></label><p className="text-xs text-slate-400">Reservado, vendido e indisponível saem da oferta da IA e da vitrine. Aprovação de financiamento e reserva dependem da equipe.</p></fieldset>}
 
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
@@ -1033,6 +1060,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                 />
               </div>
 
+              {(segConfig.id==='AUTOMOTIVE_PARTS'||segConfig.id==='VEHICLES')&&<label className="block text-xs font-semibold text-slate-300">Base de conhecimento para a IA de atendimento<textarea rows={6} maxLength={4000} disabled={editorBusy} value={editingProduct.aiKnowledge||''} onChange={e=>setEditingProduct({...editingProduct,aiKnowledge:e.target.value})} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-base"/><small className="block mt-1 text-slate-500">Informações e orientação específicas deste item. Revise ao atualizar a descrição ou ficha técnica.</small></label>}
               <div className="flex items-center gap-2 pt-1">
                 <input
                   type="checkbox"
@@ -1070,6 +1098,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
         </ModalFrame>
       )}
 
+      {officialInstagramOpen&&<InstagramCatalogImport segment={segConfig.id} onClose={()=>setOfficialInstagramOpen(false)} onImported={()=>setOfficialInstagramOpen(false)} onLegacy={()=>{setOfficialInstagramOpen(false);setIsInstagramModalOpen(true);setInstagramParseError('');setInstagramParsedData(null)}}/>}
       {/* Modal Importar do Instagram */}
       {isInstagramModalOpen && (
         <ModalFrame label="Importar do Instagram" onClose={()=>setIsInstagramModalOpen(false)}>
@@ -1455,7 +1484,7 @@ const ProductCardItem: React.FC<ProductCardItemProps> = ({
           <div className="flex items-start justify-between gap-2">
             <h4 className="font-bold text-white text-sm line-clamp-1">{product.name}</h4>
             <span className="font-extrabold text-emerald-400 font-mono text-sm whitespace-nowrap">
-              {automotive ? 'Sob consulta' : `R$ ${Number(product.price).toFixed(2)}`}
+              {automotive ? (Number(product.price)>0&&!product.priceOnRequest?`R$ ${Number(product.price).toLocaleString('pt-BR',{minimumFractionDigits:2})}`:'Sob consulta') : `R$ ${Number(product.price).toFixed(2)}`}
             </span>
           </div>
 

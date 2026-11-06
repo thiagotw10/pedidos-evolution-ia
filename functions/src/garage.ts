@@ -63,7 +63,7 @@ export async function reserveGarage(db:admin.firestore.Firestore,storeId:string,
     if(!clean(contact.name) || !/^\d{10,15}$/.test(contact.phone || ''))throw new Error('Informe nome e telefone de contato antes de confirmar.');
     if(bookings.length>=200)throw new Error('Limite de reservas deste dia atingido.');
     const booking={id:offer.id,day:offer.day,bayId:offer.bayId,bayName:state.bays.find(b=>b.id===offer.bayId)!.name,kitId:kit.id,kitName:kit.name,startAt:offer.startAt,endAt:offer.endAt,
-      status:'confirmed',customerName:clean(contact.name),phone:contact.phone,chatId:contact.chatId || '',profile:offer.profile || '',vehicle:clean([contact.vehicle?.brand,contact.vehicle?.model,contact.vehicle?.year,contact.vehicle?.version].filter(Boolean).join(' '),240),createdAt:now(),source:actor};
+      projectId:clean(contact.vehicle?.projectId,120),status:'confirmed',customerName:clean(contact.name),phone:contact.phone,chatId:contact.chatId || '',profile:offer.profile || '',vehicle:clean([contact.vehicle?.brand,contact.vehicle?.model,contact.vehicle?.year,contact.vehicle?.version].filter(Boolean).join(' '),240),createdAt:now(),source:actor};
     tx.set(root,{...state,kits:state.kits.map(k=>k.id===kit.id?{...k,reserved:k.reserved+1}:k),revision:state.revision+1,updatedAt:now()});
     tx.set(dayRef,{bookings:[...bookings,booking],updatedAt:now()});
     tx.set(root.collection('events').doc(),{type:'reserved',bookingId:booking.id,kitId:kit.id,actor,at:now()});
@@ -80,6 +80,8 @@ export async function transitionGarageBooking(db:admin.firestore.Firestore,store
     const allowed:Record<string,string[]>={confirmed:['installing','awaiting_parts','cancelled'],awaiting_parts:['installing','cancelled'],installing:['awaiting_parts','ready','cancelled'],ready:['completed','cancelled']};
     if(!allowed[booking.status]?.includes(status))throw new Error('Essa mudança de etapa não é permitida.');
     const kit=state.kits.find(k=>k.id===booking.kitId);if(!kit)throw new Error('Kit da reserva não encontrado.');
+    const projectRef=booking.projectId&&!String(booking.projectId).includes('/')?db.collection('automotive_projects').doc(booking.projectId):null;
+    const project=projectRef?(await tx.get(projectRef)).data():null;
     const consumed=booking.materialConsumed===true;
     if(status==='installing') {
       const occupancy=state.occupancies[booking.bayId];
@@ -90,6 +92,10 @@ export async function transitionGarageBooking(db:admin.firestore.Firestore,store
     booking.status=status;booking.updatedAt=now();
     if(['installing','ready'].includes(status) || status==='awaiting_parts' && booking.materialConsumed)state.occupancies[booking.bayId]={id:booking.id,kitId:booking.kitId,day,status,startAt:booking.startAt,endAt:booking.endAt};
     if(['completed','cancelled'].includes(status) && state.occupancies[booking.bayId]?.id===booking.id)delete state.occupancies[booking.bayId];
+    if(projectRef&&project?.establishmentId===storeId&&project.phone===booking.chatId&&['installing','ready','completed'].includes(status)) {
+      const stage=status==='installing'?'Em execução':status==='ready'?'Pronto para retirada':'Concluído';
+      tx.set(projectRef,{status:stage,delivery:'Atendimento local',updatedAt:now(),garageBooking:{...booking}},{merge:true});
+    }
     tx.set(root,{...state,revision:state.revision+1,updatedAt:now()});tx.set(dayRef,{bookings,updatedAt:now()});
     tx.set(root.collection('events').doc(),{type:status,bookingId:id,actor:'owner',at:now(),materialConsumed:!!booking.materialConsumed});return booking;
   });

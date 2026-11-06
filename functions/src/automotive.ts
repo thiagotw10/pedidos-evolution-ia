@@ -114,7 +114,7 @@ export async function translateAutomotiveText(text: string, targetLang: string, 
   }
 }
 
-export const AUTOMOTIVE_STAGES = ['Novo contato', 'Qualificação', 'Análise técnica', 'Orçamento enviado', 'Aprovado', 'Em execução', 'Enviado', 'Concluído', 'Cancelado'];
+export const AUTOMOTIVE_STAGES = ['Novo contato', 'Qualificação', 'Análise técnica', 'Orçamento enviado', 'Aprovado', 'Em execução', 'Pronto para retirada', 'Enviado', 'Concluído', 'Cancelado'];
 const stages = AUTOMOTIVE_STAGES;
 
 export interface AutomotiveConversationContext {
@@ -1033,7 +1033,7 @@ export function registerAutomotiveRoutes(app: Express, db: admin.firestore.Fires
         'customerName', 'brand', 'model', 'year', 'version', 'modifications',
         'objective', 'cep', 'delivery', 'notes', 'quote', 'quoteValue',
         'commissionPercent', 'commissionValue', 'freight', 'leadTime',
-        'tracking', 'status', 'trafficSource', 'campaignName', 'adName',
+        'tracking', 'status', 'completionForecast', 'serviceUpdate', 'trafficSource', 'campaignName', 'adName',
         'currency', 'country', 'zipCode', 'targetLanguage', 'detectedLanguage'
       ];
       const changes: Record<string, any> = {};
@@ -1697,12 +1697,12 @@ Retorne ESTRITAMENTE um objeto JSON no formato:
         const isPaid = p.trafficSource === 'META_ADS' || p.trafficSource === 'GOOGLE_ADS' || p.source === 'paid_traffic';
         if (isPaid) paidLeads++;
 
-        const isQualified = ['Análise técnica', 'Orçamento enviado', 'Aprovado', 'Em execução', 'Enviado', 'Concluído'].includes(p.status);
+        const isQualified = ['Análise técnica', 'Orçamento enviado', 'Aprovado', 'Em execução', 'Pronto para retirada', 'Enviado', 'Concluído'].includes(p.status);
         if (isQualified) qualifiedLeads++;
 
-        if (['Orçamento enviado', 'Aprovado', 'Em execução', 'Enviado', 'Concluído'].includes(p.status)) quotesSent++;
+        if (['Orçamento enviado', 'Aprovado', 'Em execução', 'Pronto para retirada', 'Enviado', 'Concluído'].includes(p.status)) quotesSent++;
 
-        const isClosed = ['Aprovado', 'Em execução', 'Enviado', 'Concluído'].includes(p.status);
+        const isClosed = ['Aprovado', 'Em execução', 'Pronto para retirada', 'Enviado', 'Concluído'].includes(p.status);
         if (isClosed) {
           closedSales++;
           const val = Number(p.quoteValue || 0);

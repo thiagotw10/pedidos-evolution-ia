@@ -92,3 +92,13 @@ test('a reference photo alone does not identify a new owned vehicle',async()=>{
  const picture=await saveAutomotiveContactAndSyncCrm({db,establishmentId:'store',customerPhone:'ig_123',incomingText:'[Imagem recebida]',replyText:'Ok',sourceMediaType:'image',toolArgs:{brand:'Porsche',model:'911',year:'2024'}});
  assert.equal(picture.project.id,first.project.id);assert.equal(picture.context.brand,'Volkswagen');
 });
+test('a friend vehicle and its followups never replace the owner project; explicit own car can switch normally',async()=>{
+ const memory={automotiveContext:jetta,activeAutomotiveProfile:'legacy',automotiveProfiles:{legacy:jetta},automotiveCatalogs:{legacy:{audience:'friend'}}};
+ const friend=selectAutomotiveProfile('Ele tem uma BMW M3 2021',memory,{brand:'BMW',model:'M3',year:'2021',objective:'Titânio'});
+ assert.equal(friend.active,'legacy');assert.equal(friend.context.projectId,'jetta-project');assert.equal(friend.context.model,'Jetta GLI');assert.equal(friend.context.objective,jetta.objective);
+ const own=selectAutomotiveProfile('Também tenho uma BMW M3 2021',memory,{brand:'BMW',model:'M3',year:'2021'});assert.notEqual(own.active,'legacy');
+ const db=fakeDb({'establishments/store':{segment:'AUTOMOTIVE_PARTS'}});const first=await saveAutomotiveContactAndSyncCrm({db,establishmentId:'store',customerPhone:'ig_friend',incomingText:'Tenho um Jetta GLI 2023',replyText:'Ok'});
+ db.data.get('establishments/store/customers/ig_friend').automotiveCatalogs={legacy:{audience:'friend'}};
+ const next=await saveAutomotiveContactAndSyncCrm({db,establishmentId:'store',customerPhone:'ig_friend',incomingText:'Ele tem uma BMW M3 2021',replyText:'Vou mostrar referências para ele.',toolArgs:{brand:'BMW',model:'M3',year:'2021'}});
+ assert.equal(next.project.id,first.project.id);assert.equal(next.context.model,first.context.model);assert.equal([...db.data.keys()].filter(k=>k.startsWith('automotive_projects/')).length,1);
+});

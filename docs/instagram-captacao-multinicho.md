@@ -35,3 +35,9 @@ A API consulta os últimos 50 eventos de comentários da empresa, exibe apenas o
 `npm run build`
 
 Os testes usam serviços simulados e não enviam mensagens reais. O teste operacional requer um novo comentário de uma conta distinta, em uma publicação e captação habilitadas. Contas externas ao aplicativo ainda dependem das permissões e da liberação da Meta; esta entrega não substitui App Review.
+
+## Resposta pública por publicação
+
+Na aba Captação, cada publicação possui o campo opcional **Resposta pública neste post**, com até 300 caracteres. O servidor valida o tamanho e publica esse texto literalmente; o campo não é uma instrução para geração por IA. Deixar vazio mantém o padrão do segmento. As configurações anteriores continuam válidas.
+
+Para achadinhos, quando a DM inclui o link do produto vinculado, o padrão é: “Te mandei o link no Direct! 💌 Confira também as solicitações de mensagem.” Sem link enviado, a confirmação permanece genérica. Performance mantém a confirmação sobre o projeto. A personalização respeita a opção geral de responder no comentário e só é enviada depois da confirmação do Direct. Não há reenvio retroativo dos comentários já processados.

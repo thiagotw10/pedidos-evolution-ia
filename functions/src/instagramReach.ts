@@ -4,7 +4,7 @@ import {BR_CITIES} from './leadGeoData';
 import {safeLeadLocation,postalLeadLocation,resolveLeadLocation,geoCountries,geoStates,geoNormalize} from './instagramLeadGeo';
 import {acquisitionRef} from './instagramAcquisition';
 const clean=(v:any,n=200)=>String(v||'').trim().slice(0,n);
-export const reachStage=(status:string)=>['Aprovado','Em execução','Enviado','Concluído'].includes(status)?'won':status==='Cancelado'?'lost':status==='Orçamento enviado'?'quote':['Qualificação','Análise técnica'].includes(status)?'qualified':'new';
+export const reachStage=(status:string)=>['Aprovado','Em execução','Pronto para retirada','Enviado','Concluído'].includes(status)?'won':status==='Cancelado'?'lost':status==='Orçamento enviado'?'quote':['Qualificação','Análise técnica'].includes(status)?'qualified':'new';
 const validTime=(value:any)=>typeof value==='string'&&Number.isFinite(Date.parse(value))?value:null;
 function sourceDto(value:any){return value?{kind:clean(value.kind,40),mediaId:/^\d+$/.test(value.mediaId||'')?String(value.mediaId):'',adId:/^\d+$/.test(value.adId||'')?String(value.adId):'',title:clean(value.campaignName||value.caption||'Publicação Instagram',180),capturedAt:validTime(value.capturedAt),paidDeclared:value.paidDeclaredByOwner===true}:null;}
 export function reachRows(chats:any[],projects:any[],accountId:string,events:any[]=[]){

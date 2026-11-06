@@ -1,15 +1,16 @@
+import {VehicleCrm} from './components/VehicleCrm';
 import {SplashScreen, SkeletonScreen, Preloader} from './components/Loading';
 import {CrmHome} from './components/CrmHome';
 import {InternalConsultationsView} from './components/InternalConsultationsView';
 import { GarageView } from './components/GarageView';
 import { AffiliateWorkspace } from './components/AffiliateWorkspace';
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  collection, 
-  doc, 
-  onSnapshot, 
-  query, 
-  orderBy 
+import {
+  collection,
+  doc,
+  onSnapshot,
+  query,
+  orderBy
 } from 'firebase/firestore';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { db, auth } from './lib/firebase';
@@ -26,7 +27,7 @@ import { WhatsAppView } from './components/WhatsAppView';
 import { SettingsView } from './components/SettingsView';
 import { CampaignsView } from './components/CampaignsView';
 import { FinanceView } from './components/FinanceView';
-import { BillingView } from './components/BillingView';
+
 import { TrafficGrowthView } from './components/TrafficGrowthView';
 import { AutomotiveLeadRadar } from './components/AutomotiveLeadRadar';
 import { AutomotivePartnerWorkshops } from './components/AutomotivePartnerWorkshops';
@@ -34,7 +35,7 @@ import { PublicStorefront } from './components/PublicStorefront';
 import { AuthView } from './components/AuthView';
 import { HomeView } from './components/HomeView';
 import { SubscriptionGate } from './components/SubscriptionGate';
-import { SubscriptionModal } from './components/SubscriptionModal';
+
 import { PwaInstallBanner } from './components/PwaInstallBanner';
 import { PwaInstallModal } from './components/PwaInstallModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
@@ -56,7 +57,7 @@ export default function App() {
   const [unauthView, setUnauthView] = useState<'home' | 'auth'>('home');
   const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('register');
   const [referralCode] = useState(() => new URLSearchParams(window.location.search).get('ref') || undefined);
-  const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
+
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [isPwaInstallModalOpen, setIsPwaInstallModalOpen] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -288,7 +289,7 @@ export default function App() {
   // 4. Synchronize Evolution WhatsApp Status on load and periodically
   useEffect(() => {
     if (!isAuthenticated) return;
-    
+
     const syncEvolutionStatus = async () => {
       try {
         const res = await fetch(`/api/evolution/status?establishmentId=${storeId}`);
@@ -330,17 +331,17 @@ export default function App() {
 
   // Actions
   const handleUpdateOrderStatus = async (
-    orderId: string, 
-    status: OrderStatus, 
+    orderId: string,
+    status: OrderStatus,
     reason?: string,
     courierInfo?: { courierPhone?: string; courierName?: string; saveCourier?: boolean }
   ) => {
     const res = await fetch(`/api/orders/${orderId}/status?establishmentId=${storeId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        status, 
-        rejectionReason: reason, 
+      body: JSON.stringify({
+        status,
+        rejectionReason: reason,
         establishmentId: storeId,
         ...courierInfo
       })
@@ -353,8 +354,8 @@ export default function App() {
 
   const handleSaveProduct = async (productData: Partial<Product>) => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json', 'x-establishment-id': storeId };
-    if (Object.prototype.hasOwnProperty.call(productData, 'model3d')) {
-      if (!auth.currentUser || auth.currentUser.uid !== storeId) throw new Error('Entre novamente na sua loja para salvar o modelo 3D.');
+    if (Object.prototype.hasOwnProperty.call(productData, 'model3d') || Object.prototype.hasOwnProperty.call(productData, 'vehicleSpecs') || Object.prototype.hasOwnProperty.call(productData, 'catalogKind')) {
+      if (!auth.currentUser || auth.currentUser.uid !== storeId) throw new Error('Entre novamente na sua loja para salvar este cadastro.');
       headers.Authorization = `Bearer ${await auth.currentUser.getIdToken()}`;
     }
     const res = await fetch('/api/products', {
@@ -381,7 +382,7 @@ export default function App() {
   const handleSaveEstablishment = async (data: Partial<Establishment>) => {
     const res = await fetch('/api/establishment', {
       method: 'POST',
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
         'x-establishment-id': storeId
       },
@@ -420,7 +421,7 @@ export default function App() {
   if (!isAuthenticated) {
     if (unauthView === 'auth') {
       return (
-        <AuthView 
+        <AuthView
           initialMode={authInitialMode}
           referralCode={referralCode}
           onBackToHome={() => setUnauthView('home')}
@@ -434,13 +435,13 @@ export default function App() {
               } catch {}
               setSessionUser(userObj);
             }
-          }} 
+          }}
         />
       );
     }
 
     return (
-      <HomeView 
+      <HomeView
         onGoToAuth={(mode) => {
           setAuthInitialMode(mode);
           setUnauthView('auth');
@@ -479,7 +480,7 @@ export default function App() {
             setSoundEnabled={setSoundEnabled}
             onOpenWhatsApp={() => setCurrentTab(establishment?.segment === 'AFFILIATES' ? 'instagram' : 'whatsapp')}
             onOpenSettings={() => setCurrentTab('settings')}
-            onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
+
             onOpenMenu={() => setIsMobileDrawerOpen(true)}
             onOpenInstallModal={() => setIsPwaInstallModalOpen(true)}
             userEmail={currentUser?.email || sessionUser?.email || (demoMode ? 'demo@burgercia.com.br' : null)}
@@ -488,7 +489,7 @@ export default function App() {
 
           {/* PWA Install & Push Notification Banner */}
           <PwaInstallBanner
-            establishmentId={storeId} 
+            establishmentId={storeId}
             onOpenModal={() => setIsPwaInstallModalOpen(true)}
             deferredPrompt={deferredPrompt}
           />
@@ -500,8 +501,9 @@ export default function App() {
             {currentTab === 'orders' && establishment?.segment === 'AUTOMOTIVE_PARTS' && <AutomotiveProjects />}
             {currentTab === 'internal' && establishment?.segment === 'AUTOMOTIVE_PARTS' && <InternalConsultationsView establishmentId={storeId} />}
             {currentTab === 'garage' && establishment?.segment === 'AUTOMOTIVE_PARTS' && <GarageView establishmentId={storeId} />}
-            {currentTab === 'inbox' && <InboxView />}
-            {currentTab === 'orders' && !['AUTOMOTIVE_PARTS','AFFILIATES'].includes(establishment?.segment || '') && (
+            {currentTab === 'inbox' && <InboxView vehicleMode={establishment?.segment==='VEHICLES'} /> }
+            {currentTab === 'orders' && establishment?.segment === 'VEHICLES' && <VehicleCrm/>}
+            {currentTab === 'orders' && !['AUTOMOTIVE_PARTS','AFFILIATES','VEHICLES'].includes(establishment?.segment || '') && (
               <OrdersView
                 orders={orders}
                 onUpdateStatus={handleUpdateOrderStatus}
@@ -541,13 +543,7 @@ export default function App() {
               />
             )}
 
-            {currentTab === 'billing' && (
-              <BillingView
-                establishmentId={storeId}
-                email={currentUser?.email || sessionUser?.email}
-                establishment={establishment}
-              />
-            )}
+            {currentTab === 'billing' && <div className="p-8"><h2>Cobrança desativada</h2><p>O uso da plataforma não depende de planos ou créditos.</p></div>}
 
             {currentTab === 'products' && establishment?.segment !== 'AFFILIATES' && (
               <ProductsView
@@ -619,18 +615,10 @@ export default function App() {
         establishment={establishment}
         soundEnabled={soundEnabled}
         setSoundEnabled={setSoundEnabled}
-        onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
+
         onOpenInstallModal={() => setIsPwaInstallModalOpen(true)}
         userEmail={currentUser?.email || sessionUser?.email || (demoMode ? 'demo@burgercia.com.br' : null)}
         onSignOut={handleSignOut}
-      />
-
-      {/* Subscription / Plan Modal */}
-      <SubscriptionModal
-        isOpen={isSubscriptionModalOpen}
-        onClose={() => setIsSubscriptionModalOpen(false)}
-        establishment={establishment}
-        userEmail={currentUser?.email || sessionUser?.email}
       />
 
       {/* PWA Install Modal (Baixar como App) */}

@@ -1,3 +1,4 @@
+import {auth} from '../lib/firebase';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Send, 
@@ -29,8 +30,11 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
   establishment
 }) => {
   const segConfig = getSegmentConfig(establishment?.segment);
+  const vehicleSimulationSession=useRef(crypto.randomUUID());
+  const [vehicleChannel,setVehicleChannel]=useState('whatsapp');
+  const [vehicleSimulationLead,setVehicleSimulationLead]=useState<any>(null);
   const OrdersIcon = getSegmentOrdersIcon(establishment?.segment);
-  const initialGreeting = (segConfig.id !== 'AUTOMOTIVE_PARTS' && establishment?.aiWelcomeMessage) ||
+  const initialGreeting = (!['AUTOMOTIVE_PARTS','VEHICLES'].includes(segConfig.id) && establishment?.aiWelcomeMessage) ||
     segConfig.defaultWelcome.replace(/\{loja\}/g, establishment?.name || 'Nossa Empresa');
 
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -65,7 +69,7 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
     const newMsg: ChatMessage = {
       id: `user_${Date.now()}`,
       sender: 'user',
-      text: userMessageText,
+      text: userMessageText,...(segConfig.id==='VEHICLES'?{sessionId:vehicleSimulationSession.current,channel:vehicleChannel}:{}),
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
@@ -73,11 +77,11 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
     setIsTyping(true);
 
     try {
-      const response = await fetch('/api/simulator/chat', {
+      const response = await fetch(segConfig.id==='VEHICLES'?'/api/vehicles/simulator':'/api/simulator/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json',...(segConfig.id==='VEHICLES'?{Authorization:`Bearer ${await auth.currentUser?.getIdToken()}`}:{}) },
         body: JSON.stringify({
-          text: userMessageText,
+          text: userMessageText,...(segConfig.id==='VEHICLES'?{sessionId:vehicleSimulationSession.current,channel:vehicleChannel}:{}),
           phone: customerPhone,
           name: customerName,
           establishmentId: establishmentId || 'default_store'
@@ -85,6 +89,7 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
       });
 
       const data = await response.json();
+      if(data.vehicleLead)setVehicleSimulationLead(data.vehicleLead);
 
       if (!response.ok) {
         throw new Error(data.error || data.message || `Não foi possível processar a simulação (${response.status}).`);
@@ -156,6 +161,7 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
 
   const handleResetChat = async () => {
     try {
+      if(segConfig.id==='VEHICLES'){vehicleSimulationSession.current=crypto.randomUUID();setVehicleSimulationLead(null);setMessages([]);return;}
       await fetch('/api/simulator/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -195,11 +201,11 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
     setIsTyping(true);
 
     try {
-      const response = await fetch('/api/simulator/chat', {
+      const response = await fetch(segConfig.id==='VEHICLES'?'/api/vehicles/simulator':'/api/simulator/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json',...(segConfig.id==='VEHICLES'?{Authorization:`Bearer ${await auth.currentUser?.getIdToken()}`}:{}) },
         body: JSON.stringify({
-          text: payloadText,
+          text: payloadText,...(segConfig.id==='VEHICLES'?{sessionId:vehicleSimulationSession.current,channel:vehicleChannel}:{}),
           phone: customerPhone,
           name: customerName,
           establishmentId: establishmentId || 'default_store'
@@ -207,6 +213,7 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
       });
 
       const data = await response.json();
+      if(data.vehicleLead)setVehicleSimulationLead(data.vehicleLead);
       if (!response.ok) {
         throw new Error(data.error || data.message || `Não foi possível processar a localização (${response.status}).`);
       }
@@ -399,6 +406,7 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
 
         {/* Right Column: WhatsApp Phone Interface */}
         <div className="lg:col-span-2">
+          {segConfig.id==='VEHICLES'&&<div className="max-w-xl mx-auto rounded-2xl border border-slate-700 p-4 mb-4 space-y-2"><strong className="text-sm">Homologação da revenda · sem envios reais</strong><label className="flex gap-2 items-center text-xs">Canal simulado<select value={vehicleChannel} onChange={e=>setVehicleChannel(e.target.value)} className="rounded-xl bg-slate-900 p-2"><option value="whatsapp">WhatsApp</option><option value="instagram">Instagram</option></select></label><p className="text-xs text-slate-400">Mesma lógica comercial e estoque da loja. Conversas e oportunidades ficam em uma sessão isolada, fora do CRM real.</p>{vehicleSimulationLead&&<div className="text-xs"><p>Etapa: {vehicleSimulationLead.stage}</p><p>Interesses: {vehicleSimulationLead.interestIds?.join(', ')||'A identificar'}</p><p>Investimento: {vehicleSimulationLead.budget||'A identificar'}</p><p>Entrada: {vehicleSimulationLead.downPayment||'Não informada'}</p><p>Troca: {vehicleSimulationLead.tradeIn||'Não informada'}</p><p>Pagamento: {vehicleSimulationLead.payment||'Não informado'}</p><p>Visita: {vehicleSimulationLead.visitPreference||'Não solicitada'}</p></div>}</div>}
           <div className="crm-simulator-chat max-w-xl mx-auto bg-slate-950 rounded-3xl border border-slate-800 shadow-2xl overflow-hidden flex flex-col h-[640px]">
             {/* WhatsApp App Header */}
             <div className="bg-slate-900 px-5 py-3.5 border-b border-slate-800 flex items-center justify-between">

@@ -28,24 +28,26 @@ export interface JevSecurityResult {
   category: 'PROMPT_INJECTION' | 'JAILBREAK' | 'SECRET_EXTRACTION' | 'TOOL_ABUSE' | 'SAFE';
   confidence: number;
   durationMs: number;
+  source?: 'local'|'jev'|'local_degraded';
 }
 
-const TYPESAFE_API_KEY = process.env.TYPESAFE_API_KEY || '';
+const typesafeApiKey=()=>process.env.TYPESAFE_API_KEY||'';
 
 const injectionPattern = /(ignore|esque[cç]a|desconsidere|ignore todas|regras anteriores|instru[cç][õo]es anteriores|system prompt|prompt do sistema|mensagem de sistema|mostre|revele|exiba).{0,80}(instru[cç][õo]es|prompt|regras|segredo|chave|api|token|senha)|jailbreak|developer message|modo desenvolvedor|fa[cç]a de conta que voc[eê]|voc[eê] agora [eé]|n[aã]o siga as regras|bypass|override|tool call|chame a ferramenta|fun[cç][aã]o registrar_pedido/i;
 
 /** Security gate that runs before any customer text reaches the conversational model. */
 export async function screenPromptInjectionWithJev(text: string): Promise<JevSecurityResult> {
+  const TYPESAFE_API_KEY=typesafeApiKey();
   const startedAt = Date.now();
   const normalized = (text || '').trim().slice(0, 2000);
-  if (!normalized) return { blocked: false, category: 'SAFE', confidence: 1, durationMs: 0 };
+  if (!normalized) return { blocked: false, category: 'SAFE', confidence: 1, durationMs: 0,source:'local' };
 
   // Deterministic first line of defense, including when the Jev API is unavailable.
   if (injectionPattern.test(normalized)) {
-    return { blocked: true, category: 'PROMPT_INJECTION', confidence: 0.99, durationMs: Date.now() - startedAt };
+    return { blocked: true, category: 'PROMPT_INJECTION', confidence: 0.99, durationMs: Date.now() - startedAt,source:'local' };
   }
 
-  if (!TYPESAFE_API_KEY) return { blocked: false, category: 'SAFE', confidence: 0.5, durationMs: Date.now() - startedAt };
+  if (!TYPESAFE_API_KEY) return { blocked: false, category: 'SAFE', confidence: 0.5, durationMs: Date.now() - startedAt,source:'local_degraded' };
 
   try {
     const response = await fetch('https://api.typesafe.ai/v1/systemone', {
@@ -75,13 +77,13 @@ export async function screenPromptInjectionWithJev(text: string): Promise<JevSec
     const blocked = answer?.choice === 'PROMPT_INJECTION' && confidence >= 0.75;
     return {
       blocked,
-      category: blocked ? 'PROMPT_INJECTION' : 'SAFE',
+      category: blocked ? 'PROMPT_INJECTION' : 'SAFE',source:'jev',
       confidence,
       durationMs: Date.now() - startedAt
     };
   } catch (err: any) {
     console.warn('[TypeSafe Jev Security] Falha na análise remota; mantendo apenas filtro local:', err.message);
-    return { blocked: false, category: 'SAFE', confidence: 0.5, durationMs: Date.now() - startedAt };
+    return { blocked: false, category: 'SAFE', confidence: 0.5, durationMs: Date.now() - startedAt,source:'local_degraded' };
   }
 }
 
@@ -90,8 +92,9 @@ export async function screenPromptInjectionWithJev(text: string): Promise<JevSec
  */
 export async function triageInboundMessageWithJev(
   text: string,
-  storeContext?: { name?: string; segment?: string }
+  storeContext?: { name?: string; segment?: string; channel?: string }
 ): Promise<JevTriageResult | null> {
+  const TYPESAFE_API_KEY=typesafeApiKey();
   if (!text || !text.trim() || !TYPESAFE_API_KEY) {
     return null;
   }
@@ -109,11 +112,11 @@ export async function triageInboundMessageWithJev(
       },
       body: JSON.stringify({
         model: 'jev-latest',
-        state: `Mensagem enviada por cliente no WhatsApp${storeInfo}${segmentInfo}: "${text.trim().slice(0, 500)}"`,
+        state: `Mensagem enviada por cliente no canal ${storeContext?.channel || 'whatsapp'}${storeInfo}${segmentInfo}: "${text.trim().slice(0, 500)}"`,
         questions: {
           intent: {
             type: 'choice',
-            instructions: 'Qual é a intenção principal da mensagem do cliente?',
+            instructions: 'Qual é a intenção principal da mensagem do cliente? Perguntas como já conversamos, você não lembra de mim ou como assim são continuidade da conversa, não um pedido de humano. Insatisfação leve não exige transferência.',
             criteria: {
               'PIX_QUERY': 'Cliente quer saber a chave PIX, dados bancários ou como pagar via PIX',
               'ORDER_STATUS': 'Cliente perguntando onde está o pedido, se já saiu para entrega ou tempo de espera',
@@ -126,7 +129,7 @@ export async function triageInboundMessageWithJev(
           },
           urgent: {
             type: 'choice',
-            instructions: 'O cliente está irritado ou necessita de intervenção humana urgente?',
+            instructions: 'O cliente exige intervenção humana urgente por um problema grave? Perguntar se já conversou, corrigir a IA ou cobrar continuidade não é urgência.',
             criteria: {
               'YES': 'Sim, cliente indignado, reclamando de atraso/erro grave ou exigindo gerente',
               'NO': 'Não, atendimento normal e amigável'
@@ -205,6 +208,7 @@ export async function qualifyLeadWithJev(
   text: string,
   segment: string
 ): Promise<JevLeadResult | null> {
+  const TYPESAFE_API_KEY=typesafeApiKey();
   if (!text || !text.trim() || !TYPESAFE_API_KEY) {
     return null;
   }

@@ -20,9 +20,14 @@ service cloud.firestore {
       }
     }
     
+    match /vehicleWorkspaces/{storeId}/{document=**} {
+      allow read: if request.auth != null && request.auth.uid == storeId;
+      allow write: if false;
+    }
     // Regra geral para desenvolvimento / produção segura
     match /{collection}/{document=**} {
       allow read, write: if request.auth != null
+        && collection != 'vehicleWorkspaces'
         && collection != 'establishments'
         && collection != 'automotive_projects'
         && collection != 'automotive_rate_limits'

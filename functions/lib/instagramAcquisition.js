@@ -48,6 +48,11 @@ exports.explicitAutomotiveInterest = explicitAutomotiveInterest;
 exports.draftCommentLead = draftCommentLead;
 exports.reviewAutomotiveComment = reviewAutomotiveComment;
 exports.processAutomotiveComment = processAutomotiveComment;
+const instagramIdentity_1 = require("./instagramIdentity");
+const automotivePostContext_1 = require("./automotivePostContext");
+const vehiclePostContext_1 = require("./vehiclePostContext");
+const instagramCommentPersona_1 = require("./instagramCommentPersona");
+const aiGateway_1 = require("./aiGateway");
 const instagramBusinessPolicy_1 = require("./instagramBusinessPolicy");
 const catalogPolicy_1 = require("./catalogPolicy");
 const admin = __importStar(require("firebase-admin"));
@@ -59,7 +64,7 @@ const clean = (v, n = 500) => String(v || '').trim().slice(0, n);
 const hash = (v) => crypto_1.default.createHash('sha256').update(v).digest('hex');
 const acquisitionRef = (db, id) => (0, garage_1.operationsRef)(db, id).collection('instagram').doc('acquisition');
 exports.acquisitionRef = acquisitionRef;
-const defaultAcquisition = () => ({ enabled: false, publicReplies: true, allPosts: true, keywords: [], hourlyLimit: 30, campaigns: [], triggerMode: 'intent' });
+const defaultAcquisition = () => ({ enabled: false, publicReplies: true, engagementEnabled: false, allPosts: true, keywords: [], hourlyLimit: 30, campaigns: [], triggerMode: 'intent' });
 exports.defaultAcquisition = defaultAcquisition;
 function acquisitionAttribution(source) {
     if (!source)
@@ -105,19 +110,22 @@ function normalizeAcquisition(value) {
     const triggerMode = value.triggerMode || 'intent';
     if (!['intent', 'keyword'].includes(triggerMode))
         throw new Error('Gatilho inválido.');
-    const campaigns = value.campaigns.map((p) => { if (!/^\d{5,40}$/.test(p.mediaId) || typeof p.enabled !== 'boolean' || typeof p.paid !== 'boolean')
+    const campaigns = value.campaigns.map((p) => { if (p.publicReplyText != null && (typeof p.publicReplyText !== 'string' || Array.from(p.publicReplyText.trim()).length > 300))
+        throw new Error('Use até 300 caracteres na resposta pública.'); if (!/^\d{5,40}$/.test(p.mediaId) || typeof p.enabled !== 'boolean' || typeof p.paid !== 'boolean')
         throw new Error('Publicação inválida.'); const goal = p.goal || 'default'; if (!instagramBusinessPolicy_1.ACQUISITION_GOALS.includes(goal))
         throw new Error('Objetivo inválido.'); const productId = clean(p.productId, 100); if (productId && !/^[\w-]{1,100}$/.test(productId))
         throw new Error('Produto inválido.'); const postMode = p.triggerMode || 'inherit'; if (!['inherit', 'intent', 'keyword'].includes(postMode))
         throw new Error('Gatilho da publicação inválido.'); const postKeys = Array.isArray(p.keywords) ? p.keywords.map((k) => clean(k, 40).toLowerCase()).filter(Boolean) : []; if (postKeys.length > 30)
-        throw new Error('Use até 30 palavras-chave por publicação.'); return { goal, productId, triggerMode: postMode === 'inherit' ? '' : postMode, keywords: postKeys, mediaId: p.mediaId, title: clean(p.title, 120), campaignName: clean(p.campaignName, 120), summary: clean(p.summary, 700), paid: p.paid, enabled: p.enabled }; });
+        throw new Error('Use até 30 palavras-chave por publicação.'); return { publicReplyText: (p.publicReplyText || '').trim(), goal, productId, triggerMode: postMode === 'inherit' ? '' : postMode, keywords: postKeys, mediaId: p.mediaId, title: clean(p.title, 120), campaignName: clean(p.campaignName, 120), summary: clean(p.summary, 700), paid: p.paid, enabled: p.enabled }; });
     if (new Set(campaigns.map((p) => p.mediaId)).size !== campaigns.length)
         throw new Error('Não repita uma publicação.');
     if (triggerMode === 'keyword' && value.allPosts && !keywords.length)
         throw new Error('Informe palavras-chave para as publicações sem configuração própria.');
     if (campaigns.some((p) => (p.triggerMode || triggerMode) === 'keyword' && !(p.keywords.length || keywords.length)))
         throw new Error('Informe palavras-chave nas publicações com esse gatilho.');
-    return { triggerMode, enabled: value.enabled, publicReplies: value.publicReplies, allPosts: value.allPosts, hourlyLimit: value.hourlyLimit, keywords, campaigns };
+    if (value.engagementEnabled !== undefined && typeof value.engagementEnabled !== 'boolean')
+        throw Error('Configuração de engajamento inválida.');
+    return { triggerMode, engagementEnabled: value.engagementEnabled === true, enabled: value.enabled, publicReplies: value.publicReplies, allPosts: value.allPosts, hourlyLimit: value.hourlyLimit, keywords, campaigns };
 }
 async function probeCommentPermission(c, _graph) {
     // Reading a public comment is NOT proof of manage_comments authorization.
@@ -163,7 +171,7 @@ function registerAcquisitionRoutes(app, db, graph) {
         const config = saved?.accountId === c?.accountId ? { ...(0, exports.defaultAcquisition)(), ...saved } : (0, exports.defaultAcquisition)();
         const events = await db.collection('instagramEvents').where('storeId', '==', id).where('kind', 'in', ['automotive_comment', 'business_comment', 'affiliate_comment']).orderBy('receivedAt', 'desc').limit(50).get();
         const activity = await Promise.all(events.docs.filter(d => d.data().accountId === c?.accountId).map(async (d) => (0, instagramBusinessPolicy_1.commentDiagnostic)(d.id, d.data(), (await (0, garage_1.operationsRef)(db, id).collection('instagramLeads').doc(d.id).get()).data())));
-        return res.json({ config, segment: store.segment, playbook: instagramBusinessPolicy_1.segmentPlaybooks[store.segment] || instagramBusinessPolicy_1.segmentPlaybooks.GENERAL, commentsPermission: c?.commentsPermission === true, connection: { connected: !!c?.connected, enabled: !!c?.enabled, expired: !c?.expiresAt || Date.parse(c.expiresAt) <= Date.now() }, activity, leads: activity.filter(v => ['sent', 'sending', 'delivery_unknown', 'failed'].includes(v.status)) });
+        return res.json({ config, publicReplyDefault: (0, instagramBusinessPolicy_1.publicAcknowledgement)(store.segment, undefined, store.segment === 'AFFILIATES'), segment: store.segment, playbook: instagramBusinessPolicy_1.segmentPlaybooks[store.segment] || instagramBusinessPolicy_1.segmentPlaybooks.GENERAL, commentsPermission: c?.commentsPermission === true, connection: { connected: !!c?.connected, enabled: !!c?.enabled, expired: !c?.expiresAt || Date.parse(c.expiresAt) <= Date.now() }, activity, leads: activity.filter(v => ['sent', 'sending', 'delivery_unknown', 'failed'].includes(v.status)) });
     }));
     app.get('/api/instagram/acquisition/catalog', owned(async (_req, res, id) => {
         const store = (await db.collection('establishments').doc(id).get()).data();
@@ -243,7 +251,7 @@ async function draftCommentLead(comment, caption, summary, generate) {
     return { interested: parsed.interested, privateReply: parsed.interested ? text : '' };
 }
 const paused = (chat) => chat?.aiPaused && (!chat.aiPausedUntil || Date.parse(chat.aiPausedUntil) > Date.now());
-const terminal = ['sent', 'ignored', 'failed', 'delivery_unknown', 'sending'];
+const terminal = ['sent', 'ignored', 'failed', 'delivery_unknown', 'sending', 'public_sending', 'public_sent', 'public_delivery_unknown', 'review_required'];
 async function reviewAutomotiveComment(db, id, graph, deps = {}) {
     const reviewRef = db.collection('instagramEvents').doc(id);
     const targetId = await db.runTransaction(async (tx) => {
@@ -290,9 +298,9 @@ async function processAutomotiveComment(db, eventId, graph, deps = {}) {
         const c = cs.data(), store = ss.data(), cfg = settings.data(), existing = chatSnap.data() || {};
         const campaign = (cfg?.campaigns || []).find((p) => p.mediaId === event.mediaId);
         const trigger = (0, instagramBusinessPolicy_1.campaignTrigger)(cfg, campaign);
-        const productRef = campaign?.productId ? (store?.segment === 'AFFILIATES' ? db.collection('affiliateWorkspaces').doc(event.storeId) : storeRef).collection('products').doc(campaign.productId) : null;
-        const productData = productRef ? (await productRef.get()).data() : null;
-        const product = productData ? { id: campaign.productId, ...productData } : null;
+        let productRef = campaign?.productId ? (store?.segment === 'AFFILIATES' ? db.collection('affiliateWorkspaces').doc(event.storeId) : storeRef).collection('products').doc(campaign.productId) : null;
+        let productData = productRef ? (await productRef.get()).data() : null;
+        let product = productData ? { id: campaign.productId, ...productData } : null;
         let reason = '';
         if (!instagramBusinessPolicy_1.BUSINESS_SEGMENTS.includes(store?.segment) || !c?.connected || !c.enabled || !c.commentsPermission || !cfg?.enabled || cfg.accountId !== c.accountId || c.accountId !== event.accountId)
             reason = 'inactive';
@@ -308,27 +316,120 @@ async function processAutomotiveComment(db, eventId, graph, deps = {}) {
             reason = 'outside_hours';
         else if (campaign?.enabled === false || !campaign && !cfg.allPosts)
             reason = 'post_not_enabled';
-        else if (existing.lastCommentContactAt && Date.now() - Date.parse(existing.lastCommentContactAt) < 24 * 3600000)
-            reason = 'contact_cooldown';
         if (!reason && productRef && (!product || (store?.segment === 'AFFILIATES' ? !productData?.active : productData?.available !== true) || !(0, catalogPolicy_1.visibleForSegment)([product], store?.segment).length))
             reason = 'product_unavailable';
         if (!reason && (0, instagramBusinessPolicy_1.refusesCommentContact)(event.text))
             reason = 'contact_refused';
         const keywordMatch = (0, instagramBusinessPolicy_1.matchesCommentKeyword)(event.text, trigger.keywords);
-        if (!reason && (trigger.mode === 'keyword' || trigger.keywords.length) && !keywordMatch)
-            reason = 'keyword_not_matched';
         if (reason) {
             await eventRef.update({ status: 'ignored', reason });
             return;
         }
+        const gateway = event.aiGateway || await (0, aiGateway_1.prepareAiGateway)(event.text || '', store, 'instagram');
+        await eventRef.update({ aiGateway: gateway });
+        if (gateway.blocked) {
+            await eventRef.update({ status: 'ignored', reason: 'security_blocked' });
+            return;
+        }
+        let socialMedia = null;
+        if (cfg.engagementEnabled === true && cfg.publicReplies) {
+            socialMedia = await graph(`${event.mediaId}?fields=id,caption,permalink`, c.accessToken);
+            let social;
+            try {
+                social = await (deps.socialDraft || instagramCommentPersona_1.draftSocialComment)({ comment: event.text || '', caption: socialMedia.caption || '', segment: store.segment, company: store.name || '' });
+            }
+            catch {
+                social = null;
+            }
+            if (social?.kind === 'complaint') {
+                await eventRef.update({ status: 'review_required', reason: 'sensitive_comment', publicStatus: 'not_requested' });
+                return;
+            }
+            if (social?.kind === 'ignore') {
+                await eventRef.update({ status: 'ignored', reason: 'no_social_reply' });
+                return;
+            }
+            if (social?.kind === 'praise' && social.publicReply) {
+                const hour = new Date().toISOString().slice(0, 13), budget = root.collection('instagramBudgets').doc(hour);
+                const allowed = await db.runTransaction(async (tx) => {
+                    const live = (await tx.get(eventRef)).data(), liveCfg = (await tx.get((0, exports.acquisitionRef)(db, event.storeId))).data(), liveC = (await tx.get(connection)).data(), liveChat = (await tx.get(chat)).data(), usage = (await tx.get(budget)).data();
+                    const liveCampaign = (liveCfg?.campaigns || []).find((p) => p.mediaId === event.mediaId);
+                    const liveStore = (await tx.get(storeRef)).data();
+                    if (liveStore?.segment !== store.segment || liveC?.respectSchedule !== false && deps.operatingHours && !deps.operatingHours(liveStore || {}).isOpen)
+                        return false;
+                    if (live?.status !== 'processing' || liveCfg?.updatedAt !== cfg.updatedAt || !liveCfg?.enabled || !liveCfg.engagementEnabled || !liveCfg.publicReplies || !liveC?.connected || !liveC.enabled || !liveC.commentsPermission || liveC.accountId !== event.accountId || liveCfg.accountId !== event.accountId || Date.parse(liveC.expiresAt) <= Date.now() || paused(liveChat) || liveCampaign?.enabled === false || !liveCampaign && !liveCfg.allPosts)
+                        return false;
+                    if (Number(usage?.engagementCount || 0) >= liveCfg.hourlyLimit) {
+                        tx.update(eventRef, { status: 'ignored', reason: 'hourly_limit' });
+                        return false;
+                    }
+                    tx.set(budget, { engagementCount: Number(usage?.engagementCount || 0) + 1 }, { merge: true });
+                    tx.update(eventRef, { status: 'public_sending', publicStatus: 'sending', publicReply: social.publicReply, source: { kind: 'instagram_engagement', mediaId: event.mediaId, permalink: /^https:\/\/(www\.)?instagram\.com\//.test(socialMedia.permalink || '') ? socialMedia.permalink : '', campaignName: campaign?.campaignName || campaign?.title || '' }, sendStartedAt: now() });
+                    return true;
+                });
+                if (!allowed) {
+                    if ((await eventRef.get()).data()?.status === 'processing')
+                        await eventRef.update({ status: 'ignored', reason: 'context_changed' });
+                    return;
+                }
+                try {
+                    const sent = await graph(`${event.mid}/replies`, c.accessToken, 'POST', { message: social.publicReply });
+                    if (!sent.id)
+                        throw Error('Unconfirmed reply');
+                    await eventRef.update({ status: 'public_sent', publicStatus: 'sent', publicReplyId: sent.id, sentAt: now() });
+                }
+                catch {
+                    await eventRef.update({ status: 'public_delivery_unknown', publicStatus: 'delivery_unknown', reason: 'public_reply_unconfirmed' });
+                }
+                return;
+            }
+        }
+        if (existing.lastCommentContactAt && Date.now() - Date.parse(existing.lastCommentContactAt) < 24 * 3600000) {
+            await eventRef.update({ status: 'ignored', reason: 'contact_cooldown' });
+            return;
+        }
+        if ((trigger.mode === 'keyword' || trigger.keywords.length) && !keywordMatch) {
+            await eventRef.update({ status: 'ignored', reason: 'keyword_not_matched' });
+            return;
+        }
         // Mirror the public surface explicitly. This is not an inbound DM and cannot open its messaging window.
         const profile = existing.activeAutomotiveProfile || 'legacy';
-        await chat.set({ channel: 'instagram', customerPhone: chatKey, customerName: existing.customerName || clean(event.username, 100) || 'Cliente Instagram', instagramSenderId: event.senderId, instagramAccountId: event.accountId }, { merge: true });
+        await chat.set({ channel: 'instagram', customerPhone: chatKey, customerName: existing.customerName || clean(event.username, 100) || 'Cliente Instagram', instagramSenderId: event.senderId, instagramAccountId: event.accountId, ...((0, instagramIdentity_1.instagramUsername)(event.username) ? { instagramUsername: (0, instagramIdentity_1.instagramUsername)(event.username) } : {}) }, { merge: true });
         await chat.collection('messages').doc(`comment_${eventId}`).set({ sender: 'user', origin: 'instagram_comment', surface: 'comment', automotiveProfileId: profile, text: `[Comentário na publicação] ${clean(event.text, 1000)}`, timestamp: new Date(event.timestamp).toISOString(), channel: 'instagram', instagramMediaId: event.mediaId });
-        const media = await graph(`${event.mediaId}?fields=id,caption,permalink`, c.accessToken);
+        const media = socialMedia || await graph(`${event.mediaId}?fields=id,caption,permalink`, c.accessToken);
+        if (store.segment === 'VEHICLES' && !campaign?.productId) {
+            const catalogue = (await storeRef.collection('products').get()).docs.map(d => ({ id: d.id, ...d.data() }));
+            const match = (0, vehiclePostContext_1.matchVehiclePost)(media.caption || '', catalogue);
+            if (match.productIds.length === 1) {
+                const found = catalogue.find(p => p.id === match.productIds[0]);
+                if (found) {
+                    productRef = storeRef.collection('products').doc(found.id);
+                    productData = (await productRef.get()).data();
+                    if (productData)
+                        product = { id: found.id, ...productData };
+                }
+            }
+        }
         if (deps.reserveCredit && !(await deps.reserveCredit(event.storeId, event.text, 'gemini-2.5-flash')).allowed) {
             await eventRef.update({ status: 'ignored', reason: 'billing_required' });
             return;
+        }
+        if (store.segment === 'VEHICLES' && product && (product.available !== true || ['sold', 'reserved', 'unavailable'].includes(product.vehicleSpecs?.status))) {
+            await eventRef.update({ status: 'ignored', reason: 'product_unavailable' });
+            return;
+        }
+        if (store.segment === 'AUTOMOTIVE_PARTS' && !campaign?.productId) {
+            const catalogue = (await storeRef.collection('products').get()).docs.map(d => ({ id: d.id, ...d.data() })).filter((p) => p.available === true);
+            const match = (0, automotivePostContext_1.matchAutomotivePost)(media.caption || '', catalogue);
+            if (match.productIds.length === 1) {
+                const found = catalogue.find(p => p.id === match.productIds[0]);
+                if (found) {
+                    productRef = storeRef.collection('products').doc(found.id);
+                    productData = (await productRef.get()).data();
+                    if (productData)
+                        product = { id: found.id, ...productData };
+                }
+            }
         }
         const draft = event.commentDraft || (store?.segment === 'AUTOMOTIVE_PARTS' ? (await (deps.draft || draftCommentLead)(event.text, media.caption || '', [campaign?.summary, product ? `Referência do catálogo: ${product.name}` : ''].filter(Boolean).join('\n'))) : await (deps.businessDraft || instagramBusinessPolicy_1.draftBusinessComment)({ segment: store.segment, comment: event.text, caption: media.caption || '', campaign, product: (0, instagramBusinessPolicy_1.productSnapshot)(product), keywordMatch }));
         if (draft.interested && store.segment === 'AUTOMOTIVE_PARTS' && ['visit', 'schedule'].includes(campaign?.goal) && !event.commentDraft)
@@ -339,7 +440,12 @@ async function processAutomotiveComment(db, eventId, graph, deps = {}) {
             await eventRef.update({ status: 'ignored', reason: 'no_commercial_interest' });
             return;
         }
-        const source = { kind: 'instagram_comment', accountId: event.accountId, segment: store.segment, productId: product?.id || '', productName: clean(product?.name, 160), goal: campaign?.goal && campaign.goal !== 'default' ? campaign.goal : instagramBusinessPolicy_1.segmentPlaybooks[store.segment]?.goal || 'quote', summary: clean(campaign?.summary, 700), mediaId: event.mediaId, commentId: event.mid, permalink: /^https:\/\/(www\.)?instagram\.com\//.test(media.permalink || '') ? media.permalink : '', caption: clean(media.caption, 900), campaignName: campaign?.campaignName || campaign?.title || '', paid: campaign?.paid === true, paidDeclaredByOwner: campaign?.paid === true, capturedAt: now() };
+        const review = await (0, aiGateway_1.reviewAiReply)(event.text || '', draft.privateReply, { segment: store.segment, catalog: product ? [{ name: product.name, description: product.description || '' }] : [], allowedUrls: product?.affiliateUrl ? [(0, instagramBusinessPolicy_1.productSnapshot)(product)?.affiliateUrl] : [] }, { remote: false });
+        if (review.corrected) {
+            await eventRef.update({ status: 'ignored', reason: 'response_guardrail', guardrail: review });
+            return;
+        }
+        const source = { kind: 'instagram_comment', accountId: event.accountId, segment: store.segment, productId: product?.id || '', productName: clean(product?.name, 160), goal: campaign?.goal && campaign.goal !== 'default' ? campaign.goal : instagramBusinessPolicy_1.segmentPlaybooks[store.segment]?.goal || 'quote', summary: clean(campaign?.summary, 700), mediaId: event.mediaId, commentId: event.mid, permalink: /^https:\/\/(www\.)?instagram\.com\//.test(media.permalink || '') ? media.permalink : '', caption: clean(media.caption, 2200), comment: clean(event.text, 1000), campaignName: campaign?.campaignName || campaign?.title || '', paid: campaign?.paid === true, paidDeclaredByOwner: campaign?.paid === true, capturedAt: now() };
         const hour = new Date().toISOString().slice(0, 13), budget = root.collection('instagramBudgets').doc(hour);
         const ready = await db.runTransaction(async (tx) => {
             const live = (await tx.get(eventRef)).data(), liveChat = (await tx.get(chat)).data(), liveConfig = (await tx.get((0, exports.acquisitionRef)(db, event.storeId))).data(), liveConnection = (await tx.get(connection)).data(), usage = (await tx.get(budget)).data();
@@ -356,7 +462,7 @@ async function processAutomotiveComment(db, eventId, graph, deps = {}) {
                 tx.update(eventRef, { status: 'ignored', reason: 'hourly_limit' });
                 return false;
             }
-            tx.set(budget, { count: Number(usage?.count || 0) + 1, updatedAt: now() });
+            tx.set(budget, { count: Number(usage?.count || 0) + 1, updatedAt: now() }, { merge: true });
             tx.update(eventRef, { status: 'sending', commentDraft: draft, source, sendStartedAt: now() });
             tx.set(chat, { lastCommentContactAt: now() }, { merge: true });
             tx.set(lead, { contactId: chatKey, customerName: liveChat?.customerName || 'Cliente Instagram', comment: clean(event.text, 1000), privateReply: draft.privateReply, source, status: 'sending', createdAt: now(), updatedAt: now() });
@@ -369,7 +475,7 @@ async function processAutomotiveComment(db, eventId, graph, deps = {}) {
             return;
         }
         const outgoing = chat.collection('messages').doc(`comment_reply_${eventId}`);
-        await outgoing.set({ sender: 'assistant', origin: 'ai', automotiveProfileId: profile, text: draft.privateReply, timestamp: now(), channel: 'instagram', deliveryStatus: 'pending', instagramCommentId: event.mid });
+        await outgoing.set({ sender: 'assistant', origin: 'ai', automotiveProfileId: profile, text: draft.privateReply, timestamp: now(), channel: 'instagram', deliveryStatus: 'pending', instagramCommentId: event.mid, aiGateway: { channel: 'instagram', route: 'comment_acquisition', actualModel: 'gemini-2.5-flash', reviewer: review.reviewer, corrected: review.corrected, triageSource: gateway.triageSource } });
         let sent = false;
         try {
             const result = await graph(`${c.accountId}/messages`, c.accessToken, 'POST', { recipient: { comment_id: event.mid }, message: { text: draft.privateReply } });
@@ -388,6 +494,13 @@ async function processAutomotiveComment(db, eventId, graph, deps = {}) {
         }
         if (sent) {
             // CRM is separate from delivery: a failure here must never resend the Direct.
+            if (store.segment === 'VEHICLES')
+                try {
+                    await (await Promise.resolve().then(() => __importStar(require('./dealership')))).captureVehicleLead(db, event.storeId, chatKey, { name: existing.customerName, text: event.text, source, productId: product?.id }, store);
+                }
+                catch {
+                    await lead.set({ crmStatus: 'review_required' }, { merge: true });
+                }
             if (store.segment === 'AUTOMOTIVE_PARTS')
                 try {
                     const sync = deps.syncLead || (async (store, contact, input, reply, attribution) => (await Promise.resolve().then(() => __importStar(require('./automotive')))).saveAutomotiveContactAndSyncCrm({ db, establishmentId: store, customerPhone: contact, incomingText: input, replyText: reply, attribution }));
@@ -402,7 +515,11 @@ async function processAutomotiveComment(db, eventId, graph, deps = {}) {
             const latestCfg = (await (0, exports.acquisitionRef)(db, event.storeId).get()).data(), latestC = (await connection.get()).data(), latestChat = (await chat.get()).data();
             if (latestCfg?.publicReplies && latestCfg.enabled && latestC?.connected && latestC.enabled && latestC.accountId === event.accountId && !paused(latestChat)) {
                 // Public acknowledgement only follows confirmed private delivery, never before it.
-                const publicText = (0, instagramBusinessPolicy_1.publicAcknowledgement)(store.segment);
+                const latestCampaign = (latestCfg.campaigns || []).find((p) => p.mediaId === event.mediaId);
+                const linkSent = !!product?.affiliateUrl && draft.privateReply.includes(product.affiliateUrl);
+                const standard = (0, instagramBusinessPolicy_1.publicAcknowledgement)(store.segment, latestCampaign?.publicReplyText, linkSent);
+                const playful = ['Bora tirar essa dúvida! Te chamei no Direct 🙂', 'Interesse anotado! Vamos conversar no Direct 😎', 'A conversa ganhou continuação no Direct! Te mandei uma mensagem 😉'];
+                const publicText = latestCfg.engagementEnabled && !latestCampaign?.publicReplyText && !linkSent ? playful[parseInt(hash(eventId).slice(0, 8), 16) % playful.length] : standard;
                 await lead.set({ publicStatus: 'sending' }, { merge: true });
                 try {
                     const reply = await graph(`${event.mid}/replies`, c.accessToken, 'POST', { message: publicText });
@@ -421,6 +538,10 @@ async function processAutomotiveComment(db, eventId, graph, deps = {}) {
         const latest = (await eventRef.get()).data();
         if (latest?.status === 'sending') {
             await status('delivery_unknown', { lastError: 'Processamento interrompido durante envio. Confira o Instagram antes de reenviar.' });
+        }
+        else if (['public_sending', 'public_sent', 'public_delivery_unknown'].includes(latest?.status)) {
+            if (latest.status === 'public_sending')
+                await eventRef.update({ status: 'public_delivery_unknown', publicStatus: 'delivery_unknown' });
         }
         else if (latest?.status === 'sent') {
             await lead.set({ postProcessingStatus: 'review_required' }, { merge: true });

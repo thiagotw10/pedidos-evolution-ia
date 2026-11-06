@@ -14,7 +14,7 @@ export function automotiveIntent(text: string) {
   const ownsVehicle=/\b(tenho|possuo|meu carro|meu veiculo|minha\s+(?:bmw|porsche|audi)|meu\s+(?:jetta|golf|civic|porsche|carro)|outro carro|outro veiculo|troquei de carro|voltando (?:ao|pro|para o)|sobre o meu|i have|my car|back to my)\b/.test(t);
   return {intents,primary:intents[0] || 'qualification',ownsVehicle,exploring:!ownsVehicle && intents.some(i=>['media','browse','stock'].includes(i)),transactional:intents.some(i=>['human','price','appointment','technical'].includes(i))};
 }
-export type AutomotiveProfiles = {activeAutomotiveProfile?:string; automotiveProfiles?:Record<string,Context>; automotiveContext?:Context};
+export type AutomotiveProfiles = {activeAutomotiveProfile?:string; automotiveProfiles?:Record<string,Context>; automotiveContext?:Context; automotiveCatalogs?:Record<string,{audience?:string}>};
 export function selectAutomotiveProfile(text:string,memory:AutomotiveProfiles,extracted:Partial<Context>) {
   const intent=automotiveIntent(text);
   const profiles={...(memory.automotiveProfiles || {})};
@@ -24,6 +24,8 @@ export function selectAutomotiveProfile(text:string,memory:AutomotiveProfiles,ex
   let context={...profiles[active]};
   if (context.year && !/^(19|20)\d{2}$/.test(context.year)) context.year='';
   let switched=false;
+  const thirdParty=/\b(amigo|amiga|colega|irmao|irma|conhecido|conhecida)\b/.test(normalizeAuto(text))||memory.automotiveCatalogs?.[active]?.audience==='friend';
+  if(thirdParty&&!intent.ownsVehicle){intent.exploring=true;intent.ownsVehicle=false;}
   const model=normalizeAuto(extracted.model), brand=normalizeAuto(extracted.brand);
   const newProject=/\b(outro projeto|novo projeto para o mesmo|outro carro|outro veiculo|tambem tenho|agora tenho|troquei de carro)\b/.test(normalizeAuto(text));
   const correction=/\b(na verdade|corrigindo|correcao|errei|quis dizer)\b/.test(normalizeAuto(text));

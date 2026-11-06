@@ -69,8 +69,8 @@ export function studioFunnel(chats:any[],projects:any[],accountId:string){
     // Only attribute to a contact belonging to the currently connected Instagram.
     const mediaId=contactSources.get(p.phone);if(!mediaId||p.channel!=='instagram')continue;
     const row=get(mediaId);row.leads++;
-    if(['Orçamento enviado','Aprovado','Em execução','Enviado','Concluído'].includes(p.status))row.quotes++;
-    if(['Aprovado','Em execução','Enviado','Concluído'].includes(p.status)){
+    if(['Orçamento enviado','Aprovado','Em execução','Pronto para retirada','Enviado','Concluído'].includes(p.status))row.quotes++;
+    if(['Aprovado','Em execução','Pronto para retirada','Enviado','Concluído'].includes(p.status)){
       row.sales++;const amount=Number(p.quoteValue),currency=p.currency||'BRL';
       if(Number.isFinite(amount)&&amount>=0)row.quotedRevenue[currency]=(row.quotedRevenue[currency]||0)+amount;
     }
@@ -101,7 +101,7 @@ export function registerInstagramStudio(app:Express,db:admin.firestore.Firestore
     // Home reads only our saved snapshot. Visiting home never fans out to Meta APIs.
     const [connection,snapshot]=await Promise.all([db.collection('instagramConnections').doc(id).get(),root(db,id).get()]);
     const c=connection.data();if(!c?.connected)return res.json({connected:false});
-    const saved=snapshot.data(),analytics=saved?.accountId===c.accountId?saved.analytics:null;
+    const saved=snapshot.data(),analytics=c?.connected&&c.accountId&&saved?.accountId===c.accountId?saved?.analytics??null:null;
     const media=Array.isArray(analytics?.media)?analytics.media:[];
     const total=(key:string)=>{const values=media.map((m:any)=>m.metrics?.[key]).filter((v:any)=>typeof v==='number'&&Number.isFinite(v));return values.length?values.reduce((a:number,b:number)=>a+b,0):null;};
     return res.json({connected:true,accountId:c.accountId,username:c.username||'',enabled:c.enabled===true,expired:!Number.isFinite(Date.parse(c.expiresAt))||Date.parse(c.expiresAt)<=Date.now(),insightsPermission:hasScope(c,INSIGHTS_SCOPE),syncedAt:analytics?.syncedAt||null,since:analytics?.since||null,until:analytics?.until||null,views:analytics?.account?.views??null,reach:analytics?.account?.reach??null,likes:total('likes'),comments:total('comments'),sampleSize:media.length,media:media.slice(0,3).map((m:any)=>({id:clean(m.id,100),caption:clean(m.caption,180),type:clean(m.type,30),thumbnail:/^https:\/\//.test(m.thumbnail||'')?m.thumbnail:'',likes:typeof m.metrics?.likes==='number'?m.metrics.likes:null,comments:typeof m.metrics?.comments==='number'?m.metrics.comments:null}))});
@@ -111,7 +111,7 @@ export function registerInstagramStudio(app:Express,db:admin.firestore.Firestore
     const c=connection.data();
     const projects=store.data()?.segment==='AUTOMOTIVE_PARTS'?await db.collection('automotive_projects').where('establishmentId','==',id).limit(1000).get():null;
     const saved=metrics.data();
-    return res.json({segment:store.data()?.segment,connection:{connected:!!c?.connected,username:c?.username||'',accountId:c?.accountId||'',publishing:hasScope(c,PUBLISH_SCOPE),insights:hasScope(c,INSIGHTS_SCOPE)},posts:snap.docs.filter(d=>d.data().accountId===c?.accountId).map(d=>postDto(d.id,d.data())),analytics:saved?.accountId===c?.accountId?saved.analytics:null,funnel:studioFunnel(chats.docs.map(d=>d.data()),projects?.docs.map(d=>d.data())||[],c?.accountId||''),crmAvailable:store.data()?.segment==='AUTOMOTIVE_PARTS',sampleLimit:1000});
+    return res.json({segment:store.data()?.segment,connection:{connected:!!c?.connected,username:c?.username||'',accountId:c?.accountId||'',publishing:hasScope(c,PUBLISH_SCOPE),insights:hasScope(c,INSIGHTS_SCOPE)},posts:snap.docs.filter(d=>!!c?.accountId&&d.data().accountId===c.accountId).map(d=>postDto(d.id,d.data())),analytics:c?.connected&&c.accountId&&saved?.accountId===c.accountId?saved?.analytics??null:null,funnel:studioFunnel(chats.docs.map(d=>d.data()),projects?.docs.map(d=>d.data())||[],c?.accountId||''),crmAvailable:store.data()?.segment==='AUTOMOTIVE_PARTS',sampleLimit:1000});
   }));
   app.post('/api/instagram/studio/posts',owned(async(req,res,id)=>{
     const p=validateStudioPost(req.body);await checkProduct(db,id,p);

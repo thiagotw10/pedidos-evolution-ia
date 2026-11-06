@@ -138,7 +138,12 @@ async function resolveAutomotiveOperations(db, storeId, contactId, profile, ctx,
         return response('Para consultar o endereço de entrega, qual é o seu CEP? A consulta do CEP não calcula o frete.', 'shipping');
     const garage = session.garage || {};
     const stockQuestion = /\b(estoque|saldo|disponivel|disponiveis)\b/.test(t) || /\b(tem|possui)\b.*\b(kit|escape|escapamento|peca)\b/.test(t) && !/\b(fotos?|videos?|imagens?|referencias?|projetos?)\b/.test(t);
-    const wantsGarage = stockQuestion || /\b(quero|gostaria|pretendo|posso|preciso)\b.*\b(instalar|instalacao|colocar|montar)\b/.test(t) || operationDay(input) !== null && /\b(instalar|instalacao|colocar|montar|escape|escapamento)\b/.test(t) || /\b(agendar|agendamento|marcar|vagas?|estoque|disponibilidade|horario disponivel|tem.*(?:kit|escape|peca).*disponivel)\b/.test(t);
+    const wantsGarage = /^instalacao[.! ]*$/.test(t) || stockQuestion || /\b(quero|gostaria|pretendo|posso|preciso)\b.*\b(instalar|instalacao|colocar|montar)\b/.test(t) || operationDay(input) !== null && /\b(instalar|instalacao|colocar|montar|escape|escapamento)\b/.test(t) || /\b(agendar|agendamento|marcar|vagas?|estoque|disponibilidade|horario disponivel|tem.*(?:kit|escape|peca).*disponivel)\b/.test(t);
+    if (!garage.stage && allowCommit) {
+        const accepted = await (0, internalConsultation_1.acceptStaffScheduleOffer)(db, storeId, contactId, profile, input);
+        if (accepted)
+            return accepted;
+    }
     if (!wantsGarage && (!garage.stage || diversion))
         return null;
     const root = (0, garage_1.operationsRef)(db, storeId), state = (0, garage_1.garageState)((await root.get()).data());

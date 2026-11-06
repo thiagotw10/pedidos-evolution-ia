@@ -42,3 +42,32 @@ test('budget questions stay with conversational engine; exhausted model offers d
  assert.equal(call('qual valor do projeto?'),null);
  const first=call('Porsche 992.2'); const next=call('outros',first.memory);assert.ok(!next.memory.selectedIds.includes('p1'));
 });
+
+test('personal address and contact questions bypass store facts to preserve conversation memory',()=>{
+ for(const text of ['Olhei sim, tudo certo, eu ja te passei meu endereço?','Estou perguntando se passei meu endereço pra voce','Ja passei meu endereço?','Qual endereço de entrega eu informei?','O endereço que te passei está certo?','Você tem meu telefone?'])assert.equal(call(text),null,text);
+ for(const text of ['Qual é o endereço da loja?','Qual seu endereço?','Onde fica a oficina?'])assert.match(call(text).replyText,/Ficamos na Endereço real/);
+});
+test('friend browsing clears the owner filter and acceptance carries the sharing goal without qualification',()=>{
+ const stale={query:'2020',shownIds:['p1','p2','p3','p4'],selectedIds:['p1'],mediaUrls:['https://cdn/1']};
+ const offer=call('Além disso poderia me informar outros projetos, estou querendo mostrar pra um amigo aqui',stale);
+ assert.equal(offer.memory.audience,'friend');assert.equal(offer.memory.query,'');assert.equal(offer.memory.pendingAction,'resend');assert.match(offer.replyText,/compartilhar com seu amigo/);
+ const accepted=call('Pode mandar',offer.memory);assert.ok(accepted.mediaList.length>0);assert.ok(accepted.mediaList.length<=3);assert.match(accepted.replyText,/amigo/);assert.doesNotMatch(accepted.replyText,/qual.*(?:modelo|ano|versão)|seu carro|orçamento/i);assert.equal(accepted.memory.pendingAction,null);
+ assert.ok(accepted.mediaList.every(m=>!m.url.includes('/e')),'events are not exhaust references');
+});
+test('pending catalog consent is invalidated by a different question while friend topic remains',()=>{
+ const {catalogMemoryForTurn}=require('../lib/groundedInstagram');const offer=call('outros projetos para meu amigo',{shownIds:['p1','p2','p3','p4']});
+ const same=catalogMemoryForTurn(offer.memory,[{sender:'user',text:'quero mostrar para meu amigo'},{sender:'assistant',text:offer.replyText}]);assert.equal(same.pendingAction,'resend');
+ const different=catalogMemoryForTurn(offer.memory,[{sender:'user',text:'quero mostrar para meu amigo'},{sender:'assistant',text:'Você confirma o endereço?'}]);assert.equal(different.pendingAction,null);assert.equal(different.audience,'friend');assert.equal(call('Sim',different),null);
+ const recovered=catalogMemoryForTurn({query:'2020'},[{sender:'user',text:'Quero mostrar outros projetos para um amigo'},{sender:'assistant',text:'Estas são referências. Qual o modelo do seu carro?'}]);assert.equal(recovered.audience,'friend');
+});
+test('technical follow-up and reputation questions do not become catalog lists',()=>{for(const text of ['Ele foi feito em Titanium?','Vocês são referência?','Me fala se é manufaturado por vocês ou marcas de prateleira','Manda detalhes dessa']){assert.equal(call(text,{selectedIds:['p1']}),null,text);}});
+test('custom fabrication continues vehicle qualification and offers real parts on missing project',()=>{
+ const custom={segment:'AUTOMOTIVE_PARTS',automotiveBusinessFacts:{customBuildVerified:true}};
+ const parts=[{id:'t',catalogKind:'exhaust_product',name:'Conjunto titânio',imageUrl:'https://cdn/t'}];
+ assert.equal(run('porshe',parts,custom,'s'),null);
+ assert.equal(run('porsche 911 carrera',parts,custom,'s'),null);
+ const missing=run('fotos de projetos Porsche 991',parts,custom,'s');
+ assert.match(missing.replyText,/sob medida/);assert.match(missing.replyText,/Conjunto titânio/);assert.equal(missing.mediaList.length,0);
+ const accepted=run('pode mandar',parts,custom,'s',missing.memory);assert.equal(accepted.mediaList[0].url,'https://cdn/t');
+ assert.doesNotMatch(run('fotos Porsche 991',parts,{segment:'AUTOMOTIVE_PARTS'},'s').replyText,/sob medida/);
+});

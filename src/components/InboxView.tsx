@@ -1,3 +1,4 @@
+import {VehicleConversation} from './VehicleCrm';
 import {SkeletonScreen} from './Loading';
 import React, {useEffect, useState} from 'react';
 import {collection,onSnapshot} from 'firebase/firestore';
@@ -5,12 +6,13 @@ import {Bell,Instagram,Smartphone} from 'lucide-react';
 import {AutomotiveProjects} from './AutomotiveProjects';
 import {auth,db} from '../lib/firebase';
 import {isPushSupported,subscribeToPushNotifications} from '../utils/pwaNotifications';
-type Chat={instagramAcquisition?:{campaignName?:string;kind?:string};leadSource?:string;id:string;customerName?:string;lastMessage?:string;lastUserMessage?:string;lastMessageAt?:string;lastTimestamp?:string;lastInboundAt?:string;unreadByHuman?:boolean;aiPaused?:boolean;aiPausedUntil?:string|null};
+type Chat={instagramAcquisition?:{campaignName?:string;kind?:string};leadSource?:string;id:string;customerName?:string;instagramUsername?:string;instagramProfileCheckedAt?:string;lastMessage?:string;lastUserMessage?:string;lastMessageAt?:string;lastTimestamp?:string;lastInboundAt?:string;unreadByHuman?:boolean;aiPaused?:boolean;aiPausedUntil?:string|null};
 const isInstagram=(id:string)=>/^(ig_|instagram_)/.test(id);
 const controlled=(c:Chat)=>c.aiPaused&&(!c.aiPausedUntil||Date.parse(c.aiPausedUntil)>Date.now());
 const time=(s?:string)=>s&&Number.isFinite(Date.parse(s))?new Date(s).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
-export function InboxView(){
+export function InboxView({vehicleMode=false}:{vehicleMode?:boolean}={}){
   const [chats,setChats]=useState<Chat[]>([]);
+  const [vehicleLead,setVehicleLead]=useState<any>(null);
   const [selectedId,setSelectedId]=useState(new URLSearchParams(location.search).get('chat')||'');
   const [search,setSearch]=useState('');const [filter,setFilter]=useState('all');
   const [error,setError]=useState('');const [notice,setNotice]=useState('');const [loading,setLoading]=useState(true);
@@ -21,9 +23,11 @@ export function InboxView(){
     },()=>{setError('Não foi possível sincronizar as conversas.');setLoading(false);});
   },[]);
   useEffect(()=>{const navigate=()=>setSelectedId(new URLSearchParams(location.search).get('chat')||'');window.addEventListener('popstate',navigate);return()=>window.removeEventListener('popstate',navigate);},[]);
+  useEffect(()=>{if(vehicleMode!==true||!selectedId){setVehicleLead(null);return;}let cancelled=false;void (async()=>{try{const token=await auth.currentUser?.getIdToken();const r=await fetch('/api/vehicles/leads',{headers:{Authorization:`Bearer ${token}`}});const d=await r.json();if(!r.ok)throw Error(d.error);let lead=d.leads.find((l:any)=>l.contactId===selectedId);if(!lead){const response=await fetch('/api/vehicles/from-chat',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({contactId:selectedId})});const result=await response.json();if(!response.ok)throw Error(result.error);lead=result.lead;}if(!cancelled)setVehicleLead(lead);}catch(e:any){setError(e.message)}})();return()=>{cancelled=true}},[vehicleMode,selectedId]);
+  useEffect(()=>{const uid=auth.currentUser?.uid;if(!uid||loading)return;const ids=chats.filter(c=>isInstagram(c.id)&&(!c.instagramProfileCheckedAt||Date.now()-Date.parse(c.instagramProfileCheckedAt)>86400000)).map(c=>c.id).slice(0,20);if(!ids.length)return;let cancelled=false;void (async()=>{const token=await auth.currentUser?.getIdToken();if(cancelled||!token)return;await fetch('/api/instagram/contacts/refresh',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({establishmentId:uid,contactIds:ids})}).catch(()=>{});})();return()=>{cancelled=true;};},[loading]);
   function open(id:string){setSelectedId(id);setError('');const url=new URL(location.href);url.searchParams.set('tab','inbox');if(id)url.searchParams.set('chat',id);else url.searchParams.delete('chat');history.replaceState({},'',url);}
   async function notifications(){const uid=auth.currentUser?.uid;if(!uid)return;const result=await subscribeToPushNotifications(uid);if(result.success)setNotice('Notificações ativadas neste aparelho.');else setError(result.error||'Não foi possível ativar notificações.');}
-  const visible=chats.filter(c=>(filter==='all'||(filter==='instagram'?isInstagram(c.id):filter==='whatsapp'?!isInstagram(c.id):c.unreadByHuman))&&`${c.customerName||''} ${c.id} ${c.lastMessage||''}`.toLowerCase().includes(search.toLowerCase()));
+  const visible=chats.filter(c=>(filter==='all'||(filter==='instagram'?isInstagram(c.id):filter==='whatsapp'?!isInstagram(c.id):c.unreadByHuman))&&`${c.customerName||''} ${c.instagramUsername||''} ${c.id} ${c.lastMessage||''}`.toLowerCase().includes(search.toLowerCase()));
   return <section className="crm-inbox space-y-3 p-3 sm:p-5 md:p-6">
     <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-xl font-bold text-white">Conversas</h1><p className="text-sm text-slate-400">Todos os seus atendimentos, em um só lugar.</p></div>
       <button onClick={notifications} disabled={!isPushSupported()} className="inline-flex items-center gap-2 rounded-xl border border-slate-700 px-3 py-2 text-sm text-slate-200 disabled:opacity-50"><Bell size={16}/>Ativar notificações</button></div>
@@ -36,10 +40,11 @@ export function InboxView(){
           <div className="crm-inbox-filters flex gap-1 overflow-x-auto" role="group" aria-label="Filtrar conversas">{[['all','Todas'],['unread','Não lidas'],['whatsapp','WhatsApp'],['instagram','Instagram']].map(([value,label])=><button key={value} type="button" aria-pressed={filter===value} onClick={()=>setFilter(value)} className={`shrink-0 rounded-full px-3 py-2 text-xs ${filter===value?'bg-white/10 text-white':'text-slate-400'}`}>{label}</button>)}</div></div>
         <div className="overflow-y-auto flex-1">{visible.map(c=><button key={c.id} onClick={()=>open(c.id)} className={`text-left w-full p-4 border-b border-slate-800/60 ${c.id===selectedId?'bg-emerald-500/10':'hover:bg-slate-900'}`}>
           <div className="flex items-center gap-2">{isInstagram(c.id)?<Instagram size={17} className="text-pink-400"/>:<Smartphone size={17} className="text-emerald-400"/>}<span className="truncate text-sm font-semibold text-white flex-1">{c.customerName|| (isInstagram(c.id)?'Cliente Instagram':c.id)}</span>{c.unreadByHuman&&<span aria-label="Mensagem não lida" className="w-2 h-2 rounded-full bg-emerald-400"/>}</div>
-          {c.instagramAcquisition&&<p className="truncate text-[10px] text-pink-300 mt-2">{c.leadSource || 'Instagram'}{c.instagramAcquisition.campaignName?` · ${c.instagramAcquisition.campaignName}`:''}</p>}<p className="truncate text-xs text-slate-400 mt-2">{c.lastMessage||c.lastUserMessage||'Abrir conversa'}</p><div className="flex justify-between text-[10px] text-slate-500 mt-2"><span>{controlled(c)?'Atendimento humano':'Assistente ativo'}</span><span>{time(c.lastMessageAt||c.lastTimestamp||c.lastInboundAt)}</span></div></button>)}
+          {c.instagramUsername&&<p className="truncate text-xs text-pink-400 mt-1">@{c.instagramUsername}</p>}{c.instagramAcquisition&&<p className="truncate text-[10px] text-pink-300 mt-2">{c.leadSource || 'Instagram'}{c.instagramAcquisition.campaignName?` · ${c.instagramAcquisition.campaignName}`:''}</p>}<p className="truncate text-xs text-slate-400 mt-2">{c.lastMessage||c.lastUserMessage||'Abrir conversa'}</p><div className="flex justify-between text-[10px] text-slate-500 mt-2"><span>{controlled(c)?'Atendimento humano':'Assistente ativo'}</span><span>{time(c.lastMessageAt||c.lastTimestamp||c.lastInboundAt)}</span></div></button>)}
           {loading?<SkeletonScreen variant="list" label="Carregando conversas…" count={5}/>:!visible.length&&<p className="p-5 text-sm text-slate-500">Nenhuma conversa encontrada.</p>}</div>
       </aside>
     </div>
-    {selectedId&&<AutomotiveProjects key={selectedId} conversationContactId={selectedId} onConversationClose={()=>open('')}/>}
+    {selectedId&&vehicleMode&&vehicleLead&&<VehicleConversation lead={vehicleLead} onClose={()=>open('')}/> }
+    {selectedId&&vehicleMode===false&&<AutomotiveProjects key={selectedId} conversationContactId={selectedId} onConversationClose={()=>open('')}/>}
   </section>;
 }

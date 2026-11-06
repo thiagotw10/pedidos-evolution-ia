@@ -1,3 +1,7 @@
+import {instagramMessageContext,resolveInstagramPreviews} from './instagramMessageContext';
+import {refreshInstagramIdentity} from './instagramIdentity';
+import {registerInstagramCatalogImport} from './instagramCatalogImport';
+import {prepareAiGateway,GatewayDecision,SECURITY_REPLY,HANDOFF_REPLY,isGatewayHandoff} from './aiGateway';
 import {registerInstagramReach} from './instagramReach';
 import {captureExplicitLeadLocation} from './instagramLeadGeo';
 import {registerInstagramStudio,runInstagramStudioQueue,PUBLISH_SCOPE,INSIGHTS_SCOPE,instagramStudioScopes} from './instagramStudio';
@@ -10,7 +14,7 @@ import crypto from 'crypto';
 
 export type ProcessAiMessageFn = (
   establishmentId: string, customerId: string, text: string, name?: string,
-  media?: { mimeType: string; data: string }, model?: string, channel?: 'whatsapp' | 'instagram', inboundMessageId?: string
+  media?: { mimeType: string; data: string }, model?: string, channel?: 'whatsapp' | 'instagram', inboundMessageId?: string, gateway?:GatewayDecision
 ) => Promise<{
   replyText: string;
   assistantMessageId?: string;
@@ -23,6 +27,8 @@ type Dependencies = {
   reserveCredit?: (storeId: string, text: string, model: string) => Promise<{ allowed: boolean }>;
   operatingHours?: (store: any) => { isOpen: boolean };
   inlineWorker?: boolean;
+  gateway?:typeof prepareAiGateway;
+  notifyHuman?:(storeId:string,payload:any)=>Promise<any>;
 };
 const CONNECTIONS = 'instagramConnections';
 const EVENTS = 'instagramEvents';
@@ -50,10 +56,10 @@ export function extractInstagramMessages(body: any): any[] {
     ...(Array.isArray(entry.changes) ? entry.changes.filter((change: any) => change?.field === 'messages').map((change: any) => change.value) : [])
   ].filter((item: any) => item?.message?.mid && !item.message.is_echo && !item.message.is_deleted
       && item.sender?.id && item.recipient?.id && item.sender.id !== item.recipient.id
-      && (item.message.text || item.message.attachments?.length))
+      && (item.message.text || item.message.attachments?.length || item.message.reply_to?.story))
     .map((item: any) => ({ accountId: String(item.recipient.id), senderId: String(item.sender.id),
       mid: String(item.message.mid), timestamp: Number(item.timestamp) > 0 ? Number(item.timestamp) * (Number(item.timestamp) < 1e12 ? 1000 : 1) : Date.now(),
-      text: String(item.message.text || ''), attachments: item.message.attachments || [],
+      instagramContext:instagramMessageContext(item.message), text: String(item.message.text || ''), attachments: item.message.attachments || [],
       ...((item.referral || item.message.referral)?.source==='ADS' && /^\d{5,40}$/.test(String((item.referral || item.message.referral)?.ad_id || ''))?{referral:{source:'ADS',adId:String((item.referral || item.message.referral).ad_id)}}:{}) })));
 }
 
@@ -121,6 +127,7 @@ export function registerInstagramWebhookRoutes(app: Express, db: admin.firestore
   processAi: ProcessAiMessageFn, deps: Dependencies = {}) {
   registerAffiliateRoutes(app, db, graph);
   registerInstagramStudio(app,db,graph);
+  registerInstagramCatalogImport(app,db,graph);
   registerInstagramReach(app,db);
   registerAcquisitionRoutes(app,db,graph);
   const owned = (handler: (req: Request, res: Response, storeId: string) => Promise<any>) => async (req: Request, res: Response) => {
@@ -153,6 +160,12 @@ export function registerInstagramWebhookRoutes(app: Express, db: admin.firestore
       webhookVerifiedAt: webhook?.verifiedAt || null,
       webhookUrl: `${c.origin}/api/instagram/webhook`, redirectUri: `${c.origin}/api/instagram/callback`,
       verifyToken: c.verifyToken });
+  }));
+
+  app.post('/api/instagram/contacts/refresh', owned(async (req,res,storeId)=>{
+    const ids=Array.isArray(req.body?.contactIds)?[...new Set(req.body.contactIds)].slice(0,20):[];
+    let refreshed=0;for(const id of ids){if(typeof id!=='string'||!/^ig_\d+$/.test(id))continue;const patch=await refreshInstagramIdentity(db,storeId,id,graph);if(Object.keys(patch).length)refreshed++;}
+    return res.json({refreshed});
   }));
 
   app.post('/api/instagram/connect', owned(async (req, res, storeId) => {
@@ -360,11 +373,12 @@ export async function processInstagramEvent(db: admin.firestore.Firestore, event
   try {
     const c = (await connection.get()).data();
     const store = (await db.collection('establishments').doc(event.storeId).get()).data();
+    event.instagramContext=await resolveInstagramPreviews(event.instagramContext||[]);
     const inbound = chat.collection('messages').doc(eventId);
     if (store && !(await inbound.get()).exists) {
-      const attachments = (event.attachments || []).map((a: any) => ({type:a.type,url:a.payload?.url || a.url || ''})).filter((a: any) => /^https:\/\//.test(a.url));
+      const attachments = (event.attachments || []).filter((a:any)=>['image','audio','video'].includes(a.type)).map((a: any) => ({type:a.type,url:a.payload?.url || a.url || ''})).filter((a: any) => /^https:\/\//.test(a.url));
       await inbound.set({sender:'user', text:event.text || '[Mídia recebida pelo Instagram]',
-        timestamp:new Date(event.timestamp).toISOString(), channel:'instagram',
+        timestamp:new Date(event.timestamp).toISOString(), channel:'instagram',instagramContext:event.instagramContext||[],
         media:attachments.map((a: any) => ({url:a.url,type:a.type})),
         mediaUrl:attachments.find((a: any) => a.type === 'image')?.url || null,
         audioUrl:attachments.find((a: any) => a.type === 'audio')?.url || null});
@@ -373,14 +387,17 @@ export async function processInstagramEvent(db: admin.firestore.Firestore, event
     if(c?.connected&&c.accountId===event.accountId&&store){
       const known=(await chat.get()).data()||{};
       await chat.set({firstInstagramInboundAt:known.firstInstagramInboundAt||new Date(event.timestamp).toISOString(),lastInboundAt:Date.parse(known.lastInboundAt)>event.timestamp?known.lastInboundAt:new Date(event.timestamp).toISOString()},{merge:true});
+      if(event.instagramContext?.length&&(!known.instagramSharedContext?.timestamp||event.timestamp>=known.instagramSharedContext.timestamp))await chat.set({instagramSharedContext:{accountId:event.accountId,timestamp:event.timestamp,items:event.instagramContext}},{merge:true});
       if(event.text)await captureExplicitLeadLocation(db,event.storeId,chatKey,event.text,event.accountId,event.timestamp);
     }
     if (!c?.connected || !c.enabled || c.accountId !== event.accountId || !store || Date.now() - event.timestamp > 23 * 3600000) {
       await ref.update({ status: 'ignored', reason: 'inactive_or_expired_window' }); return;
     }
     await connection.update({ lastInboundAt: now() });
+    await refreshInstagramIdentity(db,event.storeId,chatKey,graph).catch(()=>{});
     const existing = (await chat.get()).data() || {};
-    const paused = existing.aiPaused && (!existing.aiPausedUntil || new Date(existing.aiPausedUntil).getTime() > Date.now());
+    const ownPendingHandoff=!!event.gatewayHandoffAt&&existing.gatewayHandoffEventId===eventId&&existing.aiPausedAt===event.gatewayHandoffAt;
+    const paused = !ownPendingHandoff&&existing.aiPaused && (!existing.aiPausedUntil || new Date(existing.aiPausedUntil).getTime() > Date.now());
     const outsideHours = c.respectSchedule !== false && deps.operatingHours && !deps.operatingHours(store).isOpen;
     const savedReferral=(await db.collection('automotiveOperations').doc(event.storeId).collection('instagramReferrals').doc(chatKey).get()).data();
     const referral=event.referral?.source==='ADS'?{...event.referral,timestamp:event.timestamp}:savedReferral?.accountId===event.accountId && Date.now()-Number(savedReferral.timestamp)<7*86400000?savedReferral:null;
@@ -399,14 +416,27 @@ export async function processInstagramEvent(db: admin.firestore.Firestore, event
         await autoMessage.set({sender:'assistant',origin:'ai',text:plan.map(p=>p.text).join('\n\n'),timestamp:now(),channel:'instagram',deliveryStatus:'pending'});
         await ref.update({assistantMessageId:autoMessage.id});
       } else {
-        const media = await downloadAttachment(event.attachments[0]);
-        if (deps.reserveCredit) {
-          const reserved = await deps.reserveCredit(event.storeId, text, 'gemini-3.1-flash-lite');
-          if (!reserved.allowed) { await ref.update({ status: 'ignored', reason: 'billing_required' }); return; }
+        const media = await downloadAttachment(event.attachments?.[0]).catch(()=>undefined);
+        const gateway:GatewayDecision=event.aiGateway||(await(deps.gateway||prepareAiGateway)(text,store,'instagram',!!media));
+        await ref.update({aiGateway:gateway});
+        await chat.set({lastAiGateway:{channel:'instagram',model:gateway.model,triageSource:gateway.triageSource,securityBlocked:gateway.blocked,updatedAt:now()}},{merge:true});
+        let result:Awaited<ReturnType<ProcessAiMessageFn>>;
+        if(gateway.blocked){
+          const msg=chat.collection('messages').doc(`security_${eventId}`);
+          await msg.set({sender:'assistant',origin:'ai',channel:'instagram',text:SECURITY_REPLY,timestamp:now(),deliveryStatus:'pending',aiGateway:{channel:'instagram',route:'security_blocked',actualModel:null}});
+          result={replyText:SECURITY_REPLY,assistantMessageId:msg.id};
+        }else if(isGatewayHandoff(gateway)){
+          const resumed=!!event.gatewayHandoffAt,at=event.gatewayHandoffAt||now();event.gatewayHandoffAt=at;
+          await chat.set({aiPaused:true,aiPausedReason:'gateway_handoff',aiPausedAt:at,aiPausedUntil:null,gatewayHandoffEventId:eventId,unreadByHuman:true,needsHuman:true},{merge:true});
+          await ref.update({gatewayHandoffAt:at});
+          if(!resumed)await deps.notifyHuman?.(event.storeId,{title:'Atendimento precisa da equipe · Instagram',body:'Um cliente pediu ajuda da equipe. Abra a conversa para continuar.',url:`/?tab=inbox&chat=${encodeURIComponent(chatKey)}`}).catch(()=>{});
+          const msg=chat.collection('messages').doc(`handoff_${eventId}`),replyText=HANDOFF_REPLY;
+          await msg.set({sender:'assistant',origin:'ai',channel:'instagram',text:replyText,timestamp:at,deliveryStatus:'pending',aiGateway:{channel:'instagram',route:'human_handoff',actualModel:null,handoffReason:gateway.handoff?.reason||'triage_policy',triageConfidence:gateway.triage?.confidence??null}});
+          result={replyText,assistantMessageId:msg.id};
+        }else{
+          if(deps.reserveCredit){const reserved=await deps.reserveCredit(event.storeId,text,gateway.model);if(!reserved.allowed){await ref.update({status:'ignored',reason:'billing_required'});return;}}
+          result=store.segment===AFFILIATE_SEGMENT?await affiliateDirectReply(db,event.storeId,chatKey,text,'instagram',gateway):await processAi(event.storeId,chatKey,text,existing.customerName||'Cliente Instagram',media,gateway.model,'instagram',eventId,gateway);
         }
-        const result: Awaited<ReturnType<ProcessAiMessageFn>> = store.segment === AFFILIATE_SEGMENT
-          ? await affiliateDirectReply(db, event.storeId, chatKey, text)
-          : await processAi(event.storeId, chatKey, text, existing.customerName || 'Cliente Instagram', media, 'gemini-3.1-flash-lite', 'instagram', eventId);
         if (result.assistantMessageId) await ref.update({assistantMessageId:result.assistantMessageId});
         const mediaList = result.mediaList?.length ? result.mediaList : result.mediaToSend ? [result.mediaToSend] : [];
         const mediaMessages = mediaList.slice(0, 10).filter(m => /^https:\/\//.test(m.url)).map(m => ({ attachment: {
@@ -422,13 +452,16 @@ export async function processInstagramEvent(db: admin.firestore.Firestore, event
       // Recheck pause/disconnect during long responses before sending each part.
       const live = (await connection.get()).data();
       const liveChat = (await chat.get()).data();
-      const newlyPaused = (liveChat?.aiPaused && (!liveChat.aiPausedUntil || new Date(liveChat.aiPausedUntil).getTime() > Date.now())) || (liveChat?.aiPausedAt && liveChat.aiPausedAt !== existing.aiPausedAt);
+      const ownHandoff=!!event.gatewayHandoffAt&&liveChat?.gatewayHandoffEventId===eventId&&liveChat?.aiPausedAt===event.gatewayHandoffAt;
+      const newlyPaused = !ownHandoff&&((liveChat?.aiPaused && (!liveChat.aiPausedUntil || new Date(liveChat.aiPausedUntil).getTime() > Date.now())) || (liveChat?.aiPausedAt && liveChat.aiPausedAt !== existing.aiPausedAt));
       if (newlyPaused || !live?.enabled || !live.connected) {
         const messageId = (await ref.get()).data()?.assistantMessageId;
         if (messageId) await chat.collection('messages').doc(messageId).update({deliveryStatus:i > 0 ? 'partial' : 'cancelled',deliveredParts:i});
         await ref.update({ status: 'ignored', reason: 'disabled_during_send' }); return; }
       const data = await graph(`${c.accountId}/messages`, c.accessToken, 'POST', { recipient: { id: event.senderId }, message: plan[i] });
       await ref.update({ nextPart: i + 1, lastMessageId: data.message_id || null });
+      const deliveredUrl=plan[i]?.attachment?.payload?.url;
+      if(deliveredUrl){const assistantId=(await ref.get()).data()?.assistantMessageId;if(assistantId)await chat.collection('messages').doc(assistantId).update({deliveredMediaUrls:admin.firestore.FieldValue.arrayUnion(deliveredUrl)});}
     }
     const assistantId = (await ref.get()).data()?.assistantMessageId;
     if (assistantId) await chat.collection('messages').doc(assistantId).update({deliveryStatus:'sent'});
